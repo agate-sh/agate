@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
+	"github.com/hinshun/vt10x"
 )
 
 //go:embed ascii-art.txt
@@ -21,13 +22,15 @@ type model struct {
 	width       int
 	height      int
 	leftContent string
-	rightOutput []byte // Terminal output buffer
+	terminal    vt10x.Terminal // VT10x terminal emulator for right pane
+	rightOutput []byte         // Raw output buffer as fallback
 	ptmx        *os.File
 	cmd         *exec.Cmd
 	ready       bool
 	focused     string // "left" or "right"
 	err         error
 	subprocess  string // Command to run in right pane
+	useTerminal bool   // Whether to use terminal emulation or raw output
 }
 
 func initialModel(subprocess string) model {
@@ -41,6 +44,7 @@ func initialModel(subprocess string) model {
 		focused:     "right", // Focus on right pane for subprocess interaction
 		leftContent: styledAscii + fmt.Sprintf("\n\nStarting %s...\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.", subprocess),
 		subprocess:  subprocess,
+		useTerminal: true, // Start with terminal emulation, fall back if needed
 	}
 }
 
@@ -55,21 +59,18 @@ func startSubprocess(subprocess string) tea.Cmd {
 	return func() tea.Msg {
 		// Start the specified subprocess in a PTY
 		cmd := exec.Command(subprocess)
-
-		// Set environment variables to help crossterm work in PTY
-		cmd.Env = append(os.Environ(),
-			"TERM=xterm-256color",
-			"COLORTERM=truecolor",
-		)
-
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
 			return errMsg{err}
 		}
 
+		// Create VT10x terminal emulator
+		terminal := vt10x.New(vt10x.WithSize(80, 24))
+
 		return subprocessStartedMsg{
-			cmd:  cmd,
-			ptmx: ptmx,
+			cmd:      cmd,
+			ptmx:     ptmx,
+			terminal: terminal,
 		}
 	}
 }
@@ -107,10 +108,9 @@ func waitForOutput(ptmx *os.File, terminal vt10x.Terminal, useTerminal bool) tea
 }
 
 type subprocessStartedMsg struct {
-	cmd                  *exec.Cmd
-	ptmx                 *os.File
-	terminal             vt10x.Terminal
-	useTerminalEmulation bool
+	cmd      *exec.Cmd
+	ptmx     *os.File
+	terminal vt10x.Terminal
 }
 type outputMsg struct {
 	data          []byte
@@ -143,19 +143,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cmd = msg.cmd
 		m.ptmx = msg.ptmx
 		m.terminal = msg.terminal
-		if !msg.useTerminalEmulation {
-			m.useTerminal = false
-		}
 
 		// Keep the ASCII art with updated status
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9d87ae"))
 		styledAscii := asciiStyle.Render(asciiArt)
-		mode := "terminal emulation"
-		if !m.useTerminal {
-			mode = "raw mode"
-		}
-		m.leftContent = styledAscii + fmt.Sprintf("\n\n%s started successfully! (%s)\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.", m.subprocess, mode)
+		m.leftContent = styledAscii + fmt.Sprintf("\n\n%s started successfully!\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.", m.subprocess)
 
 		// Set initial PTY and terminal size
 		if m.ready {
@@ -164,9 +157,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Rows: uint16(m.height - 4),
 				Cols: uint16(rightWidth - 6),
 			})
-			if m.terminal != nil {
-				m.terminal.Resize(rightWidth-6, m.height-4)
-			}
+			m.terminal.Resize(rightWidth-6, m.height-4)
 		}
 
 		return m, waitForOutput(m.ptmx, m.terminal, m.useTerminal)
