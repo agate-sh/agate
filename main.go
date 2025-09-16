@@ -253,8 +253,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case tea.KeyEsc:
 					m.ptmx.Write([]byte("\x1b"))
 				default:
-					// Regular character input
-					if msg.String() != "" && msg.Type == tea.KeyRunes {
+					// Handle space key explicitly
+					if msg.String() == " " {
+						m.ptmx.Write([]byte(" "))
+					} else if msg.String() != "" && msg.Type == tea.KeyRunes {
+						// Regular character input
 						m.ptmx.Write([]byte(msg.String()))
 					}
 				}
