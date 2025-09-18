@@ -362,11 +362,21 @@ func (m model) View() string {
 	// Subtract 2 from height (1 for top, 1 for bottom of terminal)
 	availableHeight := m.height - 2
 
-	// Calculate pane sizes (60/40 split)
-	// We need to account for the fact that lipgloss adds borders that take up space
-	totalWidth := m.width - 2  // Reserve space for terminal edges
-	leftWidth := int(float64(totalWidth) * 0.6)
-	rightWidth := totalWidth - leftWidth - 2  // Additional space for pane borders
+	// Calculate the actual frame sizes to be precise
+	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
+
+	// We need space for both panes' frames plus a small buffer for the right edge
+	totalFrameWidth := frameWidth * 2 + 4 // 2 panes + 4 char buffer for right border
+
+	// Available width for actual content across both panes
+	availableContentWidth := m.width - totalFrameWidth
+
+	// Split content 60/40, then add frame back to each pane
+	leftContentWidth := int(float64(availableContentWidth) * 0.6)
+	rightContentWidth := availableContentWidth - leftContentWidth
+
+	leftWidth := leftContentWidth + frameWidth
+	rightWidth := rightContentWidth + frameWidth
 
 	// Start with base style (light gray borders) for both panes
 	leftStyle := paneBaseStyle
@@ -408,14 +418,16 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 	}
 
 	// Use the same adjusted dimensions as in View()
-	totalWidth := m.width - 2
 	availableHeight := m.height - 2
 
-	leftWidth := int(float64(totalWidth) * 0.6)
-	rightWidth := totalWidth - leftWidth - 2
-
+	// Same calculation as View() - calculate actual content width
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
-	contentWidth := rightWidth - frameWidth
+	totalFrameWidth := frameWidth * 2 + 4
+	availableContentWidth := m.width - totalFrameWidth
+	rightContentWidth := availableContentWidth - int(float64(availableContentWidth) * 0.6)
+
+	// Use the actual content width for tmux (this is the usable space)
+	contentWidth := rightContentWidth
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
