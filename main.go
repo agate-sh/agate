@@ -3,120 +3,126 @@ package main
 import (
 	_ "embed"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
-	"strings"
 	"time"
+
+	"agate/tmux"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/creack/pty"
-	"github.com/hinshun/vt10x"
 )
 
 //go:embed ascii-art.txt
 var asciiArt string
 
+var (
+	paneBaseStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(1, 2)
+	paneActiveStyle = paneBaseStyle.Copy().BorderForeground(lipgloss.Color("86"))
+	asciiArtColor = "#9d87ae" // Color used for ASCII art and left pane
+)
+
 type model struct {
-	width       int
-	height      int
-	leftContent string
-	terminal    vt10x.Terminal // VT10x terminal emulator for right pane
-	rightOutput []byte         // Raw output buffer as fallback
-	ptmx        *os.File
-	cmd         *exec.Cmd
-	ready       bool
-	focused     string // "left" or "right"
-	err         error
-	subprocess  string // Command to run in right pane
-	useTerminal bool   // Whether to use terminal emulation or raw output
+	width        int
+	height       int
+	leftContent  string
+	rightOutput  string // Raw tmux pane content with ANSI codes
+	tmuxSession  *tmux.TmuxSession
+	ready        bool
+	focused      string // "left" or "right"
+	err          error
+	subprocess   string // Command to run in right pane
+	attached     bool   // Whether we're attached to tmux session
+	ctrlAPressed bool   // Whether Ctrl+A was recently pressed
+	agentConfig  AgentConfig // Configuration for the specific agent
 }
 
 func initialModel(subprocess string) model {
+	// Get agent configuration based on subprocess name
+	agentConfig := GetAgentConfig(subprocess)
+
 	// Create styled ASCII art with the specified color
 	asciiStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9d87ae"))
+		Foreground(lipgloss.Color(asciiArtColor))
 
 	styledAscii := asciiStyle.Render(asciiArt)
 
 	return model{
 		focused:     "right", // Focus on right pane for subprocess interaction
-		leftContent: styledAscii + fmt.Sprintf("\n\nStarting %s...\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.", subprocess),
+		leftContent: styledAscii + fmt.Sprintf("\n\nStarting %s in tmux session...\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.", subprocess),
 		subprocess:  subprocess,
-		useTerminal: true, // Start with terminal emulation, fall back if needed
+		agentConfig: agentConfig,
 	}
 }
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
-		startSubprocess(m.subprocess),
+		startTmuxSession(m.subprocess),
 		tea.EnterAltScreen,
 	)
 }
 
-func startSubprocess(subprocess string) tea.Cmd {
+func startTmuxSession(subprocess string) tea.Cmd {
 	return func() tea.Msg {
-		// Start the specified subprocess in a PTY
-		cmd := exec.Command(subprocess)
-		ptmx, err := pty.Start(cmd)
+		// Create a new tmux session
+		session := tmux.NewTmuxSession(subprocess, subprocess)
+
+		// Get current working directory
+		workDir, err := os.Getwd()
+		if err != nil {
+			workDir = os.Getenv("HOME")
+		}
+
+		// Start the tmux session
+		err = session.Start(workDir)
 		if err != nil {
 			return errMsg{err}
 		}
 
-		// Create VT10x terminal emulator
-		terminal := vt10x.New(vt10x.WithSize(80, 24))
-
-		return subprocessStartedMsg{
-			cmd:      cmd,
-			ptmx:     ptmx,
-			terminal: terminal,
+		return tmuxSessionStartedMsg{
+			session: session,
 		}
 	}
 }
 
-func waitForOutput(ptmx *os.File, terminal vt10x.Terminal, useTerminal bool) tea.Cmd {
+func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 	return func() tea.Msg {
-		// Read directly from PTY
-		buf := make([]byte, 1024)
-		n, err := ptmx.Read(buf)
+		// Capture tmux pane content with ANSI codes preserved
+		content, err := session.CapturePaneContent()
 		if err != nil {
-			if err == io.EOF {
-				return subprocessExitedMsg{}
-			}
-			return outputMsg{data: nil, terminalError: false}
+			return tmuxOutputMsg{content: ""}
 		}
 
-		if n > 0 {
-			// Try terminal emulation first if enabled
-			if useTerminal && terminal != nil {
-				_, writeErr := terminal.Write(buf[:n])
-				if writeErr != nil {
-					// Terminal emulation failed, return raw data and disable terminal
-					return outputMsg{data: buf[:n], terminalError: true}
-				}
-				// Terminal emulation succeeded
-				return outputMsg{data: nil, terminalError: false}
-			} else {
-				// Use raw output
-				return outputMsg{data: buf[:n], terminalError: false}
-			}
+		// Check if output has changed
+		updated, hasPrompt := session.HasUpdated()
+		if !updated {
+			return tmuxOutputMsg{content: ""}
 		}
 
-		return outputMsg{data: nil, terminalError: false}
+		// Return the raw content with ANSI codes
+		return tmuxOutputMsg{content: content, hasPrompt: hasPrompt}
 	}
 }
 
-type subprocessStartedMsg struct {
-	cmd      *exec.Cmd
-	ptmx     *os.File
-	terminal vt10x.Terminal
+type tmuxSessionStartedMsg struct {
+	session *tmux.TmuxSession
 }
-type outputMsg struct {
-	data          []byte
-	terminalError bool
+
+type tmuxOutputMsg struct {
+	content   string
+	hasPrompt bool
 }
-type subprocessExitedMsg struct{}
+
+type ctrlATimeoutMsg struct{}
+
+type tmuxAttachedMsg struct {
+	detachCh chan struct{}
+}
+
+type tmuxDetachedMsg struct{}
+
 type errMsg struct{ error }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -126,141 +132,208 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
-		// Update PTY and terminal size if they exist
-		if m.ptmx != nil {
-			rightWidth := int(float64(m.width) * 0.4)
-			pty.Setsize(m.ptmx, &pty.Winsize{
-				Rows: uint16(m.height - 4),
-				Cols: uint16(rightWidth - 6),
-			})
-		}
-		if m.terminal != nil {
-			rightWidth := int(float64(m.width) * 0.4)
-			m.terminal.Resize(rightWidth-6, m.height-4)
-		}
-
-	case subprocessStartedMsg:
-		m.cmd = msg.cmd
-		m.ptmx = msg.ptmx
-		m.terminal = msg.terminal
-
-		// Keep the ASCII art with updated status
-		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9d87ae"))
-		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii + fmt.Sprintf("\n\n%s started successfully!\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.", m.subprocess)
-
-		// Set initial PTY and terminal size
-		if m.ready {
-			rightWidth := int(float64(m.width) * 0.4)
-			pty.Setsize(m.ptmx, &pty.Winsize{
-				Rows: uint16(m.height - 4),
-				Cols: uint16(rightWidth - 6),
-			})
-			m.terminal.Resize(rightWidth-6, m.height-4)
-		}
-
-		return m, waitForOutput(m.ptmx, m.terminal, m.useTerminal)
-
-	case outputMsg:
-		// If terminal emulation failed, switch to raw mode
-		if msg.terminalError {
-			m.useTerminal = false
-		}
-
-		// Append raw output to buffer (used when terminal emulation is disabled)
-		if msg.data != nil {
-			m.rightOutput = append(m.rightOutput, msg.data...)
-			// Keep only last 100KB to prevent unlimited growth
-			if len(m.rightOutput) > 100000 {
-				m.rightOutput = m.rightOutput[len(m.rightOutput)-100000:]
+		// Update tmux session size if it exists
+		if m.tmuxSession != nil && !m.attached {
+			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
+				m.tmuxSession.SetDetachedSize(contentWidth, contentHeight)
 			}
 		}
 
-		// Continue reading
-		return m, tea.Tick(time.Millisecond*50, func(time.Time) tea.Msg {
-			return waitForOutput(m.ptmx, m.terminal, m.useTerminal)()
+	case tmuxSessionStartedMsg:
+		m.tmuxSession = msg.session
+
+		// Keep the ASCII art with updated status
+		asciiStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(asciiArtColor))
+		styledAscii := asciiStyle.Render(asciiArt)
+		statusText := fmt.Sprintf("\n\nTmux session '%s' started!\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.\nPress Ctrl+Q when attached to detach.", m.tmuxSession.GetSessionName())
+
+		if m.ctrlAPressed {
+			statusText += "\n\n🔄 Press A to attach full-screen..."
+		}
+
+		m.leftContent = styledAscii + statusText
+
+		// Set initial tmux session size using consistent calculation
+		if m.ready {
+			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
+				m.tmuxSession.SetDetachedSize(contentWidth, contentHeight)
+			}
+		}
+
+		// Start monitoring tmux output
+		return m, waitForTmuxOutput(m.tmuxSession)
+
+	case tmuxOutputMsg:
+		// Update output if there's new content
+		if msg.content != "" {
+			m.rightOutput = msg.content
+		}
+
+		// Continue monitoring
+		return m, tea.Tick(time.Millisecond*200, func(time.Time) tea.Msg {
+			if m.tmuxSession != nil && !m.attached {
+				return waitForTmuxOutput(m.tmuxSession)()
+			}
+			return nil
 		})
 
-	case subprocessExitedMsg:
+	case ctrlATimeoutMsg:
+		// Reset Ctrl+A state on timeout
+		m.ctrlAPressed = false
+
+	case tmuxAttachedMsg:
+		m.attached = true
 		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9d87ae"))
+			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii + fmt.Sprintf("\n\n%s has exited.\n\nPress 'q' to quit.", m.subprocess)
+		m.leftContent = styledAscii + fmt.Sprintf("\n\nAttached to tmux session!\n\nPress Ctrl+Q to detach and return here.")
+
+		// Wait for detach in background and send message when it happens
+		return m, func() tea.Msg {
+			<-msg.detachCh
+			return tmuxDetachedMsg{}
+		}
+
+	case tmuxDetachedMsg:
+		m.attached = false
+		asciiStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(asciiArtColor))
+		styledAscii := asciiStyle.Render(asciiArt)
+		m.leftContent = styledAscii + fmt.Sprintf("\n\nDetached from tmux session.\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.")
+
+		// Immediately resize the tmux session to current window dimensions
+		if m.tmuxSession != nil && m.ready {
+			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
+				m.tmuxSession.SetDetachedSize(contentWidth, contentHeight)
+			}
+		}
+
+		// Resume monitoring and trigger window size recalculation
+		return m, tea.Batch(
+			waitForTmuxOutput(m.tmuxSession),
+			tea.WindowSize(), // Trigger complete UI layout recalculation
+		)
 
 	case errMsg:
 		m.err = msg.error
 		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9d87ae"))
+			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 		m.leftContent = styledAscii + fmt.Sprintf("\n\nError: %v\n\nPress 'q' to quit.", msg.error)
 
 	case tea.KeyMsg:
+		// If attached, only handle detach key
+		if m.attached {
+			// When attached, don't process keys in Bubble Tea - tmux handles them
+			return m, nil
+		}
+
+		// Handle Ctrl+A sequence first
 		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.focused == "left" || m.cmd == nil {
-				// Cleanup
-				if m.cmd != nil && m.cmd.Process != nil {
-					m.cmd.Process.Kill()
+		case "ctrl+a":
+			// Start Ctrl+A sequence
+			m.ctrlAPressed = true
+			return m, tea.Tick(time.Second*2, func(time.Time) tea.Msg {
+				return ctrlATimeoutMsg{}
+			})
+
+		case "a":
+			if m.ctrlAPressed {
+				// Complete Ctrl+A, A sequence - attach to tmux session
+				m.ctrlAPressed = false
+				if m.tmuxSession != nil && !m.attached {
+					return m, func() tea.Msg {
+						detachCh, err := m.tmuxSession.Attach()
+						if err != nil {
+							return errMsg{err}
+						}
+						return tmuxAttachedMsg{detachCh: detachCh}
+					}
 				}
-				if m.ptmx != nil {
-					m.ptmx.Close()
+				return m, nil
+			}
+			// If not in Ctrl+A sequence, fall through to normal handling
+
+		case "ctrl+c", "q":
+			if m.focused == "left" {
+				// Cleanup
+				if m.tmuxSession != nil {
+					m.tmuxSession.Kill()
 				}
 				return m, tea.Quit
 			}
 
 		case "tab":
+			// Reset Ctrl+A state on tab
+			m.ctrlAPressed = false
 			// Switch focus between panes
 			if m.focused == "left" {
 				m.focused = "right"
 			} else {
 				m.focused = "left"
 			}
+			return m, nil
+		}
 
-		default:
-			// Forward input to subprocess if right pane is focused
-			if m.focused == "right" && m.ptmx != nil {
-				// Handle special keys first
-				switch msg.Type {
-				case tea.KeyEnter:
-					m.ptmx.Write([]byte("\r"))
-				case tea.KeyBackspace:
-					m.ptmx.Write([]byte("\x7f"))
-				case tea.KeyCtrlD:
-					m.ptmx.Write([]byte("\x04"))
-				case tea.KeyCtrlC:
-					m.ptmx.Write([]byte("\x03"))
-				case tea.KeyUp:
-					m.ptmx.Write([]byte("\x1b[A"))
-				case tea.KeyDown:
-					m.ptmx.Write([]byte("\x1b[B"))
-				case tea.KeyLeft:
-					m.ptmx.Write([]byte("\x1b[D"))
-				case tea.KeyRight:
-					m.ptmx.Write([]byte("\x1b[C"))
-				case tea.KeyHome:
-					m.ptmx.Write([]byte("\x1b[H"))
-				case tea.KeyEnd:
-					m.ptmx.Write([]byte("\x1b[F"))
-				case tea.KeyPgUp:
-					m.ptmx.Write([]byte("\x1b[5~"))
-				case tea.KeyPgDown:
-					m.ptmx.Write([]byte("\x1b[6~"))
-				case tea.KeyDelete:
-					m.ptmx.Write([]byte("\x1b[3~"))
-				case tea.KeyTab:
-					m.ptmx.Write([]byte("\t"))
-				case tea.KeyEsc:
-					m.ptmx.Write([]byte("\x1b"))
-				default:
-					// Handle space key explicitly
-					if msg.String() == " " {
-						m.ptmx.Write([]byte(" "))
-					} else if msg.String() != "" && msg.Type == tea.KeyRunes {
-						// Regular character input
-						m.ptmx.Write([]byte(msg.String()))
-					}
+		// Reset Ctrl+A state for any other key (except those already handled)
+		if msg.String() != "ctrl+a" && msg.String() != "a" && msg.String() != "tab" && msg.String() != "ctrl+c" && msg.String() != "q" {
+			m.ctrlAPressed = false
+		}
+
+		// Handle input forwarding to tmux session when not attached
+		if m.tmuxSession != nil && !m.attached {
+			// Don't forward 'a' if we're in Ctrl+A sequence
+			if msg.String() == "a" && m.ctrlAPressed {
+				return m, nil
+			}
+
+			// Use SendKeys for detached sessions
+			var keys string
+			switch msg.Type {
+			case tea.KeyEnter:
+				keys = "Enter"
+			case tea.KeyBackspace:
+				keys = "BSpace"
+			case tea.KeyCtrlD:
+				keys = "C-d"
+			case tea.KeyCtrlC:
+				keys = "C-c"
+			case tea.KeyUp:
+				keys = "Up"
+			case tea.KeyDown:
+				keys = "Down"
+			case tea.KeyLeft:
+				keys = "Left"
+			case tea.KeyRight:
+				keys = "Right"
+			case tea.KeyHome:
+				keys = "Home"
+			case tea.KeyEnd:
+				keys = "End"
+			case tea.KeyPgUp:
+				keys = "PageUp"
+			case tea.KeyPgDown:
+				keys = "PageDown"
+			case tea.KeyDelete:
+				keys = "Delete"
+			case tea.KeyTab:
+				keys = "Tab"
+			case tea.KeyEsc:
+				keys = "Escape"
+			default:
+				// Regular character input
+				if msg.String() == " " {
+					keys = "Space"
+				} else if msg.String() != "" && msg.Type == tea.KeyRunes {
+					// For regular characters, just send them directly
+					m.tmuxSession.SendKeys(msg.String())
+					return m, nil
 				}
+			}
+
+			if keys != "" {
+				m.tmuxSession.SendKeys(keys)
 			}
 		}
 	}
@@ -273,240 +346,87 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
+	// If attached to tmux, show full screen message
+	if m.attached {
+		attachedStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#86")).
+			Bold(true).
+			Align(lipgloss.Center, lipgloss.Center).
+			Width(m.width).
+			Height(m.height)
+
+		return attachedStyle.Render("Attached to tmux session\n\nPress Ctrl+Q to detach")
+	}
+
+	// Reserve space for proper border rendering
+	// Subtract 2 from height (1 for top, 1 for bottom of terminal)
+	availableHeight := m.height - 2
+
 	// Calculate pane sizes (60/40 split)
-	leftWidth := int(float64(m.width) * 0.6)
-	rightWidth := m.width - leftWidth
+	// We need to account for the fact that lipgloss adds borders that take up space
+	totalWidth := m.width - 2  // Reserve space for terminal edges
+	leftWidth := int(float64(totalWidth) * 0.6)
+	rightWidth := totalWidth - leftWidth - 2  // Additional space for pane borders
 
-	// Define styles
-	borderStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240"))
+	// Start with base style (light gray borders) for both panes
+	leftStyle := paneBaseStyle
+	rightStyle := paneBaseStyle
 
-	activeBorderStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("86"))
-
-	// Apply borders based on focus
-	leftStyle := borderStyle
-	rightStyle := borderStyle
-
+	// Apply focus styling:
+	// - Left pane uses purple when active
+	// - Right pane uses agent color when active
 	if m.focused == "left" {
-		leftStyle = activeBorderStyle
-	} else {
-		rightStyle = activeBorderStyle
+		leftStyle = paneBaseStyle.Copy().
+			BorderForeground(lipgloss.Color(asciiArtColor))
+	} else if m.focused == "right" {
+		rightStyle = paneBaseStyle.Copy().
+			BorderForeground(lipgloss.Color(m.agentConfig.BorderColor))
 	}
 
 	// Prepare left pane content
-	leftContent := leftStyle.
-		Padding(1, 2).
-		Width(leftWidth - 2).
+	leftContent := leftStyle.Copy().
+		Width(leftWidth).
+		Height(availableHeight).
 		Render(m.leftContent)
 
-	// Render right pane with terminal or raw output
-	rightContent := ""
-	if m.useTerminal && m.terminal != nil {
-		// Use terminal emulation
-		rightContent = renderTerminal(m.terminal, rightWidth-6, m.height-4)
-	}
+	// Render right pane with tmux output
+	// The rightOutput already contains ANSI codes which lipgloss will handle
+	rightContent := m.rightOutput
 
-	// If terminal emulation is disabled or failed, use raw output
-	if !m.useTerminal || rightContent == "" {
-		rightContent = renderRawOutput(m.rightOutput, rightWidth-6, m.height-4)
-	}
-
-	rightRendered := rightStyle.
-		Padding(1, 2).
-		Width(rightWidth - 2).
+	rightRendered := rightStyle.Copy().
+		Width(rightWidth).
+		Height(availableHeight).
 		Render(rightContent)
 
 	// Join panes horizontally
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftContent, rightRendered)
 }
 
-// renderRawOutput renders raw terminal output
-func renderRawOutput(rawData []byte, width, height int) string {
-	if len(rawData) == 0 {
-		return ""
+func (m model) tmuxPreviewDimensions() (int, int) {
+	if m.width == 0 || m.height == 0 {
+		return 0, 0
 	}
 
-	// Convert to string
-	content := string(rawData)
+	// Use the same adjusted dimensions as in View()
+	totalWidth := m.width - 2
+	availableHeight := m.height - 2
 
-	// Split into lines and take the last N lines that fit in height
-	lines := strings.Split(content, "\n")
+	leftWidth := int(float64(totalWidth) * 0.6)
+	rightWidth := totalWidth - leftWidth - 2
 
-	// Take only the lines that fit in our display area
-	startIdx := 0
-	if len(lines) > height {
-		startIdx = len(lines) - height
+	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
+	contentWidth := rightWidth - frameWidth
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
 
-	visibleLines := lines[startIdx:]
-
-	// Truncate lines that are too wide
-	for i, line := range visibleLines {
-		if len(line) > width {
-			visibleLines[i] = line[:width]
-		}
+	frameHeight := paneBaseStyle.GetVerticalFrameSize()
+	contentHeight := availableHeight - frameHeight
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
 
-	return strings.Join(visibleLines, "\n")
-}
-
-// renderTerminal converts the VT10x terminal state to a string for display
-func renderTerminal(term vt10x.Terminal, width, height int) string {
-	if term == nil {
-		return ""
-	}
-
-	// Lock the terminal state while reading
-	term.Lock()
-	defer term.Unlock()
-
-	var output strings.Builder
-
-	// Get terminal dimensions
-	cols, rows := term.Size()
-
-	// Render each row
-	for row := 0; row < rows && row < height; row++ {
-		if row > 0 {
-			output.WriteString("\n")
-		}
-
-		// Render each column in the row
-		for col := 0; col < cols && col < width; col++ {
-			glyph := term.Cell(col, row)
-
-			// Apply styling based on glyph attributes
-			style := lipgloss.NewStyle()
-
-			// Apply foreground color
-			if glyph.FG != vt10x.DefaultFG {
-				style = style.Foreground(convertColor(glyph.FG))
-			}
-
-			// Apply background color
-			if glyph.BG != vt10x.DefaultBG {
-				style = style.Background(convertColor(glyph.BG))
-			}
-
-			// Check mode flags for styling
-			// Bold
-			if glyph.Mode&0x01 != 0 {
-				style = style.Bold(true)
-			}
-			// Underline
-			if glyph.Mode&0x02 != 0 {
-				style = style.Underline(true)
-			}
-			// Reverse
-			if glyph.Mode&0x04 != 0 {
-				style = style.Reverse(true)
-			}
-			// Blink
-			if glyph.Mode&0x08 != 0 {
-				style = style.Blink(true)
-			}
-			// Dim/Faint
-			if glyph.Mode&0x10 != 0 {
-				style = style.Faint(true)
-			}
-			// Italic
-			if glyph.Mode&0x20 != 0 {
-				style = style.Italic(true)
-			}
-			// Strikethrough
-			if glyph.Mode&0x200 != 0 {
-				style = style.Strikethrough(true)
-			}
-
-			if glyph.Char != 0 {
-				output.WriteString(style.Render(string(glyph.Char)))
-			} else {
-				output.WriteString(" ")
-			}
-		}
-	}
-
-	return output.String()
-}
-
-// convertColor converts vt10x colors to lipgloss colors
-func convertColor(c vt10x.Color) lipgloss.Color {
-	// Check if it's a default color (no color set)
-	if c == vt10x.DefaultFG || c == vt10x.DefaultBG {
-		return lipgloss.Color("")
-	}
-
-	// Extract RGB components from the color
-	// vt10x.Color encodes RGB in the lower 24 bits for true colors
-	r := (c >> 16) & 0xFF
-	g := (c >> 8) & 0xFF
-	b := c & 0xFF
-
-	// Check if this is a true color (RGB) by seeing if upper byte is set
-	if c > 0xFFFFFF {
-		// This is a special color (default or other)
-		// Handle basic ANSI colors (0-15)
-		if c <= 15 {
-			return lipgloss.Color(fmt.Sprintf("%d", c))
-		}
-		// Handle 256 color palette
-		if c <= 255 {
-			return lipgloss.Color(fmt.Sprintf("%d", c))
-		}
-		return lipgloss.Color("")
-	}
-
-	// Handle basic ANSI colors by value
-	switch c {
-	case 0: // Black
-		return lipgloss.Color("0")
-	case 1: // Red
-		return lipgloss.Color("1")
-	case 2: // Green
-		return lipgloss.Color("2")
-	case 3: // Yellow
-		return lipgloss.Color("3")
-	case 4: // Blue
-		return lipgloss.Color("4")
-	case 5: // Magenta
-		return lipgloss.Color("5")
-	case 6: // Cyan
-		return lipgloss.Color("6")
-	case 7: // White/Light Grey
-		return lipgloss.Color("7")
-	case 8: // Bright Black/Dark Grey
-		return lipgloss.Color("8")
-	case 9: // Bright Red
-		return lipgloss.Color("9")
-	case 10: // Bright Green
-		return lipgloss.Color("10")
-	case 11: // Bright Yellow
-		return lipgloss.Color("11")
-	case 12: // Bright Blue
-		return lipgloss.Color("12")
-	case 13: // Bright Magenta
-		return lipgloss.Color("13")
-	case 14: // Bright Cyan
-		return lipgloss.Color("14")
-	case 15: // Bright White
-		return lipgloss.Color("15")
-	}
-
-	// For 256 colors (16-255)
-	if c >= 16 && c <= 255 {
-		return lipgloss.Color(fmt.Sprintf("%d", c))
-	}
-
-	// For RGB true colors, format as hex
-	if r > 0 || g > 0 || b > 0 {
-		return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
-	}
-
-	// Default fallback
-	return lipgloss.Color(fmt.Sprintf("%d", c))
+	return contentWidth, contentHeight
 }
 
 func main() {
@@ -515,10 +435,23 @@ func main() {
 		fmt.Println("Usage: agate <command>")
 		fmt.Println("Example: agate claude")
 		fmt.Println("Example: agate codex")
+		fmt.Println("\nAgate will create a tmux session for the specified command.")
+		fmt.Println("Press Ctrl+A, A to attach to the tmux session full-screen.")
+		fmt.Println("Press Ctrl+Q when attached to detach back to the preview.")
 		os.Exit(1)
 	}
 
 	subprocess := os.Args[1]
+
+	// Check if tmux is available
+	if _, err := os.Stat("/usr/local/bin/tmux"); os.IsNotExist(err) {
+		if _, err := os.Stat("/usr/bin/tmux"); os.IsNotExist(err) {
+			fmt.Println("Error: tmux is not installed. Please install tmux to use Agate.")
+			fmt.Println("On macOS: brew install tmux")
+			fmt.Println("On Ubuntu/Debian: sudo apt-get install tmux")
+			os.Exit(1)
+		}
+	}
 
 	p := tea.NewProgram(initialModel(subprocess), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
