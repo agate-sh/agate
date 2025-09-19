@@ -22,6 +22,7 @@ var (
 			Padding(1, 2)
 	paneActiveStyle = paneBaseStyle.Copy().BorderForeground(lipgloss.Color("86"))
 	asciiArtColor = "#9d87ae" // Color used for ASCII art and left pane
+	activeBorderGray = "250" // Brighter gray for active non-tmux pane borders
 )
 
 type model struct {
@@ -383,11 +384,11 @@ func (m model) View() string {
 	rightStyle := paneBaseStyle
 
 	// Apply focus styling:
-	// - Left pane uses purple when active
+	// - Left pane uses brighter gray when active
 	// - Right pane uses agent color when active
 	if m.focused == "left" {
 		leftStyle = paneBaseStyle.Copy().
-			BorderForeground(lipgloss.Color(asciiArtColor))
+			BorderForeground(lipgloss.Color(activeBorderGray))
 	} else if m.focused == "right" {
 		rightStyle = paneBaseStyle.Copy().
 			BorderForeground(lipgloss.Color(m.agentConfig.BorderColor))
