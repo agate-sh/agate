@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rmhubbert/bubbletea-overlay"
 )
 
 //go:embed ascii-art.txt
@@ -38,6 +39,9 @@ type model struct {
 	attached     bool   // Whether we're attached to tmux session
 	ctrlAPressed bool   // Whether Ctrl+A was recently pressed
 	agentConfig  AgentConfig // Configuration for the specific agent
+	footer       *Footer     // Footer component for shortcuts
+	helpDialog   *HelpDialog // Help dialog overlay
+	showHelp     bool        // Whether help dialog is visible
 }
 
 func initialModel(subprocess string) model {
@@ -50,11 +54,19 @@ func initialModel(subprocess string) model {
 
 	styledAscii := asciiStyle.Render(asciiArt)
 
+	// Create footer and help components
+	footer := NewFooter()
+	footer.SetAgentConfig(agentConfig)
+	footer.SetFocus("right") // Start with right pane focused
+
 	return model{
 		focused:     "right", // Focus on right pane for subprocess interaction
-		leftContent: styledAscii + fmt.Sprintf("\n\nStarting %s in tmux session...\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.", subprocess),
+		leftContent: styledAscii, // Just show ASCII art, instructions moved to footer
 		subprocess:  subprocess,
 		agentConfig: agentConfig,
+		footer:      footer,
+		helpDialog:  NewHelpDialog(),
+		showHelp:    false,
 	}
 }
 
@@ -133,6 +145,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
+		// Update component sizes
+		m.footer.SetSize(msg.Width, 1)
+		m.helpDialog.SetSize(msg.Width, msg.Height)
+
 		// Update tmux session size if it exists
 		if m.tmuxSession != nil && !m.attached {
 			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
@@ -147,13 +163,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
-		statusText := fmt.Sprintf("\n\nTmux session '%s' started!\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.\nPress Ctrl+Q when attached to detach.", m.tmuxSession.GetSessionName())
 
-		if m.ctrlAPressed {
-			statusText += "\n\n🔄 Press A to attach full-screen..."
-		}
-
-		m.leftContent = styledAscii + statusText
+		// Just show ASCII art - instructions are in footer now
+		m.leftContent = styledAscii
 
 		// Set initial tmux session size using consistent calculation
 		if m.ready {
@@ -188,7 +200,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii + fmt.Sprintf("\n\nAttached to tmux session!\n\nPress Ctrl+Q to detach and return here.")
+		m.leftContent = styledAscii
 
 		// Wait for detach in background and send message when it happens
 		return m, func() tea.Msg {
@@ -201,7 +213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii + fmt.Sprintf("\n\nDetached from tmux session.\n\nUse Tab to switch between panes.\nType 'q' in left pane to quit.\nPress Ctrl+A, A to attach full-screen.")
+		m.leftContent = styledAscii
 
 		// Immediately resize the tmux session to current window dimensions
 		if m.tmuxSession != nil && m.ready {
@@ -221,9 +233,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii + fmt.Sprintf("\n\nError: %v\n\nPress 'q' to quit.", msg.error)
+		m.leftContent = styledAscii + fmt.Sprintf("\n\nError: %v", msg.error)
 
 	case tea.KeyMsg:
+		// If help dialog is visible, any key closes it
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		// If attached, only handle detach key
 		if m.attached {
 			// When attached, don't process keys in Bubble Tea - tmux handles them
@@ -265,6 +283,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
+		case "?":
+			// Show help dialog
+			m.showHelp = true
+			return m, nil
+
 		case "tab":
 			// Reset Ctrl+A state on tab
 			m.ctrlAPressed = false
@@ -274,6 +297,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.focused = "left"
 			}
+			// Update footer focus
+			m.footer.SetFocus(m.focused)
 			return m, nil
 		}
 
@@ -359,9 +384,9 @@ func (m model) View() string {
 		return attachedStyle.Render("Attached to tmux session\n\nPress Ctrl+Q to detach")
 	}
 
-	// Reserve space for proper border rendering
-	// Subtract 2 from height (1 for top, 1 for bottom of terminal)
-	availableHeight := m.height - 2
+	// Reserve space for proper border rendering and footer
+	// Subtract 3 from height (1 for top, 1 for bottom of terminal, 1 for footer)
+	availableHeight := m.height - 3
 
 	// Calculate the actual frame sizes to be precise
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
@@ -410,7 +435,29 @@ func (m model) View() string {
 		Render(rightContent)
 
 	// Join panes horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftContent, rightRendered)
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftContent, rightRendered)
+
+	// Add footer at the bottom
+	mainView := lipgloss.JoinVertical(lipgloss.Left, panes, m.footer.View())
+
+	// If help dialog is visible, overlay it
+	if m.showHelp {
+		// Create a simple background model that just returns the main view
+		bgModel := &simpleModel{content: mainView}
+
+		// Create overlay with help dialog on top of main view
+		overlayModel := overlay.New(
+			m.helpDialog,    // Foreground (help dialog)
+			bgModel,         // Background (main view)
+			overlay.Center,  // X Position
+			overlay.Center,  // Y Position
+			0,              // X Offset
+			0,              // Y Offset
+		)
+		return overlayModel.View()
+	}
+
+	return mainView
 }
 
 func (m model) tmuxPreviewDimensions() (int, int) {
@@ -419,7 +466,7 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 	}
 
 	// Use the same adjusted dimensions as in View()
-	availableHeight := m.height - 2
+	availableHeight := m.height - 3 // Account for footer
 
 	// Same calculation as View() - calculate actual content width
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
@@ -471,4 +518,22 @@ func main() {
 		fmt.Printf("Error: %v", err)
 		os.Exit(1)
 	}
+}
+
+// simpleModel is a basic tea.Model that just displays static content
+// Used as background for the overlay
+type simpleModel struct {
+	content string
+}
+
+func (s *simpleModel) Init() tea.Cmd {
+	return nil
+}
+
+func (s *simpleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return s, nil
+}
+
+func (s *simpleModel) View() string {
+	return s.content
 }
