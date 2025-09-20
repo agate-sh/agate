@@ -18,12 +18,19 @@ var asciiArt string
 
 var (
 	paneBaseStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
+			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			Padding(1, 2)
 	paneActiveStyle = paneBaseStyle.Copy().BorderForeground(lipgloss.Color("86"))
 	asciiArtColor = "#9d87ae" // Color used for ASCII art and left pane
 	activeBorderGray = "250" // Brighter gray for active non-tmux pane borders
+)
+
+type sessionMode int
+
+const (
+	modePreview sessionMode = iota // Read-only preview
+	modeAttached                   // Full screen tmux
 )
 
 type model struct {
@@ -36,8 +43,7 @@ type model struct {
 	focused      string // "left" or "right"
 	err          error
 	subprocess   string // Command to run in right pane
-	attached     bool   // Whether we're attached to tmux session
-	ctrlAPressed bool   // Whether Ctrl+A was recently pressed
+	mode         sessionMode // Current interaction mode
 	agentConfig  AgentConfig // Configuration for the specific agent
 	footer       *Footer     // Footer component for shortcuts
 	helpDialog   *HelpDialog // Help dialog overlay
@@ -58,11 +64,13 @@ func initialModel(subprocess string) model {
 	footer := NewFooter()
 	footer.SetAgentConfig(agentConfig)
 	footer.SetFocus("right") // Start with right pane focused
+	footer.SetMode("preview") // Start in preview mode
 
 	return model{
 		focused:     "right", // Focus on right pane for subprocess interaction
 		leftContent: styledAscii, // Just show ASCII art, instructions moved to footer
 		subprocess:  subprocess,
+		mode:        modePreview, // Start in preview mode
 		agentConfig: agentConfig,
 		footer:      footer,
 		helpDialog:  NewHelpDialog(),
@@ -128,7 +136,6 @@ type tmuxOutputMsg struct {
 	hasPrompt bool
 }
 
-type ctrlATimeoutMsg struct{}
 
 type tmuxAttachedMsg struct {
 	detachCh chan struct{}
@@ -149,8 +156,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.footer.SetSize(msg.Width, 1)
 		m.helpDialog.SetSize(msg.Width, msg.Height)
 
-		// Update tmux session size if it exists
-		if m.tmuxSession != nil && !m.attached {
+		// Update tmux session size if it exists and we're in preview mode
+		if m.tmuxSession != nil && m.mode == modePreview {
 			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
 				m.tmuxSession.SetDetachedSize(contentWidth, contentHeight)
 			}
@@ -183,24 +190,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rightOutput = msg.content
 		}
 
-		// Continue monitoring
-		return m, tea.Tick(time.Millisecond*200, func(time.Time) tea.Msg {
-			if m.tmuxSession != nil && !m.attached {
+		// Continue monitoring (increased frequency for better responsiveness)
+		return m, tea.Tick(time.Millisecond*100, func(time.Time) tea.Msg {
+			if m.tmuxSession != nil && m.mode == modePreview {
 				return waitForTmuxOutput(m.tmuxSession)()
 			}
 			return nil
 		})
 
-	case ctrlATimeoutMsg:
-		// Reset Ctrl+A state on timeout
-		m.ctrlAPressed = false
 
 	case tmuxAttachedMsg:
-		m.attached = true
+		m.mode = modeAttached
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 		m.leftContent = styledAscii
+
+		// Update footer for attached mode
+		m.footer.SetMode("attached")
 
 		// Wait for detach in background and send message when it happens
 		return m, func() tea.Msg {
@@ -209,11 +216,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tmuxDetachedMsg:
-		m.attached = false
+		m.mode = modePreview
 		asciiStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(asciiArtColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 		m.leftContent = styledAscii
+
+		// Update footer back to preview mode
+		m.footer.SetMode("preview")
 
 		// Immediately resize the tmux session to current window dimensions
 		if m.tmuxSession != nil && m.ready {
@@ -242,26 +252,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// If attached, only handle detach key
-		if m.attached {
-			// When attached, don't process keys in Bubble Tea - tmux handles them
+		// Handle different modes
+		switch m.mode {
+		case modeAttached:
+			// When fully attached, don't process keys in Bubble Tea - tmux handles them
 			return m, nil
-		}
 
-		// Handle Ctrl+A sequence first
-		switch msg.String() {
-		case "ctrl+a":
-			// Start Ctrl+A sequence
-			m.ctrlAPressed = true
-			return m, tea.Tick(time.Second*2, func(time.Time) tea.Msg {
-				return ctrlATimeoutMsg{}
-			})
 
-		case "a":
-			if m.ctrlAPressed {
-				// Complete Ctrl+A, A sequence - attach to tmux session
-				m.ctrlAPressed = false
-				if m.tmuxSession != nil && !m.attached {
+		case modePreview:
+			// Preview mode - handle navigation and mode switches only
+			switch msg.String() {
+			case "enter":
+				// Enter key attaches to full tmux when right pane is focused
+				if m.focused == "right" && m.tmuxSession != nil {
 					return m, func() tea.Msg {
 						detachCh, err := m.tmuxSession.Attach()
 						if err != nil {
@@ -270,97 +273,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return tmuxAttachedMsg{detachCh: detachCh}
 					}
 				}
+
+			case "ctrl+c", "q":
+				if m.focused == "left" {
+					// Cleanup
+					if m.tmuxSession != nil {
+						m.tmuxSession.Kill()
+					}
+					return m, tea.Quit
+				}
+
+			case "?":
+				// Show help dialog
+				m.showHelp = true
+				return m, nil
+
+			case "tab":
+				// Switch focus between panes
+				if m.focused == "left" {
+					m.focused = "right"
+				} else {
+					m.focused = "left"
+				}
+				// Update footer focus
+				m.footer.SetFocus(m.focused)
 				return m, nil
 			}
-			// If not in Ctrl+A sequence, fall through to normal handling
-
-		case "ctrl+c", "q":
-			if m.focused == "left" {
-				// Cleanup
-				if m.tmuxSession != nil {
-					m.tmuxSession.Kill()
-				}
-				return m, tea.Quit
-			}
-
-		case "?":
-			// Show help dialog
-			m.showHelp = true
-			return m, nil
-
-		case "tab":
-			// Reset Ctrl+A state on tab
-			m.ctrlAPressed = false
-			// Switch focus between panes
-			if m.focused == "left" {
-				m.focused = "right"
-			} else {
-				m.focused = "left"
-			}
-			// Update footer focus
-			m.footer.SetFocus(m.focused)
-			return m, nil
-		}
-
-		// Reset Ctrl+A state for any other key (except those already handled)
-		if msg.String() != "ctrl+a" && msg.String() != "a" && msg.String() != "tab" && msg.String() != "ctrl+c" && msg.String() != "q" {
-			m.ctrlAPressed = false
-		}
-
-		// Handle input forwarding to tmux session when not attached
-		if m.tmuxSession != nil && !m.attached {
-			// Don't forward 'a' if we're in Ctrl+A sequence
-			if msg.String() == "a" && m.ctrlAPressed {
-				return m, nil
-			}
-
-			// Use SendKeys for detached sessions
-			var keys string
-			switch msg.Type {
-			case tea.KeyEnter:
-				keys = "Enter"
-			case tea.KeyBackspace:
-				keys = "BSpace"
-			case tea.KeyCtrlD:
-				keys = "C-d"
-			case tea.KeyCtrlC:
-				keys = "C-c"
-			case tea.KeyUp:
-				keys = "Up"
-			case tea.KeyDown:
-				keys = "Down"
-			case tea.KeyLeft:
-				keys = "Left"
-			case tea.KeyRight:
-				keys = "Right"
-			case tea.KeyHome:
-				keys = "Home"
-			case tea.KeyEnd:
-				keys = "End"
-			case tea.KeyPgUp:
-				keys = "PageUp"
-			case tea.KeyPgDown:
-				keys = "PageDown"
-			case tea.KeyDelete:
-				keys = "Delete"
-			case tea.KeyTab:
-				keys = "Tab"
-			case tea.KeyEsc:
-				keys = "Escape"
-			default:
-				// Regular character input
-				if msg.String() == " " {
-					keys = "Space"
-				} else if msg.String() != "" && msg.Type == tea.KeyRunes {
-					// For regular characters, just send them directly
-					m.tmuxSession.SendKeys(msg.String())
-					return m, nil
-				}
-			}
-
-			if keys != "" {
-				m.tmuxSession.SendKeys(keys)
-			}
+			// In preview mode, we don't forward any keys to tmux
+			// This eliminates the SendKeys latency issue
 		}
 	}
 
@@ -372,15 +312,15 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
-	// If attached to tmux, show full screen message
-	if m.attached {
+	// Handle attached mode
+	if m.mode == modeAttached {
+		// Full screen tmux attachment
 		attachedStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#86")).
 			Bold(true).
 			Align(lipgloss.Center, lipgloss.Center).
 			Width(m.width).
 			Height(m.height)
-
 		return attachedStyle.Render("Attached to tmux session\n\nPress Ctrl+Q to detach")
 	}
 
@@ -409,12 +349,11 @@ func (m model) View() string {
 	rightStyle := paneBaseStyle
 
 	// Apply focus styling:
-	// - Left pane uses brighter gray when active
-	// - Right pane uses agent color when active
 	if m.focused == "left" {
 		leftStyle = paneBaseStyle.Copy().
 			BorderForeground(lipgloss.Color(activeBorderGray))
 	} else if m.focused == "right" {
+		// Right pane uses agent color when focused
 		rightStyle = paneBaseStyle.Copy().
 			BorderForeground(lipgloss.Color(m.agentConfig.BorderColor))
 	}
@@ -428,6 +367,7 @@ func (m model) View() string {
 	// Render right pane with tmux output
 	// The rightOutput already contains ANSI codes which lipgloss will handle
 	rightContent := m.rightOutput
+
 
 	rightRendered := rightStyle.Copy().
 		Width(rightWidth).
@@ -494,10 +434,13 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: agate <command>")
 		fmt.Println("Example: agate claude")
-		fmt.Println("Example: agate codex")
-		fmt.Println("\nAgate will create a tmux session for the specified command.")
-		fmt.Println("Press Ctrl+A, A to attach to the tmux session full-screen.")
-		fmt.Println("Press Ctrl+Q when attached to detach back to the preview.")
+		fmt.Println("Example: agate amp")
+		fmt.Println("\nAgate provides two interaction modes:")
+		fmt.Println("  Preview Mode (default): Read-only view with fast, lag-free rendering")
+		fmt.Println("  Attached Mode (Enter): Full tmux experience with complete control")
+		fmt.Println("\nPress Enter when focused on the right pane to attach to tmux.")
+		fmt.Println("Press Ctrl+Q when attached to detach back to preview.")
+		fmt.Println("Press ? for help once running.")
 		os.Exit(1)
 	}
 
@@ -537,3 +480,4 @@ func (s *simpleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *simpleModel) View() string {
 	return s.content
 }
+

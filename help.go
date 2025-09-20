@@ -79,7 +79,7 @@ func (h *HelpDialog) View() string {
 	shortcuts := AllShortcuts()
 
 	// Define the order of sections
-	sectionOrder := []string{"Session Management", "Handoff", "Navigation", "Help"}
+	sectionOrder := []string{"Two-Mode System", "Navigation", "Mode Benefits", "Help"}
 
 	for _, section := range sectionOrder {
 		if items, ok := shortcuts[section]; ok {

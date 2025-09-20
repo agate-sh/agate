@@ -13,6 +13,7 @@ type Footer struct {
 	focused      string // "left" or "right"
 	agentConfig  AgentConfig
 	showHelp     bool // Whether help dialog is shown
+	mode         string // "preview", "focused", "attached"
 }
 
 // Styling for footer elements
@@ -61,17 +62,27 @@ func (f *Footer) SetShowHelp(show bool) {
 	f.showHelp = show
 }
 
-// GetShortcuts returns the current shortcuts to display
+// SetMode updates the current interaction mode
+func (f *Footer) SetMode(mode string) {
+	f.mode = mode
+}
+
+// GetShortcuts returns the current shortcuts to display based on mode
 func (f *Footer) GetShortcuts() []Shortcut {
 	var shortcuts []Shortcut
 
-	// Add pane-specific shortcuts
-	if f.focused == "right" {
-		// Tmux pane shortcuts
-		shortcuts = append(shortcuts, TmuxShortcuts...)
-	} else if f.focused == "left" {
-		// Left pane shortcuts
-		shortcuts = append(shortcuts, LeftPaneShortcuts...)
+	// Mode-specific shortcuts
+	switch f.mode {
+	case "preview":
+		// Preview mode shortcuts
+		if f.focused == "right" {
+			shortcuts = append(shortcuts, PreviewModeShortcuts...)
+		} else if f.focused == "left" {
+			shortcuts = append(shortcuts, LeftPaneShortcuts...)
+		}
+	case "attached":
+		// Attached mode (shouldn't be displayed as footer is hidden)
+		return []Shortcut{}
 	}
 
 	// Always add global shortcuts at the end (after separator)

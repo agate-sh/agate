@@ -7,7 +7,13 @@ type Shortcut struct {
 	IsGlobal    bool // Whether this is a global shortcut
 }
 
-// TmuxShortcuts are the shortcuts available when the tmux pane is focused
+// PreviewModeShortcuts are available when viewing tmux in preview mode
+var PreviewModeShortcuts = []Shortcut{
+	{Key: "↵", Description: "attach to tmux", IsGlobal: false},
+	{Key: "tab", Description: "switch pane", IsGlobal: false},
+}
+
+// TmuxShortcuts (legacy, keeping for backward compatibility)
 var TmuxShortcuts = []Shortcut{
 	{Key: "n", Description: "new", IsGlobal: false},
 	{Key: "D", Description: "kill", IsGlobal: false},
@@ -31,24 +37,21 @@ var GlobalShortcuts = []Shortcut{
 // AllShortcuts returns all available shortcuts for the help dialog
 func AllShortcuts() map[string][]Shortcut {
 	return map[string][]Shortcut{
-		"Session Management": {
-			{Key: "n", Description: "Create a new session", IsGlobal: false},
-			{Key: "D", Description: "Kill (delete) the selected session", IsGlobal: false},
-			{Key: "↵/o", Description: "Open/attach to the selected session", IsGlobal: false},
-			{Key: "ctrl+a, a", Description: "Attach to tmux session full-screen", IsGlobal: false},
-			{Key: "ctrl+q", Description: "Detach from attached tmux session", IsGlobal: false},
-		},
-		"Handoff": {
-			{Key: "p", Description: "Push branch to GitHub", IsGlobal: false},
-			{Key: "c", Description: "Checkout: commit changes and pause session", IsGlobal: false},
+		"Two-Mode System": {
+			{Key: "↵ (Enter)", Description: "Attach to full tmux (when right pane focused)", IsGlobal: false},
+			{Key: "ctrl+q", Description: "Detach from tmux (return to preview)", IsGlobal: false},
 		},
 		"Navigation": {
-			{Key: "tab", Description: "Switch between panes", IsGlobal: false},
-			{Key: "q", Description: "Quit the application (when left pane focused)", IsGlobal: false},
+			{Key: "tab", Description: "Switch between left and right panes", IsGlobal: false},
+			{Key: "q", Description: "Quit application (when left pane focused)", IsGlobal: false},
+		},
+		"Mode Benefits": {
+			{Key: "Preview", Description: "Read-only, fast rendering, no typing lag", IsGlobal: false},
+			{Key: "Attached", Description: "Full tmux experience, complete terminal control", IsGlobal: false},
 		},
 		"Help": {
 			{Key: "?", Description: "Show this help dialog", IsGlobal: true},
-			{Key: "esc", Description: "Close dialogs and overlays", IsGlobal: true},
+			{Key: "any key", Description: "Close help dialog", IsGlobal: true},
 		},
 	}
 }

@@ -14,6 +14,12 @@ var ClaudeAgent = AgentConfig{
 	BorderColor: "#da7756",
 }
 
+// Amp agent configuration with the specific color
+var AmpAgent = AgentConfig{
+	Name:        "amp",
+	BorderColor: "#04c160",
+}
+
 // Default configuration for unknown agents
 var DefaultAgent = AgentConfig{
 	Name:        "default",
@@ -28,6 +34,9 @@ func GetAgentConfig(subprocess string) AgentConfig {
 	// Check if the subprocess contains known agent names
 	if strings.Contains(lower, "claude") {
 		return ClaudeAgent
+	}
+	if strings.Contains(lower, "amp") {
+		return AmpAgent
 	}
 
 	// Add more agent mappings here as needed
