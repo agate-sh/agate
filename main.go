@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rmhubbert/bubbletea-overlay"
+	"github.com/spf13/cobra"
 )
 
 //go:embed ascii-art.txt
@@ -429,36 +430,55 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 	return contentWidth, contentHeight
 }
 
-func main() {
-	// Check for command-line argument
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: agate <command>")
-		fmt.Println("Example: agate claude")
-		fmt.Println("Example: agate amp")
-		fmt.Println("\nAgate provides two interaction modes:")
-		fmt.Println("  Preview Mode (default): Read-only view with fast, lag-free rendering")
-		fmt.Println("  Attached Mode (Enter): Full tmux experience with complete control")
-		fmt.Println("\nPress Enter when focused on the right pane to attach to tmux.")
-		fmt.Println("Press Ctrl+Q when attached to detach back to preview.")
-		fmt.Println("Press ? for help once running.")
-		os.Exit(1)
-	}
-
-	subprocess := os.Args[1]
-
-	// Check if tmux is available
+func checkTmuxInstalled() error {
 	if _, err := os.Stat("/usr/local/bin/tmux"); os.IsNotExist(err) {
 		if _, err := os.Stat("/usr/bin/tmux"); os.IsNotExist(err) {
-			fmt.Println("Error: tmux is not installed. Please install tmux to use Agate.")
-			fmt.Println("On macOS: brew install tmux")
-			fmt.Println("On Ubuntu/Debian: sudo apt-get install tmux")
-			os.Exit(1)
+			return fmt.Errorf("tmux is not installed. Please install tmux to use Agate.\nOn macOS: brew install tmux\nOn Ubuntu/Debian: sudo apt-get install tmux")
 		}
+	}
+	return nil
+}
+
+func runAgent(subprocess string) error {
+	if err := checkTmuxInstalled(); err != nil {
+		return err
 	}
 
 	p := tea.NewProgram(initialModel(subprocess), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error: %v", err)
+		return fmt.Errorf("error running program: %v", err)
+	}
+	return nil
+}
+
+func main() {
+	var rootCmd = &cobra.Command{
+		Use:   "agate <agent>",
+		Short: "A tmux-based terminal UI for AI agents",
+		Long: `Agate provides a split-pane terminal interface for interacting with AI agents.
+
+Supports any agent name (claude, amp, cn, etc.) and automatically configures
+colors and settings based on the agent type.
+
+Agate provides two interaction modes:
+  Preview Mode (default): Read-only view with fast, lag-free rendering
+  Attached Mode (Enter): Full tmux experience with complete control
+
+Press Enter when focused on the right pane to attach to tmux.
+Press Ctrl+Q when attached to detach back to preview.
+Press ? for help once running.
+
+Examples:
+  agate claude    # Launch with Claude
+  agate amp       # Launch with Amp
+  agate cn        # Launch with Continue`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAgent(args[0])
+		},
+	}
+
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
