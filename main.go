@@ -289,16 +289,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showHelp = true
 				return m, nil
 
-			case "tab":
-				// Switch focus between panes
-				if m.focused == "left" {
-					m.focused = "right"
-				} else {
-					m.focused = "left"
-				}
-				// Update footer focus
+			case "0":
+				// Switch to right pane (tmux pane)
+				m.focused = "right"
 				m.footer.SetFocus(m.focused)
 				return m, nil
+
+			case "1":
+				// Switch to left pane (info pane)
+				m.focused = "left"
+				m.footer.SetFocus(m.focused)
+				return m, nil
+
 			}
 			// In preview mode, we don't forward any keys to tmux
 			// This eliminates the SendKeys latency issue
@@ -325,9 +327,9 @@ func (m model) View() string {
 		return attachedStyle.Render("Attached to tmux session\n\nPress Ctrl+Q to detach")
 	}
 
-	// Reserve space for proper border rendering and footer
-	// Subtract 3 from height (1 for top, 1 for bottom of terminal, 1 for footer)
-	availableHeight := m.height - 3
+	// Reserve space for proper border rendering, footer, titles, and top padding
+	// Subtract 5 from height (1 for top, 1 for bottom of terminal, 1 for footer, 1 for titles, 1 for top padding)
+	availableHeight := m.height - 5
 
 	// Calculate the actual frame sizes to be precise
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
@@ -345,6 +347,26 @@ func (m model) View() string {
 	leftWidth := leftContentWidth + frameWidth
 	rightWidth := rightContentWidth + frameWidth
 
+	// Create pane titles with index and company name
+	// Create title strings with proper focus styling
+	var leftTitle, rightTitle string
+
+	if m.focused == "left" {
+		// Left pane focused: both "Info" and "[1]" turn white
+		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")) // White
+		leftTitle = focusStyle.Render("Info") + " " + focusStyle.Render("[1]")
+		// Right pane unfocused: company name white, number gray
+		rightTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render(m.agentConfig.CompanyName) + " " +
+					lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[0]")
+	} else {
+		// Right pane focused: both company name and "[0]" use agent color
+		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.agentConfig.BorderColor))
+		rightTitle = focusStyle.Render(m.agentConfig.CompanyName) + " " + focusStyle.Render("[0]")
+		// Left pane unfocused: "Info" white, "[1]" gray
+		leftTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render("Info") + " " +
+					lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[1]")
+	}
+
 	// Start with base style (light gray borders) for both panes
 	leftStyle := paneBaseStyle
 	rightStyle := paneBaseStyle
@@ -359,27 +381,33 @@ func (m model) View() string {
 			BorderForeground(lipgloss.Color(m.agentConfig.BorderColor))
 	}
 
-	// Prepare left pane content
+	// Render pane content WITHOUT titles (titles will be separate)
 	leftContent := leftStyle.Copy().
 		Width(leftWidth).
 		Height(availableHeight).
 		Render(m.leftContent)
 
-	// Render right pane with tmux output
-	// The rightOutput already contains ANSI codes which lipgloss will handle
-	rightContent := m.rightOutput
-
-
 	rightRendered := rightStyle.Copy().
 		Width(rightWidth).
 		Height(availableHeight).
-		Render(rightContent)
+		Render(m.rightOutput)
 
-	// Join panes horizontally
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftContent, rightRendered)
+	// Add left padding to titles and combine with panes
+	leftTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(leftTitle)
+	rightTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(rightTitle)
+
+	// Add titles above the bordered panes
+	leftWithTitle := lipgloss.JoinVertical(lipgloss.Left, leftTitleWithPadding, leftContent)
+	rightWithTitle := lipgloss.JoinVertical(lipgloss.Left, rightTitleWithPadding, rightRendered)
+
+	// Join panes horizontally (now with titles above)
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftWithTitle, rightWithTitle)
+
+	// Add top padding to the entire pane layout
+	panesWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(panes)
 
 	// Add footer at the bottom
-	mainView := lipgloss.JoinVertical(lipgloss.Left, panes, m.footer.View())
+	mainView := lipgloss.JoinVertical(lipgloss.Left, panesWithPadding, m.footer.View())
 
 	// If help dialog is visible, overlay it
 	if m.showHelp {
@@ -407,7 +435,7 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 	}
 
 	// Use the same adjusted dimensions as in View()
-	availableHeight := m.height - 3 // Account for footer
+	availableHeight := m.height - 5 // Account for footer, titles, and top padding
 
 	// Same calculation as View() - calculate actual content width
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
@@ -429,6 +457,7 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 
 	return contentWidth, contentHeight
 }
+
 
 func checkTmuxInstalled() error {
 	if _, err := os.Stat("/usr/local/bin/tmux"); os.IsNotExist(err) {

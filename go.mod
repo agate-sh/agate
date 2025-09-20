@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.9
-	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/lipgloss v1.1.1-0.20250908092053-970a4b8c752f
 	github.com/creack/pty v1.1.24
 	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02
 )

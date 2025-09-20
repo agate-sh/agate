@@ -10,23 +10,12 @@ type Shortcut struct {
 // PreviewModeShortcuts are available when viewing tmux in preview mode
 var PreviewModeShortcuts = []Shortcut{
 	{Key: "↵", Description: "attach to tmux", IsGlobal: false},
-	{Key: "tab", Description: "switch pane", IsGlobal: false},
 }
 
-// TmuxShortcuts (legacy, keeping for backward compatibility)
-var TmuxShortcuts = []Shortcut{
-	{Key: "n", Description: "new", IsGlobal: false},
-	{Key: "D", Description: "kill", IsGlobal: false},
-	{Key: "↵/o", Description: "open", IsGlobal: false},
-	{Key: "p", Description: "push branch", IsGlobal: false},
-	{Key: "c", Description: "checkout", IsGlobal: false},
-	{Key: "tab", Description: "switch tab", IsGlobal: false},
-}
 
 // LeftPaneShortcuts are the shortcuts available when the left pane is focused
 var LeftPaneShortcuts = []Shortcut{
 	{Key: "q", Description: "quit", IsGlobal: false},
-	{Key: "tab", Description: "switch tab", IsGlobal: false},
 }
 
 // GlobalShortcuts are always available regardless of focused pane
@@ -42,7 +31,6 @@ func AllShortcuts() map[string][]Shortcut {
 			{Key: "ctrl+q", Description: "Detach from tmux (return to preview)", IsGlobal: false},
 		},
 		"Navigation": {
-			{Key: "tab", Description: "Switch between left and right panes", IsGlobal: false},
 			{Key: "q", Description: "Quit application (when left pane focused)", IsGlobal: false},
 		},
 		"Mode Benefits": {
