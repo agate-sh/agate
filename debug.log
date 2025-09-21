@@ -1,0 +1,10 @@
+
+=== Debug session started at 2025-09-21 12:38:55 ===
+=== Debug session ended at 2025-09-21 13:40:46 ===
+
+[DEBUG] 2025/09/21 13:40:49 debug_panel.go:41: === Debug session started ===
+[DEBUG] 2025/09/21 13:45:44 debug_panel.go:76: === Debug session ended ===
+[DEBUG] 2025/09/21 13:45:53 debug.go:39: === Debug session started ===
+[DEBUG] 2025/09/21 13:47:01 debug.go:74: === Debug session ended ===
+[DEBUG] 2025/09/21 13:47:04 debug.go:39: === Debug session started ===
+[DEBUG] 2025/09/21 13:50:12 debug.go:74: === Debug session ended ===

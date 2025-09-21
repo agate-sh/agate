@@ -8,24 +8,25 @@ import (
 
 // Footer manages the bottom footer bar with keyboard shortcuts
 type Footer struct {
-	width        int
-	height       int
-	focused      string // "left" or "right"
-	agentConfig  AgentConfig
-	showHelp     bool // Whether help dialog is shown
-	mode         string // "preview", "focused", "attached"
+	width           int
+	height          int
+	focused         string // "left" or "right"
+	agentConfig     AgentConfig
+	showHelp        bool // Whether help dialog is shown
+	mode            string // "preview", "focused", "attached"
+	shortcutOverlay *ShortcutOverlay
 }
 
 // Styling for footer elements
 var (
 	footerKeyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(lipgloss.Color(textDescription))
 
 	footerDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
+			Foreground(lipgloss.Color(textDescription))
 
 	footerSeparatorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("238"))
+				Foreground(lipgloss.Color(separatorColor))
 
 	footerActiveKeyStyle = lipgloss.NewStyle().
 				Bold(true)
@@ -39,6 +40,11 @@ func NewFooter() *Footer {
 	return &Footer{
 		height: 1,
 	}
+}
+
+// SetShortcutOverlay sets the shortcut overlay for the footer
+func (f *Footer) SetShortcutOverlay(overlay *ShortcutOverlay) {
+	f.shortcutOverlay = overlay
 }
 
 // SetSize updates the footer dimensions
@@ -69,26 +75,12 @@ func (f *Footer) SetMode(mode string) {
 
 // GetShortcuts returns the current shortcuts to display based on mode
 func (f *Footer) GetShortcuts() []Shortcut {
-	var shortcuts []Shortcut
-
-	// Mode-specific shortcuts
-	switch f.mode {
-	case "preview":
-		// Preview mode shortcuts
-		if f.focused == "right" {
-			shortcuts = append(shortcuts, PreviewModeShortcuts...)
-		} else if f.focused == "left" {
-			shortcuts = append(shortcuts, LeftPaneShortcuts...)
-		}
-	case "attached":
-		// Attached mode (shouldn't be displayed as footer is hidden)
-		return []Shortcut{}
+	if f.shortcutOverlay != nil {
+		f.shortcutOverlay.SetFocus(f.focused)
+		f.shortcutOverlay.SetMode(f.mode)
+		return f.shortcutOverlay.FormatShortcuts()
 	}
-
-	// Always add global shortcuts at the end (after separator)
-	shortcuts = append(shortcuts, GlobalShortcuts...)
-
-	return shortcuts
+	return []Shortcut{}
 }
 
 // View renders the footer
@@ -102,39 +94,105 @@ func (f *Footer) View() string {
 		return ""
 	}
 
-	var parts []string
-	globalStarted := false
+	// Group shortcuts into categories with new logic
+	var paneSpecificShortcuts []Shortcut // Shortcuts that should be highlighted for current pane
+	var globalNonHighlightedShortcuts []Shortcut // Shortcuts that are shown but not highlighted
+	var quitShortcut *Shortcut
+	var helpShortcut *Shortcut
 
-	for i, shortcut := range shortcuts {
-		// Check if this is a global shortcut
-		isGlobal := shortcut.IsGlobal
+	for _, shortcut := range shortcuts {
+		if shortcut.Key == "q" && shortcut.IsGlobal {
+			quitShortcut = &shortcut
+		} else if shortcut.Key == "?" && shortcut.IsGlobal {
+			helpShortcut = &shortcut
+		} else if !shortcut.IsGlobal {
+			// Determine if this shortcut should be highlighted based on current focus
+			shouldHighlight := false
 
-		// Add separator before global shortcuts
-		if isGlobal && !globalStarted {
-			if len(parts) > 0 {
-				parts = append(parts, footerSeparatorStyle.Render(" │ "))
+			if f.focused == "right" && shortcut.Key == "↵" {
+				// Only highlight "attach to tmux" when right pane focused
+				shouldHighlight = true
+			} else if f.focused == "left" && (shortcut.Key == "n" || shortcut.Key == "d") {
+				// Highlight worktree shortcuts when left pane focused
+				shouldHighlight = true
 			}
-			globalStarted = true
-		} else if i > 0 && !isGlobal {
-			// Regular separator between non-global shortcuts
+
+			if shouldHighlight {
+				paneSpecificShortcuts = append(paneSpecificShortcuts, shortcut)
+			} else {
+				globalNonHighlightedShortcuts = append(globalNonHighlightedShortcuts, shortcut)
+			}
+		}
+	}
+
+	var parts []string
+
+	// Render pane-specific shortcuts (highlighted)
+	for i, shortcut := range paneSpecificShortcuts {
+		if i > 0 {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
 
-		// Style the shortcut based on context
-		keyStyle := footerKeyStyle
+		keyStyle := footerKeyStyle.Copy().Bold(true)
 		descStyle := footerDescStyle
 
-		// Apply agent color to tmux shortcuts when right pane is focused
-		if f.focused == "right" && !isGlobal {
+		// Apply appropriate highlighting color based on current pane focus
+		if f.focused == "right" {
+			// Apply agent color when right pane is focused
 			keyStyle = keyStyle.Copy().Foreground(lipgloss.Color(f.agentConfig.BorderColor))
 			descStyle = descStyle.Copy().Foreground(lipgloss.Color(f.agentConfig.BorderColor))
+		} else if f.focused == "left" {
+			// Apply white color when left pane is focused
+			keyStyle = keyStyle.Copy().Foreground(lipgloss.Color("255")) // White
+			descStyle = descStyle.Copy().Foreground(lipgloss.Color("255")) // White
 		}
 
-		// Make key bold
-		keyStyle = keyStyle.Copy().Bold(true)
-
-		// Render the shortcut
 		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
+		parts = append(parts, part)
+	}
+
+	// Add pipe separator before non-highlighted shortcuts if we have highlighted ones
+	if len(paneSpecificShortcuts) > 0 && len(globalNonHighlightedShortcuts) > 0 {
+		parts = append(parts, footerSeparatorStyle.Render(" │ "))
+	}
+
+	// Render non-highlighted shortcuts (in default gray color)
+	for i, shortcut := range globalNonHighlightedShortcuts {
+		if len(parts) > 0 && len(paneSpecificShortcuts) == 0 && i > 0 {
+			parts = append(parts, footerSeparatorStyle.Render(" • "))
+		} else if i > 0 {
+			parts = append(parts, footerSeparatorStyle.Render(" • "))
+		}
+
+		keyStyle := footerKeyStyle.Copy().Bold(true)
+		descStyle := footerDescStyle
+		// Keep default gray styling
+
+		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
+		parts = append(parts, part)
+	}
+
+	// Add separator before global shortcuts (quit/help)
+	if len(parts) > 0 && (quitShortcut != nil || helpShortcut != nil) {
+		parts = append(parts, footerSeparatorStyle.Render(" │ "))
+	}
+
+	// Render quit shortcut
+	if quitShortcut != nil {
+		keyStyle := footerKeyStyle.Copy().Bold(true)
+		descStyle := footerDescStyle
+		part := keyStyle.Render(quitShortcut.Key) + " " + descStyle.Render(quitShortcut.Description)
+		parts = append(parts, part)
+	}
+
+	// Add consistent spacing before help
+	if helpShortcut != nil {
+		if len(parts) > 0 {
+			parts = append(parts, footerSeparatorStyle.Render(" • "))
+		}
+		keyStyle := footerKeyStyle.Copy().Bold(true)
+		descStyle := footerDescStyle
+		part := keyStyle.Render(helpShortcut.Key) + " " + descStyle.Render(helpShortcut.Description)
 		parts = append(parts, part)
 	}
 

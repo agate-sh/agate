@@ -4,13 +4,17 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
+	"agate/config"
+	"agate/git"
+	"agate/overlay"
 	"agate/tmux"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rmhubbert/bubbletea-overlay"
 	"github.com/spf13/cobra"
 )
 
@@ -20,62 +24,123 @@ var asciiArt string
 var (
 	paneBaseStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
+			BorderForeground(lipgloss.Color(borderMuted)).
 			Padding(1, 2)
-	paneActiveStyle = paneBaseStyle.Copy().BorderForeground(lipgloss.Color("86"))
-	asciiArtColor = "#9d87ae" // Color used for ASCII art and left pane
+	paneActiveStyle = paneBaseStyle.Copy().BorderForeground(lipgloss.Color(agateColor))
+	agateColor = "#9d87ae"   // Agate purple for branding and active elements
 	activeBorderGray = "250" // Brighter gray for active non-tmux pane borders
+	textDescription = "250"  // Light gray for descriptions and help text
+	textMuted = "240"       // Darker gray for very subtle text like file paths
+	borderMuted = "240"     // Standard border color
+	separatorColor = "238"  // Very dark gray for separators
+	warningYellow = "220"   // Yellow for warnings/highlights
 )
 
 type sessionMode int
 
 const (
 	modePreview sessionMode = iota // Read-only preview
-	modeAttached                   // Full screen tmux
 )
 
 type model struct {
-	width        int
-	height       int
-	leftContent  string
-	rightOutput  string // Raw tmux pane content with ANSI codes
-	tmuxSession  *tmux.TmuxSession
-	ready        bool
-	focused      string // "left" or "right"
-	err          error
-	subprocess   string // Command to run in right pane
-	mode         sessionMode // Current interaction mode
-	agentConfig  AgentConfig // Configuration for the specific agent
-	footer       *Footer     // Footer component for shortcuts
-	helpDialog   *HelpDialog // Help dialog overlay
-	showHelp     bool        // Whether help dialog is visible
+	width               int
+	height              int
+	leftContent         string
+	rightOutput         string // Raw tmux pane content with ANSI codes
+	tmuxSession         *tmux.TmuxSession
+	ready               bool
+	focused             string // "left" or "right"
+	err                 error
+	subprocess          string // Command to run in right pane
+	mode                sessionMode // Current interaction mode
+	agentConfig         AgentConfig // Configuration for the specific agent
+	keyMap              *KeyMap     // Centralized keybindings
+	shortcutOverlay     *ShortcutOverlay // Manages contextual shortcuts
+	footer              *Footer     // Footer component for shortcuts
+	helpDialog          *HelpDialog // Help dialog overlay
+	showHelp            bool        // Whether help dialog is visible
+	worktreeManager     *git.WorktreeManager // Git worktree management
+	worktreeList        *WorktreeList // Worktree list component
+	worktreeDialog      *WorktreeDialog // Worktree creation dialog
+	worktreeConfirm     *WorktreeConfirmDialog // Worktree deletion confirmation
+	showWorktreeDialog  bool       // Whether showing worktree creation dialog
+	showWorktreeConfirm bool       // Whether showing worktree deletion confirmation
+	repoDialog          *RepoDialog // Repository search dialog
+	showRepoDialog      bool       // Whether showing repository dialog
+	welcomeOverlay      *WelcomeOverlay // Welcome overlay for first-time users
+	showWelcomeOverlay  bool       // Whether showing welcome overlay
+	debugLogger         *DebugLogger // Debug logger for development
+	debugOverlay        *DebugOverlay // Debug overlay for development
+	showDebugOverlay    bool        // Whether showing debug overlay
 }
 
 func initialModel(subprocess string) model {
 	// Get agent configuration based on subprocess name
 	agentConfig := GetAgentConfig(subprocess)
 
-	// Create styled ASCII art with the specified color
-	asciiStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(asciiArtColor))
-
-	styledAscii := asciiStyle.Render(asciiArt)
+	// Create keybindings and shortcut overlay
+	keyMap := NewKeyMap()
+	shortcutOverlay := NewShortcutOverlay(keyMap)
+	shortcutOverlay.SetFocus("right") // Start with right pane focused
+	shortcutOverlay.SetMode("preview") // Start in preview mode
 
 	// Create footer and help components
 	footer := NewFooter()
 	footer.SetAgentConfig(agentConfig)
+	footer.SetShortcutOverlay(shortcutOverlay)
 	footer.SetFocus("right") // Start with right pane focused
 	footer.SetMode("preview") // Start in preview mode
 
+	// Initialize worktree manager
+	worktreeManager, err := git.NewWorktreeManager()
+	if err != nil {
+		// Log error but don't fail - app can still work without worktree features
+		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
+	}
+
+	// Initialize worktree components
+	var worktreeList *WorktreeList
+	if worktreeManager != nil {
+		worktreeList = NewWorktreeList(worktreeManager)
+	}
+
+	// Check if welcome overlay should be shown
+	welcomeShown, _ := config.GetWelcomeShownState()
+	showWelcomeOverlay := !welcomeShown
+
+	// Initialize debug logger
+	debugLogger := InitDebugLogger()
+
+	// Test debug logging
+	DebugLog("Debug logger initialized successfully")
+
+	// Initialize debug overlay
+	debugOverlay := NewDebugOverlay(debugLogger)
+
+	// Set up debug logging for git package (always enabled now)
+	git.DebugLog = DebugLog
+
 	return model{
-		focused:     "right", // Focus on right pane for subprocess interaction
-		leftContent: styledAscii, // Just show ASCII art, instructions moved to footer
-		subprocess:  subprocess,
-		mode:        modePreview, // Start in preview mode
-		agentConfig: agentConfig,
-		footer:      footer,
-		helpDialog:  NewHelpDialog(),
-		showHelp:    false,
+		focused:             "right", // Focus on right pane for subprocess interaction
+		leftContent:         "", // No longer using ASCII art
+		subprocess:          subprocess,
+		mode:               modePreview, // Start in preview mode
+		agentConfig:        agentConfig,
+		keyMap:             keyMap,
+		shortcutOverlay:    shortcutOverlay,
+		footer:             footer,
+		helpDialog:         NewHelpDialog(keyMap),
+		showHelp:           false,
+		worktreeManager:    worktreeManager,
+		worktreeList:       worktreeList,
+		showWorktreeDialog: false,
+		showWorktreeConfirm: false,
+		showRepoDialog:     false,
+		welcomeOverlay:     NewWelcomeOverlay(),
+		showWelcomeOverlay: showWelcomeOverlay,
+		debugLogger:        debugLogger,
+		debugOverlay:       debugOverlay,
+		showDebugOverlay:   false,
 	}
 }
 
@@ -138,11 +203,11 @@ type tmuxOutputMsg struct {
 }
 
 
-type tmuxAttachedMsg struct {
-	detachCh chan struct{}
-}
-
 type tmuxDetachedMsg struct{}
+
+type autoAttachMsg struct{}
+
+type initializationCompleteMsg struct{}
 
 type errMsg struct{ error }
 
@@ -157,6 +222,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.footer.SetSize(msg.Width, 1)
 		m.helpDialog.SetSize(msg.Width, msg.Height)
 
+
+		// Update debug overlay size
+		if m.debugOverlay != nil {
+			m.debugOverlay.SetSize(msg.Width, msg.Height)
+		}
+
 		// Update tmux session size if it exists and we're in preview mode
 		if m.tmuxSession != nil && m.mode == modePreview {
 			if contentWidth, contentHeight := m.tmuxPreviewDimensions(); contentWidth > 0 && contentHeight > 0 {
@@ -169,7 +240,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Keep the ASCII art with updated status
 		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(asciiArtColor))
+			Foreground(lipgloss.Color(agateColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 
 		// Just show ASCII art - instructions are in footer now
@@ -200,31 +271,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 
-	case tmuxAttachedMsg:
-		m.mode = modeAttached
-		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(asciiArtColor))
-		styledAscii := asciiStyle.Render(asciiArt)
-		m.leftContent = styledAscii
-
-		// Update footer for attached mode
-		m.footer.SetMode("attached")
-
-		// Wait for detach in background and send message when it happens
-		return m, func() tea.Msg {
-			<-msg.detachCh
-			return tmuxDetachedMsg{}
+	case autoAttachMsg:
+		// Auto-attach to the tmux session after it's ready
+		if m.tmuxSession != nil && m.focused == "right" {
+			// Use blocking attachment
+			return m, func() tea.Msg {
+				detachCh, err := m.tmuxSession.Attach()
+				if err != nil {
+					return errMsg{err}
+				}
+				// Block until detachment
+				<-detachCh
+				return tmuxDetachedMsg{}
+			}
 		}
+		return m, nil
+
+	case initializationCompleteMsg:
+		// Close the worktree dialog and auto-attach
+		m.showWorktreeDialog = false
+		m.worktreeDialog = nil
+
+		// Auto-attach to the tmux session
+		if m.tmuxSession != nil && m.focused == "right" {
+			return m, tea.Batch(
+				tea.ClearScreen,
+				func() tea.Msg {
+					detachCh, err := m.tmuxSession.Attach()
+					if err != nil {
+						return errMsg{err}
+					}
+					// Block until detachment
+					<-detachCh
+					return tmuxDetachedMsg{}
+				},
+			)
+		}
+		return m, tea.ClearScreen
 
 	case tmuxDetachedMsg:
 		m.mode = modePreview
 		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(asciiArtColor))
+			Foreground(lipgloss.Color(agateColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 		m.leftContent = styledAscii
 
 		// Update footer back to preview mode
 		m.footer.SetMode("preview")
+		m.shortcutOverlay.SetMode("preview")
 
 		// Immediately resize the tmux session to current window dimensions
 		if m.tmuxSession != nil && m.ready {
@@ -242,68 +336,337 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg.error
 		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(asciiArtColor))
+			Foreground(lipgloss.Color(agateColor))
 		styledAscii := asciiStyle.Render(asciiArt)
 		m.leftContent = styledAscii + fmt.Sprintf("\n\nError: %v", msg.error)
 
+	// Worktree dialog messages
+	case WorktreeCreatedMsg:
+		// Worktree created successfully - start tmux session but keep dialog open
+		// Refresh the worktree list
+		if m.worktreeList != nil {
+			m.worktreeList.Refresh()
+		}
+
+		// Create and switch to new tmux session for the worktree
+		if msg.Worktree != nil && m.subprocess != "" {
+			// Kill the existing tmux session if any
+			if m.tmuxSession != nil {
+				_ = m.tmuxSession.Kill()
+				m.tmuxSession = nil
+			}
+
+			// Create new tmux session for the worktree
+			sessionName := fmt.Sprintf("%s_%s", filepath.Base(msg.Worktree.Path), msg.Worktree.Branch)
+			newSession := tmux.NewTmuxSession(sessionName, m.subprocess)
+
+			// Start the new session in the worktree directory
+			if err := newSession.Start(msg.Worktree.Path); err == nil {
+				m.tmuxSession = newSession
+				// Switch focus to right pane
+				m.focused = "right"
+				// Update footer focus
+				m.footer.SetFocus("right")
+				m.shortcutOverlay.SetFocus("right")
+
+				// Start monitoring the new session
+				return m, waitForTmuxOutput(newSession)
+			}
+		}
+		return m, nil
+
+	case WorktreeInitializationCompleteMsg:
+		// Initialization complete - close dialog and auto-attach
+		m.showWorktreeDialog = false
+		m.worktreeDialog = nil
+
+		// Auto-attach to the tmux session
+		if m.tmuxSession != nil && m.focused == "right" {
+			return m, tea.Batch(
+				tea.ClearScreen,
+				func() tea.Msg {
+					detachCh, err := m.tmuxSession.Attach()
+					if err != nil {
+						return errMsg{err}
+					}
+					// Block until detachment
+					<-detachCh
+					return tmuxDetachedMsg{}
+				},
+			)
+		}
+		return m, tea.ClearScreen
+
+	case WorktreeCreationErrorMsg:
+		// Worktree creation failed - dialog will handle error display
+		return m, nil
+
+	case WorktreeDialogCancelledMsg:
+		// Dialog cancelled
+		m.showWorktreeDialog = false
+		m.worktreeDialog = nil
+		return m, nil
+
+	case WorktreeDeletedMsg:
+		// Worktree deleted successfully
+		m.showWorktreeConfirm = false
+		m.worktreeConfirm = nil
+		if m.worktreeList != nil {
+			m.worktreeList.Refresh()
+		}
+		return m, nil
+
+	case WorktreeDeletionErrorMsg:
+		// Worktree deletion failed
+		m.showWorktreeConfirm = false
+		m.worktreeConfirm = nil
+		m.err = fmt.Errorf("failed to delete worktree: %s", msg.Error)
+		return m, nil
+
+	case WorktreeDeleteCancelledMsg:
+		// Deletion cancelled
+		m.showWorktreeConfirm = false
+		m.worktreeConfirm = nil
+		return m, nil
+
+	case DebugOverlayClosedMsg:
+		// Debug overlay closed
+		m.showDebugOverlay = false
+		return m, nil
+
+	// Repository dialog messages
+	case RepoAddedMsg:
+		// Repository was successfully added
+		m.showRepoDialog = false
+		m.repoDialog = nil
+
+		// Add to persistent config
+		if err := config.AddRepository(msg.Path); err != nil {
+			m.err = fmt.Errorf("failed to save repository: %v", err)
+		} else {
+			// Refresh the worktree list to include the new repo
+			if m.worktreeList != nil {
+				m.worktreeList.Refresh()
+			}
+		}
+		return m, nil
+
+	case RepoDialogCancelledMsg:
+		// Repository dialog cancelled
+		m.showRepoDialog = false
+		m.repoDialog = nil
+		return m, nil
+
 	case tea.KeyMsg:
+		// If welcome overlay is visible, any key closes it
+		if m.showWelcomeOverlay {
+			m.showWelcomeOverlay = false
+			// Mark welcome as shown so it doesn't appear again
+			_ = config.SetWelcomeShown(true)
+			return m, nil
+		}
+
 		// If help dialog is visible, any key closes it
 		if m.showHelp {
 			m.showHelp = false
 			return m, nil
 		}
 
-		// Handle different modes
-		switch m.mode {
-		case modeAttached:
-			// When fully attached, don't process keys in Bubble Tea - tmux handles them
+		// Handle debug overlay input (highest priority after welcome overlay)
+		if m.showDebugOverlay && m.debugOverlay != nil {
+			var cmd tea.Cmd
+			overlay, cmd := m.debugOverlay.Update(msg)
+			m.debugOverlay = overlay
+			return m, cmd
+		}
+
+		// Handle worktree dialog input
+		if m.showWorktreeDialog && m.worktreeDialog != nil {
+			var cmd tea.Cmd
+			model, cmd := m.worktreeDialog.Update(msg)
+			m.worktreeDialog = model.(*WorktreeDialog)
+			return m, cmd
+		}
+
+		// Handle worktree confirm dialog input
+		if m.showWorktreeConfirm && m.worktreeConfirm != nil {
+			var cmd tea.Cmd
+			model, cmd := m.worktreeConfirm.Update(msg)
+			m.worktreeConfirm = model.(*WorktreeConfirmDialog)
+			return m, cmd
+		}
+
+		// Handle repo dialog input
+		if m.showRepoDialog && m.repoDialog != nil {
+			var cmd tea.Cmd
+			model, cmd := m.repoDialog.Update(msg)
+			m.repoDialog = model.(*RepoDialog)
+			return m, cmd
+		}
+
+		// Handle preview mode - navigation and mode switches only
+		switch {
+		case key.Matches(msg, m.keyMap.AttachTmux):
+			// Enter key on left pane opens/switches to worktree or main repo session
+			if m.focused == "left" && m.worktreeList != nil {
+				selectedItem := m.worktreeList.GetSelectedItem()
+				if selectedItem != nil && m.subprocess != "" {
+					var sessionPath string
+					var sessionName string
+
+					// Handle different types of selections
+					if selectedItem.Type == "worktree" && selectedItem.Worktree != nil {
+						// Selected a worktree
+						sessionPath = selectedItem.Worktree.Path
+						sessionName = fmt.Sprintf("%s_%s", filepath.Base(sessionPath), selectedItem.Worktree.Branch)
+					} else if selectedItem.Type == "main_repo" {
+						// Selected the main repository
+						sessionPath = selectedItem.RepoPath
+						sessionName = fmt.Sprintf("%s_main", filepath.Base(sessionPath))
+					} else {
+						// Invalid selection
+						return m, nil
+					}
+
+					// Kill the existing tmux session if any
+					if m.tmuxSession != nil {
+						_ = m.tmuxSession.Kill()
+						m.tmuxSession = nil
+					}
+
+					// Create new tmux session for the selected path
+					newSession := tmux.NewTmuxSession(sessionName, m.subprocess)
+
+					// Start the new session in the selected directory
+					if err := newSession.Start(sessionPath); err == nil {
+						m.tmuxSession = newSession
+						// Switch focus to right pane for immediate interaction
+						m.focused = "right"
+						// Update footer focus
+						m.footer.SetFocus("right")
+						m.shortcutOverlay.SetFocus("right")
+						// Start monitoring the new session and clear screen
+						return m, tea.Batch(
+							waitForTmuxOutput(newSession),
+							tea.ClearScreen,
+						)
+					}
+				}
+			}
+			// Enter key attaches to full tmux when right pane is focused
+			if m.focused == "right" && m.tmuxSession != nil {
+				// Use blocking attachment like Claude Squad - don't return to event loop during attachment
+				return m, func() tea.Msg {
+					detachCh, err := m.tmuxSession.Attach()
+					if err != nil {
+						return errMsg{err}
+					}
+					// Block until detachment like Claude Squad does
+					<-detachCh
+					return tmuxDetachedMsg{}
+				}
+			}
+
+		case key.Matches(msg, m.keyMap.Quit):
+			// Quit available from both panes
+			if m.tmuxSession != nil {
+				m.tmuxSession.Kill()
+			}
+			// Close debug panel and log file
+			if m.debugLogger != nil {
+				m.debugLogger.Close()
+			}
+			return m, tea.Quit
+
+		case key.Matches(msg, m.keyMap.Help):
+			// Show help dialog
+			m.showHelp = true
 			return m, nil
 
+		case key.Matches(msg, m.keyMap.FocusRight):
+			// Switch to right pane (tmux pane)
+			m.focused = "right"
+			m.footer.SetFocus(m.focused)
+			m.shortcutOverlay.SetFocus(m.focused)
+			return m, nil
 
-		case modePreview:
-			// Preview mode - handle navigation and mode switches only
-			switch msg.String() {
-			case "enter":
-				// Enter key attaches to full tmux when right pane is focused
-				if m.focused == "right" && m.tmuxSession != nil {
-					return m, func() tea.Msg {
-						detachCh, err := m.tmuxSession.Attach()
-						if err != nil {
-							return errMsg{err}
-						}
-						return tmuxAttachedMsg{detachCh: detachCh}
-					}
-				}
-
-			case "ctrl+c", "q":
-				if m.focused == "left" {
-					// Cleanup
-					if m.tmuxSession != nil {
-						m.tmuxSession.Kill()
-					}
-					return m, tea.Quit
-				}
-
-			case "?":
-				// Show help dialog
-				m.showHelp = true
-				return m, nil
-
-			case "0":
-				// Switch to right pane (tmux pane)
-				m.focused = "right"
-				m.footer.SetFocus(m.focused)
-				return m, nil
-
-			case "1":
-				// Switch to left pane (info pane)
-				m.focused = "left"
-				m.footer.SetFocus(m.focused)
-				return m, nil
-
+		case key.Matches(msg, m.keyMap.FocusLeft):
+			// Switch focus to left pane (worktree pane)
+			m.focused = "left"
+			m.footer.SetFocus(m.focused)
+			m.shortcutOverlay.SetFocus(m.focused)
+			if m.worktreeList != nil {
+				// Refresh worktree list when focusing
+				m.worktreeList.Refresh()
 			}
-			// In preview mode, we don't forward any keys to tmux
-			// This eliminates the SendKeys latency issue
+			return m, nil
+
+		case key.Matches(msg, m.keyMap.AddRepo):
+			// Add new repository using fzf search
+			DebugLog("Creating new repo dialog...")
+			m.repoDialog = NewRepoDialog()
+			m.showRepoDialog = true
+			// Initialize the repo dialog to start the repository discovery
+			initCmd := m.repoDialog.Init()
+			return m, initCmd
+
+		case key.Matches(msg, m.keyMap.DebugOverlay):
+			// Show debug overlay
+			m.showDebugOverlay = true
+			return m, nil
+
+		case key.Matches(msg, m.keyMap.NewWorktree):
+			// Create new worktree (available from both panes)
+			if m.worktreeManager != nil {
+				m.worktreeDialog = NewWorktreeDialog(m.worktreeManager, m.agentConfig)
+				m.showWorktreeDialog = true
+				return m, nil
+			}
+
+		case key.Matches(msg, m.keyMap.DeleteWorktree):
+			// Delete worktree (when left pane focused)
+			if m.focused == "left" && m.worktreeList != nil {
+				selected := m.worktreeList.GetSelected()
+				if selected != nil {
+					m.worktreeConfirm = NewWorktreeConfirmDialog(selected, m.worktreeManager)
+					m.showWorktreeConfirm = true
+					return m, nil
+				}
+			}
+
+		case key.Matches(msg, m.keyMap.Up):
+			// Navigate up in worktree list
+			if m.focused == "left" && m.worktreeList != nil {
+				m.worktreeList.MoveUp()
+				return m, nil
+			}
+
+		case key.Matches(msg, m.keyMap.Down):
+			// Navigate down in worktree list
+			if m.focused == "left" && m.worktreeList != nil {
+				m.worktreeList.MoveDown()
+				return m, nil
+			}
+
+		default:
+			// Handle other key combinations
+			switch msg.String() {
+			}
+		}
+
+	case tea.MouseMsg:
+		// Handle mouse events in preview mode only when right pane is focused
+		if m.mode == modePreview && m.focused == "right" && m.tmuxSession != nil {
+			switch msg.Type {
+			case tea.MouseWheelUp:
+				// Enter copy mode and scroll up
+				m.tmuxSession.SendScrollUp()
+			case tea.MouseWheelDown:
+				// Scroll down (or exit copy mode if at bottom)
+				m.tmuxSession.SendScrollDown()
+			}
+			// Trigger content refresh after scroll
+			return m, waitForTmuxOutput(m.tmuxSession)
 		}
 	}
 
@@ -315,19 +678,7 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
-	// Handle attached mode
-	if m.mode == modeAttached {
-		// Full screen tmux attachment
-		attachedStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#86")).
-			Bold(true).
-			Align(lipgloss.Center, lipgloss.Center).
-			Width(m.width).
-			Height(m.height)
-		return attachedStyle.Render("Attached to tmux session\n\nPress Ctrl+Q to detach")
-	}
-
-	// Reserve space for proper border rendering, footer, titles, and top padding
+	// Reserve space for proper border rendering, footer, titles, top padding, and debug panel
 	// Subtract 5 from height (1 for top, 1 for bottom of terminal, 1 for footer, 1 for titles, 1 for top padding)
 	availableHeight := m.height - 5
 
@@ -340,8 +691,8 @@ func (m model) View() string {
 	// Available width for actual content across both panes
 	availableContentWidth := m.width - totalFrameWidth
 
-	// Split content 60/40, then add frame back to each pane
-	leftContentWidth := int(float64(availableContentWidth) * 0.6)
+	// Split content 40/60, then add frame back to each pane
+	leftContentWidth := int(float64(availableContentWidth) * 0.4)
 	rightContentWidth := availableContentWidth - leftContentWidth
 
 	leftWidth := leftContentWidth + frameWidth
@@ -351,20 +702,37 @@ func (m model) View() string {
 	// Create title strings with proper focus styling
 	var leftTitle, rightTitle string
 
+	// Left pane is always Repos & Worktrees now
+	leftPaneTitle := "Repos & Worktrees"
+
+	// Define consistent number style that always stays light gray
+	numberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	// Agent title with colored rectangle background
+	agentTitleStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(m.agentConfig.BorderColor)).
+		Foreground(lipgloss.Color("255")). // White text
+		Padding(0, 1). // Add horizontal padding inside the rectangle
+		Bold(true)
+
+	// Create the rectangle style for the agent title
+	agentTitleBox := agentTitleStyle.Copy().
+		MarginRight(1) // Add space between box and shortcut
+
 	if m.focused == "left" {
-		// Left pane focused: both "Info" and "[1]" turn white
-		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")) // White
-		leftTitle = focusStyle.Render("Info") + " " + focusStyle.Render("[1]")
-		// Right pane unfocused: company name white, number gray
-		rightTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render(m.agentConfig.CompanyName) + " " +
-					lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[0]")
+		// Left pane focused: title turns white and bold, show shortcuts in white too
+		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true) // White and bold
+		shortcutStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true) // White for shortcuts when focused
+		leftTitle = focusStyle.Render(leftPaneTitle) + " " + shortcutStyle.Render("[r to add repo, w to add worktree]")
+		// Right pane unfocused: agent name in colored box, number outside in gray
+		rightTitle = agentTitleBox.Render(m.agentConfig.CompanyName) + numberStyle.Render("[0]")
 	} else {
-		// Right pane focused: both company name and "[0]" use agent color
-		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.agentConfig.BorderColor))
-		rightTitle = focusStyle.Render(m.agentConfig.CompanyName) + " " + focusStyle.Render("[0]")
-		// Left pane unfocused: "Info" white, "[1]" gray
-		leftTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render("Info") + " " +
-					lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[1]")
+		// Right pane focused: agent name in colored box, show shortcut text instead of [0]
+		shortcutStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.agentConfig.BorderColor)).Bold(true)
+		rightTitle = agentTitleBox.Render(m.agentConfig.CompanyName) + shortcutStyle.Render("[↵ attach to tmux]")
+		// Left pane unfocused: title white and bold, number stays gray
+		leftTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true).Render(leftPaneTitle) + " " +
+					numberStyle.Render("[1]")
 	}
 
 	// Start with base style (light gray borders) for both panes
@@ -381,11 +749,22 @@ func (m model) View() string {
 			BorderForeground(lipgloss.Color(m.agentConfig.BorderColor))
 	}
 
+	// Left pane always shows worktree list now
+	var leftPaneContent string
+	if m.worktreeList != nil {
+		// Update worktree list size and render
+		m.worktreeList.SetSize(leftContentWidth, availableHeight-frameWidth)
+		leftPaneContent = m.worktreeList.View()
+	} else {
+		// Fallback if worktree manager failed to initialize
+		leftPaneContent = "Worktree manager not available"
+	}
+
 	// Render pane content WITHOUT titles (titles will be separate)
 	leftContent := leftStyle.Copy().
 		Width(leftWidth).
 		Height(availableHeight).
-		Render(m.leftContent)
+		Render(leftPaneContent)
 
 	rightRendered := rightStyle.Copy().
 		Width(rightWidth).
@@ -407,23 +786,57 @@ func (m model) View() string {
 	panesWithPadding := lipgloss.NewStyle().PaddingTop(1).Render(panes)
 
 	// Add footer at the bottom
-	mainView := lipgloss.JoinVertical(lipgloss.Left, panesWithPadding, m.footer.View())
+	var bottomComponents []string
+	bottomComponents = append(bottomComponents, panesWithPadding)
+	bottomComponents = append(bottomComponents, m.footer.View())
+
+	mainView := lipgloss.JoinVertical(lipgloss.Left, bottomComponents...)
+
+	// If welcome overlay is visible, overlay it (highest priority)
+	if m.showWelcomeOverlay {
+		// Update overlay size
+		m.welcomeOverlay.SetSize(m.width, m.height)
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.welcomeOverlay.View(), mainView, true, true)
+	}
 
 	// If help dialog is visible, overlay it
 	if m.showHelp {
-		// Create a simple background model that just returns the main view
-		bgModel := &simpleModel{content: mainView}
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.helpDialog.View(), mainView, true, true)
+	}
 
-		// Create overlay with help dialog on top of main view
-		overlayModel := overlay.New(
-			m.helpDialog,    // Foreground (help dialog)
-			bgModel,         // Background (main view)
-			overlay.Center,  // X Position
-			overlay.Center,  // Y Position
-			0,              // X Offset
-			0,              // Y Offset
-		)
-		return overlayModel.View()
+	// If debug overlay is visible, overlay it (high priority)
+	if m.showDebugOverlay && m.debugOverlay != nil {
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.debugOverlay.View(), mainView, true, true)
+	}
+
+	// If worktree creation dialog is visible, overlay it
+	if m.showWorktreeDialog && m.worktreeDialog != nil {
+		// Update dialog size
+		m.worktreeDialog.SetSize(m.width, m.height)
+
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.worktreeDialog.View(), mainView, true, true)
+	}
+
+	// If repository dialog is visible, overlay it
+	if m.showRepoDialog && m.repoDialog != nil {
+		// Update dialog size
+		m.repoDialog.SetSize(m.width, m.height)
+
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.repoDialog.View(), mainView, true, true)
+	}
+
+	// If worktree deletion confirmation is visible, overlay it
+	if m.showWorktreeConfirm && m.worktreeConfirm != nil {
+		// Update dialog size
+		m.worktreeConfirm.SetSize(m.width, m.height)
+
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.worktreeConfirm.View(), mainView, true, true)
 	}
 
 	return mainView
@@ -441,7 +854,7 @@ func (m model) tmuxPreviewDimensions() (int, int) {
 	frameWidth := paneBaseStyle.GetHorizontalFrameSize()
 	totalFrameWidth := frameWidth * 2 + 4
 	availableContentWidth := m.width - totalFrameWidth
-	rightContentWidth := availableContentWidth - int(float64(availableContentWidth) * 0.6)
+	rightContentWidth := availableContentWidth - int(float64(availableContentWidth) * 0.4)
 
 	// Use the actual content width for tmux (this is the usable space)
 	contentWidth := rightContentWidth
@@ -512,21 +925,4 @@ Examples:
 	}
 }
 
-// simpleModel is a basic tea.Model that just displays static content
-// Used as background for the overlay
-type simpleModel struct {
-	content string
-}
-
-func (s *simpleModel) Init() tea.Cmd {
-	return nil
-}
-
-func (s *simpleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return s, nil
-}
-
-func (s *simpleModel) View() string {
-	return s.content
-}
 

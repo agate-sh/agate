@@ -11,6 +11,7 @@ import (
 type HelpDialog struct {
 	width  int
 	height int
+	keyMap *KeyMap
 }
 
 // Styling for help dialog
@@ -45,8 +46,10 @@ var (
 )
 
 // NewHelpDialog creates a new help dialog
-func NewHelpDialog() *HelpDialog {
-	return &HelpDialog{}
+func NewHelpDialog(keyMap *KeyMap) *HelpDialog {
+	return &HelpDialog{
+		keyMap: keyMap,
+	}
 }
 
 // Init implements tea.Model
@@ -72,14 +75,15 @@ func (h *HelpDialog) View() string {
 	var content []string
 
 	// Title
-	content = append(content, helpTitleStyle.Render("Agate - Terminal UI for AI Agents"))
+	content = append(content, helpTitleStyle.Render("Agate"))
+	content = append(content, helpTitleStyle.Copy().Bold(false).Render("Manage any agent, anywhere"))
 	content = append(content, "")
 
 	// Get all shortcuts grouped by category
-	shortcuts := AllShortcuts()
+	shortcuts := AllShortcuts(h.keyMap)
 
 	// Define the order of sections
-	sectionOrder := []string{"Two-Mode System", "Navigation", "Mode Benefits", "Help"}
+	sectionOrder := []string{"Global", "Navigation", "Worktree Management", "Tmux Interaction", "List Controls", "Dialog Actions"}
 
 	for _, section := range sectionOrder {
 		if items, ok := shortcuts[section]; ok {

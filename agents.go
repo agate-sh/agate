@@ -15,7 +15,7 @@ var ClaudeAgent = AgentConfig{
 	Name:           "claude",
 	BorderColor:    "#da7756",
 	ExecutableName: "claude",
-	CompanyName:    "Claude",
+	CompanyName:    "Claude Code",
 }
 
 // Amp agent configuration with the specific color

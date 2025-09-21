@@ -28,12 +28,10 @@ type TmuxSession struct {
 	monitor *StatusMonitor
 
 	// Attachment state
-	attachCh    chan struct{}
-	ctx         context.Context
-	cancel      func()
-	wg          *sync.WaitGroup
-	detaching   bool      // Guard to prevent duplicate detachment processing
-	detachMutex sync.Mutex // Protect detachment state
+	attachCh chan struct{}
+	ctx      context.Context
+	cancel   func()
+	wg       *sync.WaitGroup
 
 	// Terminal dimensions
 	width  int
@@ -78,26 +76,54 @@ func (t *TmuxSession) Start(workDir string) error {
 	}
 
 	if !exists {
-		// Create new tmux session
+		// Create new tmux session using PTY like Claude Squad
 		cmd := exec.Command("tmux", "new-session", "-d", "-s", t.sanitizedName, "-c", workDir, t.program)
 
-		// Run the command directly without PTY for session creation
-		output, err := cmd.CombinedOutput()
+		ptmx, err := t.ptyFactory.Start(cmd)
 		if err != nil {
-			return fmt.Errorf("error creating tmux session: %w, output: %s", err, string(output))
+			// Cleanup any partially created session if any exists.
+			if exists, _ := t.sessionExists(); exists {
+				cleanupCmd := exec.Command("tmux", "kill-session", "-t", t.sanitizedName)
+				if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
+				}
+			}
+			return fmt.Errorf("error starting tmux session: %w", err)
 		}
 
-		// Wait for session to be created
-		for i := 0; i < 10; i++ {
-			exists, _ = t.sessionExists()
-			if exists {
+		// Poll for session existence with exponential backoff like Claude Squad
+		timeout := time.After(2 * time.Second)
+		sleepDuration := 5 * time.Millisecond
+		for {
+			if exists, _ := t.sessionExists(); exists {
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-timeout:
+				if cleanupErr := t.Kill(); cleanupErr != nil {
+					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
+				}
+				return fmt.Errorf("timed out waiting for tmux session %s: %v", t.sanitizedName, err)
+			default:
+				time.Sleep(sleepDuration)
+				// Exponential backoff up to 50ms max
+				if sleepDuration < 50*time.Millisecond {
+					sleepDuration *= 2
+				}
+			}
+		}
+		ptmx.Close()
+
+		// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
+		historyCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "history-limit", "10000")
+		if err := historyCmd.Run(); err != nil {
+			// Log warning but don't fail
 		}
 
-		if !exists {
-			return fmt.Errorf("tmux session failed to start")
+		// Enable mouse scrolling for the session
+		mouseCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "mouse", "on")
+		if err := mouseCmd.Run(); err != nil {
+			// Log warning but don't fail
 		}
 	}
 
@@ -113,14 +139,17 @@ func (t *TmuxSession) Restore() error {
 		t.ptmx = nil
 	}
 
-	// For detached monitoring, we don't need a PTY - we'll use capture-pane
-	// Just verify the session exists
-	exists, err := t.sessionExists()
+	// Create a PTY connected to tmux attach-session (like Claude Squad)
+	cmd := exec.Command("tmux", "attach-session", "-t", t.sanitizedName)
+	ptmx, err := t.ptyFactory.Start(cmd)
 	if err != nil {
-		return fmt.Errorf("error checking session: %w", err)
+		return fmt.Errorf("error opening PTY for session %s: %w", t.sanitizedName, err)
 	}
-	if !exists {
-		return fmt.Errorf("tmux session %s does not exist", t.sanitizedName)
+	t.ptmx = ptmx
+
+	// Initialize status monitor if needed
+	if t.monitor == nil {
+		t.monitor = newStatusMonitor(t.program)
 	}
 
 	return nil
@@ -144,89 +173,52 @@ func (t *TmuxSession) sessionExists() (bool, error) {
 
 // Attach attaches to the tmux session for interactive use
 func (t *TmuxSession) Attach() (chan struct{}, error) {
-
-	// Create a PTY for attaching to the tmux session
-	cmd := exec.Command("tmux", "attach-session", "-t", t.sanitizedName)
-
-	ptmx, err := t.ptyFactory.Start(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("error attaching to tmux session: %w", err)
+	// Use the existing PTY that's already connected (like Claude Squad)
+	if t.ptmx == nil {
+		return nil, fmt.Errorf("no PTY available for session %s", t.sanitizedName)
 	}
-
-	// Close any existing PTY
-	if t.ptmx != nil {
-		t.ptmx.Close()
-	}
-	t.ptmx = ptmx
 
 	t.attachCh = make(chan struct{})
+
 	t.wg = &sync.WaitGroup{}
+	t.wg.Add(1)
 	t.ctx, t.cancel = context.WithCancel(context.Background())
 
-	// Create a channel to signal when stdin goroutine detects Ctrl+Q
-	detachSignal := make(chan struct{}, 1)
-
-	// Start goroutine to copy tmux output to stdout
-	t.wg.Add(1)
+	// The first goroutine should terminate when the ptmx is closed. We use the
+	// waitgroup to wait for it to finish.
+	// The 2nd one returns when you press escape to Detach. It doesn't need to be
+	// in the waitgroup because is the goroutine doing the Detaching; it waits for
+	// all the other ones.
 	go func() {
 		defer t.wg.Done()
 		_, _ = io.Copy(os.Stdout, t.ptmx)
-
-		// Check if it was a normal detach
-		select {
-		case <-t.ctx.Done():
-		default:
-			// Abnormal termination
-			fmt.Fprintf(os.Stderr, "\n\033[31mError: Session terminated without detaching. Use Ctrl+Q to properly detach from tmux sessions.\033[0m\n")
+		// When io.Copy returns, it means the connection was closed
+		// This could be due to normal detach or Ctrl-D
+		// Check if the context is done to determine if it was a normal detach
+		if t.ctx != nil {
+			select {
+			case <-t.ctx.Done():
+				// Normal detach, do nothing
+			default:
+				// If context is not done, it was likely an abnormal termination (Ctrl-D)
+				// Print warning message
+				fmt.Fprintf(os.Stderr, "\n\033[31mError: Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.\033[0m\n")
+			}
 		}
 	}()
 
-	// Start goroutine to forward stdin to tmux
-	t.wg.Add(1)
 	go func() {
-		defer func() {
-			t.wg.Done()
-		}()
-
-		// Small delay to handle initial terminal control sequences
+		// Close the channel after 50ms
 		timeoutCh := make(chan struct{})
 		go func() {
 			time.Sleep(50 * time.Millisecond)
 			close(timeoutCh)
 		}()
 
+		// Read input from stdin and check for Ctrl+q
 		buf := make([]byte, 32)
 		for {
-			// Check if we should exit before reading
-			select {
-			case <-t.ctx.Done():
-				return
-			default:
-			}
-
-			// Use a channel to make stdin read interruptible
-			type readResult struct {
-				n   int
-				err error
-			}
-
-			readCh := make(chan readResult, 1)
-			go func() {
-				n, err := os.Stdin.Read(buf)
-				readCh <- readResult{n, err}
-			}()
-
-			// Wait for either read completion or context cancellation
-			var nr int
-			var err error
-			select {
-			case <-t.ctx.Done():
-				return
-			case result := <-readCh:
-				nr = result.n
-				err = result.err
-			}
-
+			nr, err := os.Stdin.Read(buf)
 			if err != nil {
 				if err == io.EOF {
 					break
@@ -234,116 +226,83 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 				continue
 			}
 
-			// Skip initial control sequences
+			// Nuke the first bytes of stdin, up to 64, to prevent tmux from reading it.
+			// When we attach, there tends to be terminal control sequences like ?[?62c0;95;0c or
+			// ]10;rgb:f8f8f8. The control sequences depend on the terminal (warp vs iterm). We should use regex ideally
+			// but this works well for now. Log this for debugging.
+			//
+			// There seems to always be control characters, but I think it's possible for there not to be. The heuristic
+			// here can be: if there's characters within 50ms, then assume they are control characters and nuke them.
 			select {
 			case <-timeoutCh:
 			default:
+				// For now, skip logging since we don't have a logger setup
 				continue
 			}
 
-			// Check for detach key (Ctrl+Q)
-			if nr == 1 && buf[0] == 17 { // ASCII 17 is Ctrl+Q
-				// Check if already detaching to prevent duplicate processing
-				t.detachMutex.Lock()
-				if t.detaching {
-					t.detachMutex.Unlock()
-					continue
-				}
-				t.detaching = true
-				t.detachMutex.Unlock()
-
-				select {
-				case detachSignal <- struct{}{}:
-				default:
-				}
+			// Check for Ctrl+q (ASCII 17)
+			if nr == 1 && buf[0] == 17 {
+				// Detach from the session
+				t.Detach()
 				return
 			}
 
-			// Forward to tmux
-			_, writeErr := t.ptmx.Write(buf[:nr])
-			if writeErr != nil {
-			}
+			// Forward other input to tmux
+			_, _ = t.ptmx.Write(buf[:nr])
 		}
 	}()
 
-	// Monitor for detach signal
-	go func() {
-		select {
-		case <-detachSignal:
-			t.Detach()
-		case <-t.ctx.Done():
-		}
-	}()
-
-	// Monitor window size changes
 	t.monitorWindowSize()
-
 	return t.attachCh, nil
 }
 
-// Detach detaches from the tmux session
-func (t *TmuxSession) Detach() error {
+// Detach disconnects from the current tmux session.
+func (t *TmuxSession) Detach() {
+	// Store references to avoid race condition with cleanup
+	cancel := t.cancel
+	wg := t.wg
+	attachCh := t.attachCh
 
-	// Clear state variables immediately like claude-squad does
-	defer func() {
-		t.detachMutex.Lock()
-		t.detaching = false
-		t.attachCh = nil
-		t.ctx = nil
-		t.cancel = nil
-		t.wg = nil
-		t.detachMutex.Unlock()
-	}()
-
-	if t.cancel != nil {
-		t.cancel()
+	// Cancel goroutines created by Attach first
+	if cancel != nil {
+		cancel()
 	}
 
-	// Close PTY first to unblock io.Copy
+	// Close the attached pty session.
 	if t.ptmx != nil {
-		t.ptmx.Close()
-		t.ptmx = nil
-	}
-
-	if t.wg != nil {
-		t.wg.Wait()
-	}
-
-	// Close the attachment channel
-	if t.attachCh != nil {
-		close(t.attachCh)
-	}
-
-	// Re-establish PTY for detached monitoring
-	err := t.Restore()
-	if err != nil {
-	} else {
-	}
-
-	return err
-}
-
-// monitorWindowSize monitors and updates terminal size
-func (t *TmuxSession) monitorWindowSize() {
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-t.ctx.Done():
-				return
-			case <-ticker.C:
-				// Get current terminal size
-				if size, err := pty.GetsizeFull(os.Stdin); err == nil {
-					t.updateWindowSize(int(size.Cols), int(size.Rows))
-				}
-			}
+		err := t.ptmx.Close()
+		if err != nil {
+			// This is a fatal error. We can't detach if we can't close the PTY. It's better to just panic and have the
+			// user re-invoke the program than to ruin their terminal pane.
+			msg := fmt.Sprintf("error closing attach pty session: %v", err)
+			panic(msg)
 		}
-	}()
+	}
+
+	// Wait for goroutines to finish before cleanup
+	if wg != nil {
+		wg.Wait()
+	}
+
+	// Clean up state
+	if attachCh != nil {
+		close(attachCh)
+	}
+	t.attachCh = nil
+	t.cancel = nil
+	t.ctx = nil
+	t.wg = nil
+
+	// Attach goroutines should die on EOF due to the ptmx closing. Call
+	// t.Restore to set a new t.ptmx.
+	if err := t.Restore(); err != nil {
+		// This is a fatal error. Our invariant that a started TmuxSession always has a valid ptmx is violated.
+		msg := fmt.Sprintf("error restoring pty session: %v", err)
+		panic(msg)
+	}
 }
+
+// monitorWindowSize is implemented in platform-specific files (session_unix.go, etc.)
 
 // updateWindowSize updates the PTY size
 func (t *TmuxSession) updateWindowSize(cols, rows int) error {
@@ -357,8 +316,11 @@ func (t *TmuxSession) updateWindowSize(cols, rows int) error {
 			X:    0,
 			Y:    0,
 		})
+	} else {
+		// In detached mode, resize the tmux session directly
+		cmd := exec.Command("tmux", "resize-window", "-t", t.sanitizedName, "-x", fmt.Sprintf("%d", cols), "-y", fmt.Sprintf("%d", rows))
+		return cmd.Run()
 	}
-	return nil
 }
 
 // SetDetachedSize sets the size for detached mode
@@ -412,6 +374,25 @@ func (t *TmuxSession) TapEnter() error {
 	return t.SendKeys("\r")
 }
 
+// SendScrollUp sends scroll up command to tmux session
+func (t *TmuxSession) SendScrollUp() error {
+	// Use tmux copy-mode with scroll up
+	cmd := exec.Command("tmux", "copy-mode", "-t", t.sanitizedName)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	// Send multiple up arrows for smoother scrolling (3 lines up)
+	cmd = exec.Command("tmux", "send-keys", "-t", t.sanitizedName, "Up", "Up", "Up")
+	return cmd.Run()
+}
+
+// SendScrollDown sends scroll down command to tmux session
+func (t *TmuxSession) SendScrollDown() error {
+	// Try to scroll down - if at bottom, this will exit copy mode automatically
+	cmd := exec.Command("tmux", "send-keys", "-t", t.sanitizedName, "Down", "Down", "Down")
+	return cmd.Run()
+}
+
 // Kill terminates the tmux session
 func (t *TmuxSession) Kill() error {
 	// Cancel any active operations
@@ -430,12 +411,12 @@ func (t *TmuxSession) Kill() error {
 	return cmd.Run()
 }
 
-// GetSessionName returns the sanitized session name
-func (t *TmuxSession) GetSessionName() string {
-	return t.sanitizedName
-}
-
 // GetPTY returns the current PTY file descriptor
 func (t *TmuxSession) GetPTY() *os.File {
 	return t.ptmx
+}
+
+// GetSessionName returns the sanitized session name
+func (t *TmuxSession) GetSessionName() string {
+	return t.sanitizedName
 }

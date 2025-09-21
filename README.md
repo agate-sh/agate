@@ -56,7 +56,19 @@ agate codex
 
 - **Tab**: Switch focus between panes
 - **q**: Quit (when left pane is focused)
+- **Ctrl+D**: Open debug overlay (debug builds only)
 - **All standard terminal keys**: Supported in the right pane (arrows, backspace, etc.)
+
+### Debug Mode
+
+When built with debug support (`go build -tags debug`), Agate includes additional development features:
+
+- **Debug Panel**: A 10-line panel at the bottom showing real-time debug logs
+- **File Logging**: All debug output is also written to `debug.log` in the current directory
+- **Debug Overlay**: Press `Ctrl+D` to open a full-screen scrollable debug log viewer
+- **Persistent Logs**: Debug information is preserved when switching between preview and tmux modes
+
+Debug mode is intended for development and troubleshooting. The debug panel and file logging have minimal performance impact.
 
 ## Website
 
