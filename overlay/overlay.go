@@ -1,3 +1,5 @@
+// Package overlay provides utilities for positioning and rendering overlay
+// components on top of background content in terminal interfaces.
 package overlay
 
 import (
@@ -32,6 +34,8 @@ func getLines(s string) (lines []string, widest int) {
 	return lines, widest
 }
 
+// CalculateCenterCoordinates calculates the x,y coordinates to center foreground content
+// within background content based on their dimensions.
 func CalculateCenterCoordinates(foregroundLines []string, backgroundLines []string, foregroundWidth, backgroundWidth int) (int, int) {
 	// Calculate the x-coordinate to horizontally center the foreground text.
 	x := (backgroundWidth - foregroundWidth) / 2
@@ -210,17 +214,17 @@ func cutLeft(s string, cutWidth int) string {
 }
 
 func clamp(v, lower, upper int) int {
-	return min(max(v, lower), upper)
+	return minInt(maxInt(v, lower), upper)
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

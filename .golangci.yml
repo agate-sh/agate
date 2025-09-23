@@ -1,0 +1,73 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  gocyclo:
+    min-complexity: 15
+
+  govet:
+    enable:
+      - shadow
+
+  misspell:
+    locale: US
+
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
+
+  revive:
+    min-confidence: 0
+
+  staticcheck:
+    checks: ["all"]
+
+linters:
+  enable:
+    # Default enabled linters
+    - errcheck      # Check for unchecked errors
+    - govet         # Go vet tool
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Advanced static analysis
+    - unused        # Find unused code
+
+    # Additional useful linters
+    - bodyclose     # Check HTTP response body close
+    - gocyclo       # Cyclomatic complexity
+    - gosec         # Security issues
+    - misspell      # Misspelled words
+    - nolintlint    # Nolint directive issues
+    - revive        # Fast configurable linter
+    - unconvert     # Unnecessary type conversions
+    - unparam       # Unused function parameters
+    - whitespace    # Leading/trailing whitespace
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - gosec
+        - unparam
+
+    # Ignore complexity in main.go (common for CLI tools)
+    - path: main\.go
+      linters:
+        - gocyclo
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

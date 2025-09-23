@@ -56,29 +56,29 @@ func newItemStyles() *itemStyles {
 	return &itemStyles{
 		repoHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("86")). // Cyan for repo headers
+			Foreground(lipgloss.Color(infoStatus)).
 			MarginTop(1),
 		worktreeItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")), // White for worktree names
+			Foreground(lipgloss.Color(textPrimary)), // White for worktree names
 		worktreeSelectedItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("16")). // Black text
-			Background(lipgloss.Color("86")). // Cyan background
+			Foreground(lipgloss.Color(highlightBg)). // Black text
+			Background(lipgloss.Color(infoStatus)).
 			Bold(true),
 		statusClean: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("83")), // Green for clean status
+			Foreground(lipgloss.Color(successStatus)),
 		statusDirty: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")), // Orange for dirty status
+			Foreground(lipgloss.Color(warningStatus)),
 		statusInfo: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")), // Gray for branch info
+			Foreground(lipgloss.Color(textMuted)), // Gray for branch info
 		repoCurrent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#dfcfae")).
+			Foreground(lipgloss.Color(selection)).
 			Bold(true),
 		selectedItem: lipgloss.NewStyle().
 			PaddingLeft(2).
-			Foreground(lipgloss.Color("#dfcfae")),
+			Foreground(lipgloss.Color(selection)),
 		normalItem: lipgloss.NewStyle().
 			PaddingLeft(4).
-			Foreground(lipgloss.Color("250")),
+			Foreground(lipgloss.Color(textDescription)),
 	}
 }
 
@@ -93,7 +93,7 @@ func (d itemDelegate) Spacing() int {
 }
 
 // Update implements list.ItemDelegate
-func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
+func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd {
 	return nil
 }
 
@@ -167,7 +167,10 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		content = line + "\n" + statusLine
 	}
 
-	fmt.Fprint(w, content)
+	if _, err := fmt.Fprint(w, content); err != nil {
+		// Log error but continue - this is UI rendering
+		DebugLog("Failed to write worktree content to buffer: %v", err)
+	}
 }
 
 // formatStatusLine formats the status line for a worktree
@@ -271,7 +274,7 @@ func NewWorktreeList(worktreeManager *git.WorktreeManager) *WorktreeList {
 	// Configure styles for the list itself
 	l.Styles.Title = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("86"))
+		Foreground(lipgloss.Color(infoStatus))
 
 	wl := &WorktreeList{
 		list:            l,
@@ -281,7 +284,10 @@ func NewWorktreeList(worktreeManager *git.WorktreeManager) *WorktreeList {
 	}
 
 	// Load worktrees
-	wl.Refresh()
+	if err := wl.Refresh(); err != nil {
+		DebugLog("Failed to refresh worktree list during initialization: %v", err)
+		// Continue with empty list - UI will show "no repositories found"
+	}
 
 	return wl
 }
@@ -483,13 +489,13 @@ func (wl *WorktreeList) GetSelectedItem() *WorktreeListItem {
 func (wl *WorktreeList) View() string {
 	if wl.worktreeManager == nil {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color(textMuted)).
 			Render("Worktree manager not available")
 	}
 
 	if len(wl.items) == 0 {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color(textMuted)).
 			Render("No repositories found\n\nPress 'r' to add a repository")
 	}
 

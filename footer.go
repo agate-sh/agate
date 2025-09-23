@@ -12,7 +12,7 @@ type Footer struct {
 	height          int
 	focused         string // "left" or "right"
 	agentConfig     AgentConfig
-	showHelp        bool // Whether help dialog is shown
+	showHelp        bool   // Whether help dialog is shown
 	mode            string // "preview", "focused", "attached"
 	shortcutOverlay *ShortcutOverlay
 }
@@ -28,8 +28,6 @@ var (
 	footerSeparatorStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(separatorColor))
 
-	footerActiveKeyStyle = lipgloss.NewStyle().
-				Bold(true)
 
 	footerStyle = lipgloss.NewStyle().
 			Padding(0, 1)
@@ -95,7 +93,7 @@ func (f *Footer) View() string {
 	}
 
 	// Group shortcuts into categories with new logic
-	var paneSpecificShortcuts []Shortcut // Shortcuts that should be highlighted for current pane
+	var paneSpecificShortcuts []Shortcut         // Shortcuts that should be highlighted for current pane
 	var globalNonHighlightedShortcuts []Shortcut // Shortcuts that are shown but not highlighted
 	var quitShortcut *Shortcut
 	var helpShortcut *Shortcut
@@ -109,10 +107,10 @@ func (f *Footer) View() string {
 			// Determine if this shortcut should be highlighted based on current focus
 			shouldHighlight := false
 
-			if f.focused == "right" && shortcut.Key == "↵" {
-				// Only highlight "attach to tmux" when right pane focused
+			if (f.focused == "tmux" || f.focused == "git" || f.focused == "shell") && shortcut.Key == "⏎" {
+				// Only highlight "attach to tmux" when any right pane is focused
 				shouldHighlight = true
-			} else if f.focused == "left" && (shortcut.Key == "n" || shortcut.Key == "d") {
+			} else if f.focused == "reposAndWorktrees" && (shortcut.Key == "n" || shortcut.Key == "d") {
 				// Highlight worktree shortcuts when left pane focused
 				shouldHighlight = true
 			}
@@ -133,18 +131,23 @@ func (f *Footer) View() string {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
 
-		keyStyle := footerKeyStyle.Copy().Bold(true)
+		keyStyle := footerKeyStyle.Bold(true)
 		descStyle := footerDescStyle
 
 		// Apply appropriate highlighting color based on current pane focus
-		if f.focused == "right" {
-			// Apply agent color when right pane is focused
-			keyStyle = keyStyle.Copy().Foreground(lipgloss.Color(f.agentConfig.BorderColor))
-			descStyle = descStyle.Copy().Foreground(lipgloss.Color(f.agentConfig.BorderColor))
-		} else if f.focused == "left" {
+		switch f.focused {
+		case "tmux":
+			// Apply agent color when tmux pane is focused
+			keyStyle = keyStyle.Foreground(lipgloss.Color(f.agentConfig.BorderColor))
+			descStyle = descStyle.Foreground(lipgloss.Color(f.agentConfig.BorderColor))
+		case "git", "shell":
+			// Apply gray color when git/shell panes are focused
+			keyStyle = keyStyle.Foreground(lipgloss.Color(textDescription))
+			descStyle = descStyle.Foreground(lipgloss.Color(textDescription))
+		case "reposAndWorktrees":
 			// Apply white color when left pane is focused
-			keyStyle = keyStyle.Copy().Foreground(lipgloss.Color("255")) // White
-			descStyle = descStyle.Copy().Foreground(lipgloss.Color("255")) // White
+			keyStyle = keyStyle.Foreground(lipgloss.Color(textPrimary))
+			descStyle = descStyle.Foreground(lipgloss.Color(textPrimary))
 		}
 
 		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
@@ -164,7 +167,7 @@ func (f *Footer) View() string {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
 
-		keyStyle := footerKeyStyle.Copy().Bold(true)
+		keyStyle := footerKeyStyle.Bold(true)
 		descStyle := footerDescStyle
 		// Keep default gray styling
 
@@ -179,7 +182,7 @@ func (f *Footer) View() string {
 
 	// Render quit shortcut
 	if quitShortcut != nil {
-		keyStyle := footerKeyStyle.Copy().Bold(true)
+		keyStyle := footerKeyStyle.Bold(true)
 		descStyle := footerDescStyle
 		part := keyStyle.Render(quitShortcut.Key) + " " + descStyle.Render(quitShortcut.Description)
 		parts = append(parts, part)
@@ -190,7 +193,7 @@ func (f *Footer) View() string {
 		if len(parts) > 0 {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
-		keyStyle := footerKeyStyle.Copy().Bold(true)
+		keyStyle := footerKeyStyle.Bold(true)
 		descStyle := footerDescStyle
 		part := keyStyle.Render(helpShortcut.Key) + " " + descStyle.Render(helpShortcut.Description)
 		parts = append(parts, part)

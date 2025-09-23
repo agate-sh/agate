@@ -112,19 +112,17 @@ func (t *TmuxSession) Start(workDir string) error {
 				}
 			}
 		}
-		ptmx.Close()
+		if err := ptmx.Close(); err != nil {
+			fmt.Printf("Warning: Failed to close PTY during session creation: %v\n", err)
+		}
 
 		// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
 		historyCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "history-limit", "10000")
-		if err := historyCmd.Run(); err != nil {
-			// Log warning but don't fail
-		}
+		_ = historyCmd.Run() // Log warning but don't fail
 
 		// Enable mouse scrolling for the session
 		mouseCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "mouse", "on")
-		if err := mouseCmd.Run(); err != nil {
-			// Log warning but don't fail
-		}
+		_ = mouseCmd.Run() // Log warning but don't fail
 	}
 
 	// Attach to the session in detached mode
@@ -135,7 +133,9 @@ func (t *TmuxSession) Start(workDir string) error {
 func (t *TmuxSession) Restore() error {
 	// Close existing PTY if any
 	if t.ptmx != nil {
-		t.ptmx.Close()
+		if err := t.ptmx.Close(); err != nil {
+			fmt.Printf("Warning: Failed to close existing PTY: %v\n", err)
+		}
 		t.ptmx = nil
 	}
 
@@ -316,11 +316,10 @@ func (t *TmuxSession) updateWindowSize(cols, rows int) error {
 			X:    0,
 			Y:    0,
 		})
-	} else {
-		// In detached mode, resize the tmux session directly
-		cmd := exec.Command("tmux", "resize-window", "-t", t.sanitizedName, "-x", fmt.Sprintf("%d", cols), "-y", fmt.Sprintf("%d", rows))
-		return cmd.Run()
 	}
+	// In detached mode, resize the tmux session directly
+	cmd := exec.Command("tmux", "resize-window", "-t", t.sanitizedName, "-x", fmt.Sprintf("%d", cols), "-y", fmt.Sprintf("%d", rows))
+	return cmd.Run()
 }
 
 // SetDetachedSize sets the size for detached mode
@@ -402,7 +401,9 @@ func (t *TmuxSession) Kill() error {
 
 	// Close PTY
 	if t.ptmx != nil {
-		t.ptmx.Close()
+		if err := t.ptmx.Close(); err != nil {
+			fmt.Printf("Warning: Failed to close PTY during session kill: %v\n", err)
+		}
 		t.ptmx = nil
 	}
 

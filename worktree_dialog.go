@@ -6,9 +6,9 @@ import (
 
 	"agate/git"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -32,29 +32,29 @@ type WorktreeDialog struct {
 var (
 	dialogStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
+			BorderForeground(lipgloss.Color(borderMuted)).
 			Padding(1, 2).
 			MaxWidth(50)
 
 	dialogTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#9d87ae")). // Using ASCII art color
+				Foreground(lipgloss.Color(agateColor)). // Using ASCII art color
 				MarginBottom(1)
 
 	dialogErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("196")). // Red
+				Foreground(lipgloss.Color(errorStatus)).
 				MarginTop(1)
 
 	dialogWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214")). // Orange
+				Foreground(lipgloss.Color(warningStatus)).
 				MarginTop(1)
 
 	dialogInfoStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")). // Gray
-				MarginTop(1)
+			Foreground(lipgloss.Color(textMuted)). // Gray
+			MarginTop(1)
 
 	dialogButtonStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("86")). // Cyan
+				Foreground(lipgloss.Color(infoStatus)).
 				MarginTop(1)
 )
 
@@ -131,7 +131,7 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}),
 			// Wait 3 seconds before sending the complete message
 			tea.Tick(3*time.Second, func(time.Time) tea.Msg {
-				return WorktreeInitializationCompleteMsg{Worktree: msg.Worktree}
+				return WorktreeInitializationCompleteMsg(msg)
 			}),
 		)
 

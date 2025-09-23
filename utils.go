@@ -44,9 +44,9 @@ func truncatePathFromLeft(path string, maxWidth int) string {
 		}
 
 		// Check if adding this segment would exceed our width
-		if currentLength + len(segmentWithSep) > remainingWidth {
+		if currentLength+len(segmentWithSep) > remainingWidth {
 			// If we haven't kept the minimum segments yet, force include them
-			if len(keptSegments) < minSegments && i < len(segments) - minSegments {
+			if len(keptSegments) < minSegments && i < len(segments)-minSegments {
 				break
 			}
 			// Otherwise stop here

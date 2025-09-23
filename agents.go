@@ -1,3 +1,5 @@
+// Package main provides the agate terminal user interface for managing AI agents
+// across different worktrees and tmux sessions.
 package main
 
 import "strings"

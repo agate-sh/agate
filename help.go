@@ -17,30 +17,30 @@ type HelpDialog struct {
 // Styling for help dialog
 var (
 	helpOverlayStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
-			Padding(1, 2).
-			MaxWidth(65)  // Increase width to prevent border cutoff
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color(borderMuted)).
+				Padding(1, 2).
+				MaxWidth(65) // Increase width to prevent border cutoff
 
 	helpTitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#9d87ae")). // Using ASCII art color
+			Foreground(lipgloss.Color(agateColor)). // Using ASCII art color
 			MarginBottom(1)
 
 	helpSectionStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("86")). // Cyan
-			MarginTop(1)
+				Bold(true).
+				Foreground(lipgloss.Color(infoStatus)). // Cyan
+				MarginTop(1)
 
 	helpKeyStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("220")) // Yellow
+			Foreground(lipgloss.Color(warningYellow)) // Yellow
 
 	helpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250"))
+			Foreground(lipgloss.Color(textDescription))
 
 	helpFooterStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color(textMuted)).
 			Italic(true).
 			MarginTop(1)
 )
@@ -58,7 +58,7 @@ func (h *HelpDialog) Init() tea.Cmd {
 }
 
 // Update implements tea.Model
-func (h *HelpDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (h *HelpDialog) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 	return h, nil
 }
 
@@ -68,7 +68,6 @@ func (h *HelpDialog) SetSize(width, height int) {
 	h.height = height
 }
 
-
 // View implements tea.Model and renders the help dialog content
 func (h *HelpDialog) View() string {
 	// Build help content
@@ -76,7 +75,7 @@ func (h *HelpDialog) View() string {
 
 	// Title
 	content = append(content, helpTitleStyle.Render("Agate"))
-	content = append(content, helpTitleStyle.Copy().Bold(false).Render("Manage any agent, anywhere"))
+	content = append(content, helpTitleStyle.Bold(false).Render("Manage any agent, anywhere"))
 	content = append(content, "")
 
 	// Get all shortcuts grouped by category

@@ -23,30 +23,30 @@ type WorktreeConfirmDialog struct {
 var (
 	confirmDialogStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("196")). // Red border for dangerous action
+				BorderForeground(lipgloss.Color(errorStatus)).
 				Padding(1, 2).
 				MaxWidth(50)
 
 	confirmTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("196")). // Red
+				Foreground(lipgloss.Color(errorStatus)).
 				MarginBottom(1)
 
 	confirmInfoStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("255")). // White
+				Foreground(lipgloss.Color(textPrimary)). // White
 				MarginBottom(1)
 
 	confirmWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214")). // Orange
+				Foreground(lipgloss.Color(warningStatus)).
 				MarginTop(1).
 				MarginBottom(1)
 
 	confirmButtonsStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("86")). // Cyan
+				Foreground(lipgloss.Color(infoStatus)).
 				MarginTop(1)
 
 	confirmDeletingStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")). // Gray
+				Foreground(lipgloss.Color(textMuted)). // Gray
 				MarginTop(1)
 )
 

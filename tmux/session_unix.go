@@ -25,9 +25,7 @@ func (t *TmuxSession) monitorWindowSize() {
 			// If we can't get terminal size, skip this update
 			return
 		}
-		if err := t.updateWindowSize(cols, rows); err != nil {
-			// Log error but continue
-		}
+		_ = t.updateWindowSize(cols, rows) // Log error but continue
 	}
 	// Do one at the end of the function to set the initial size.
 	defer doUpdate()

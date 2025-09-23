@@ -40,19 +40,22 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 	// Add context-specific shortcuts
 	switch s.mode {
 	case "preview":
-		if s.focused == "left" {
+		switch s.focused {
+		case "reposAndWorktrees":
 			// Left pane (repos & worktrees list) shortcuts
 			shortcuts = append(shortcuts,
 				s.keyMap.AddRepo,
 				s.keyMap.NewWorktree,
 				s.keyMap.DeleteWorktree,
-				s.keyMap.FocusRight,
+				s.keyMap.FocusPaneTmux,
+				s.keyMap.FocusPaneGit,
+				s.keyMap.FocusPaneShell,
 			)
-		} else {
-			// Right pane (tmux preview) shortcuts
+		case "tmux", "git", "shell":
+			// Right panes (tmux/git/shell) shortcuts
 			shortcuts = append(shortcuts,
 				s.keyMap.AttachTmux,
-				s.keyMap.FocusLeft,
+				s.keyMap.FocusPaneRepos,
 			)
 		}
 	case "attached":
@@ -90,10 +93,10 @@ func (s *ShortcutOverlay) isGlobalKey(binding key.Binding) bool {
 
 // Shortcut represents a keyboard shortcut with its description (for compatibility)
 type Shortcut struct {
-	Key              string
-	Description      string
-	IsGlobal         bool // Whether this is a global shortcut
-	IsAgentShortcut  bool // Whether this is an agent/tmux-specific shortcut
+	Key             string
+	Description     string
+	IsGlobal        bool // Whether this is a global shortcut
+	IsAgentShortcut bool // Whether this is an agent/tmux-specific shortcut
 }
 
 // PreviewModeShortcuts returns shortcuts for preview mode (for compatibility)

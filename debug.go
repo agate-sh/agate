@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,7 +18,10 @@ type DebugLogger struct {
 // NewDebugLogger creates a new debug logger using standard Go logging
 func NewDebugLogger() *DebugLogger {
 	// Ensure .agate directory exists
-	config.EnsureAgateDir()
+	if err := config.EnsureAgateDir(); err != nil {
+		// Fall back to stderr if directory creation fails
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create .agate directory: %v\n", err)
+	}
 
 	// Get .agate directory path
 	agateDir, err := config.GetAgateDir()
@@ -56,13 +60,15 @@ func (d *DebugLogger) Log(format string, args ...interface{}) {
 	d.logger.Printf(format, args...)
 }
 
-
 // Close closes the debug log file
 func (d *DebugLogger) Close() {
 	d.logger.Println("=== Debug session ended ===")
 
 	if d.logFile != nil && d.logFile != os.Stderr {
-		d.logFile.Close()
+		if err := d.logFile.Close(); err != nil {
+			// Log to stderr as last resort since logFile is failing
+			fmt.Fprintf(os.Stderr, "Warning: Failed to close debug log file: %v\n", err)
+		}
 	}
 }
 

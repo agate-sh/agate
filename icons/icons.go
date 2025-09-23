@@ -1,3 +1,5 @@
+// Package icons provides consistent icon representations using Nerd Fonts
+// for various file types and UI elements in the agate interface.
 package icons
 
 import (
@@ -93,15 +95,17 @@ func SetNerdFonts(enabled bool) {
 	useNerdFonts = &enabled
 }
 
-// Convenience functions for the icons we actually use
+// GetGitRepo returns the Git repository icon
 func GetGitRepo() string {
 	return GitRepo.Get()
 }
 
+// GetHome returns the home directory icon
 func GetHome() string {
 	return Home.Get()
 }
 
+// GetFolder returns the folder icon
 func GetFolder() string {
 	return Folder.Get()
 }

@@ -1,3 +1,5 @@
+// Package git provides Git worktree management functionality including
+// creation, deletion, and status tracking of Git worktrees.
 package git
 
 import (
@@ -12,7 +14,7 @@ import (
 )
 
 // DebugLog is a placeholder function - will be implemented based on build tags
-var DebugLog = func(format string, args ...interface{}) {
+var DebugLog = func(_ string, _ ...interface{}) {
 	// No-op by default, overridden by main package when debug is enabled
 }
 
@@ -24,16 +26,16 @@ type SystemCapabilities struct {
 
 // GitStatus represents the Git status of a worktree
 type GitStatus struct {
-	Branch      string
-	Ahead       int
-	Behind      int
-	Staged      int
-	Modified    int
-	Untracked   int
-	Stashed     int
-	IsClean     bool
-	HasRemote   bool
-	RemoteName  string
+	Branch     string
+	Ahead      int
+	Behind     int
+	Staged     int
+	Modified   int
+	Untracked  int
+	Stashed    int
+	IsClean    bool
+	HasRemote  bool
+	RemoteName string
 }
 
 // WorktreeInfo represents information about a Git worktree
@@ -203,9 +205,9 @@ func GenerateRandomBranchName() string {
 	adjectives := []string{"quick", "bright", "swift", "clever", "bold", "neat", "clean", "smooth", "sharp", "cool"}
 	nouns := []string{"fix", "update", "patch", "change", "work", "task", "feature", "test", "demo", "trial"}
 
-	rand.Seed(time.Now().UnixNano())
-	adj := adjectives[rand.Intn(len(adjectives))]
-	noun := nouns[rand.Intn(len(nouns))]
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	adj := adjectives[rng.Intn(len(adjectives))]
+	noun := nouns[rng.Intn(len(nouns))]
 
 	return fmt.Sprintf("%s-%s", adj, noun)
 }
@@ -506,7 +508,7 @@ func (wm *WorktreeManager) DeleteWorktree(worktreeInfo WorktreeInfo) error {
 	// Clean up empty parent directory
 	parentDir := filepath.Dir(worktreeInfo.Path)
 	if isEmpty, _ := isDirEmpty(parentDir); isEmpty {
-		os.Remove(parentDir)
+		_ = os.Remove(parentDir) // Ignore error as this is cleanup
 	}
 
 	return nil

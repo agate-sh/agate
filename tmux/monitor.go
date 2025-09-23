@@ -1,3 +1,5 @@
+// Package tmux provides tmux session management and monitoring functionality
+// for creating, attaching to, and controlling tmux sessions.
 package tmux
 
 import (

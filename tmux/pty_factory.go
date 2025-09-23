@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -62,8 +63,14 @@ func (f *MockPtyFactory) Start(cmd *exec.Cmd) (*os.File, error) {
 func (f *MockPtyFactory) Close() {
 	for _, file := range f.Files {
 		if file != nil {
-			file.Close()
-			os.Remove(file.Name())
+			if err := file.Close(); err != nil {
+				// Log error but continue cleanup
+				fmt.Printf("Warning: Failed to close mock PTY file %s: %v\n", file.Name(), err)
+			}
+			if err := os.Remove(file.Name()); err != nil {
+				// Log error but continue cleanup
+				fmt.Printf("Warning: Failed to remove mock PTY file %s: %v\n", file.Name(), err)
+			}
 		}
 	}
 }

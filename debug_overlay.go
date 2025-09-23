@@ -16,10 +16,10 @@ import (
 
 // DebugOverlay provides a full-screen scrollable view of debug logs
 type DebugOverlay struct {
-	viewport     viewport.Model
-	debugLogger  *DebugLogger
-	width        int
-	height       int
+	viewport    viewport.Model
+	debugLogger *DebugLogger
+	width       int
+	height      int
 }
 
 // NewDebugOverlay creates a new debug overlay
@@ -27,9 +27,8 @@ func NewDebugOverlay(debugLogger *DebugLogger) *DebugOverlay {
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("7")). // White border
+		BorderForeground(lipgloss.Color(white)). // White border
 		Padding(1)
-
 
 	return &DebugOverlay{
 		viewport:    vp,
@@ -46,7 +45,7 @@ func (d *DebugOverlay) SetSize(width, height int) {
 	overlayWidth := width - 4
 	overlayHeight := height - 4
 
-	d.viewport.Width = overlayWidth - 4  // Account for border and padding
+	d.viewport.Width = overlayWidth - 4   // Account for border and padding
 	d.viewport.Height = overlayHeight - 4 // Account for border and padding
 }
 
@@ -96,7 +95,7 @@ func (d *DebugOverlay) View() string {
 
 	// Create header with title and path on same row
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7")). // White
+		Foreground(lipgloss.Color(white)). // White
 		Bold(true)
 
 	pathStyle := lipgloss.NewStyle().
@@ -134,7 +133,7 @@ func (d *DebugOverlay) View() string {
 	// Apply overlay styling
 	overlayStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("7")). // White border
+		BorderForeground(lipgloss.Color(white)). // White border
 		Padding(1, 2).
 		Width(d.width - 4).
 		Height(d.height - 4)
@@ -158,7 +157,7 @@ func (d *DebugOverlay) readDebugLogFile() []string {
 	if err != nil {
 		return []string{"Error: Could not open debug.log file"}
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read all lines from the file
 	var lines []string
@@ -202,11 +201,10 @@ func (d *DebugOverlay) openDebugLogFile() tea.Cmd {
 		}
 
 		// Run the command in the background
-		cmd.Start()
+		_ = cmd.Start() // Ignore error as this is best-effort
 		return nil
 	}
 }
-
 
 // DebugOverlayClosedMsg indicates the debug overlay was closed
 type DebugOverlayClosedMsg struct{}

@@ -1,3 +1,5 @@
+// Package config provides configuration management and state persistence
+// for the agate application.
 package config
 
 import (

@@ -18,10 +18,9 @@ import (
 type RepoDialog struct {
 	width          int
 	height         int
-	searching      bool
-	err            string
-	discoveredPath string
-	startTime      time.Time
+	searching bool
+	err       string
+	startTime time.Time
 	spinner        spinner.Model
 }
 
@@ -91,7 +90,6 @@ func (d *RepoDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return d, cmd
 }
-
 
 // SetSize updates the dialog dimensions
 func (d *RepoDialog) SetSize(width, height int) {

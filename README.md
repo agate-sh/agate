@@ -27,6 +27,11 @@ Requires Go 1.21 or higher:
 ```bash
 git clone https://github.com/yourusername/agate
 cd agate
+make build
+```
+
+Or using Go directly:
+```bash
 go build
 ```
 
@@ -69,6 +74,79 @@ When built with debug support (`go build -tags debug`), Agate includes additiona
 - **Persistent Logs**: Debug information is preserved when switching between preview and tmux modes
 
 Debug mode is intended for development and troubleshooting. The debug panel and file logging have minimal performance impact.
+
+## Development
+
+### Building
+
+```bash
+# Standard build
+make build
+
+# Clean build artifacts
+make clean
+```
+
+### Code Quality Tools
+
+Agate uses standard Go tooling for maintaining code quality:
+
+#### Formatting
+```bash
+# Format code with gofmt and goimports
+make fmt
+```
+
+#### Linting
+```bash
+# Run comprehensive linting with golangci-lint
+make lint
+
+# Run linting with automatic fixes
+make lint-fix
+
+# Run go vet static analysis
+make vet
+
+# Run all checks (format + vet + lint)
+make check
+
+# Auto-fix all possible issues (format + lint-fix)
+make fix
+```
+
+#### Development Tools Setup
+```bash
+# Install required development tools
+make install-tools
+```
+
+The project uses `golangci-lint` with 11 enabled linters including:
+- **errcheck** - Check for unchecked errors
+- **govet** - Go vet tool ✨ (supports auto-fix)
+- **staticcheck** - Advanced static analysis ✨ (supports auto-fix)
+- **gosec** - Security issues
+- **revive** - Fast configurable linter ✨ (supports auto-fix)
+- **gocyclo** - Cyclomatic complexity
+- **misspell** - Misspelled words ✨ (supports auto-fix)
+- **whitespace** - Leading/trailing whitespace ✨ (supports auto-fix)
+- **nolintlint** - Nolint directive issues ✨ (supports auto-fix)
+- And more...
+
+Configuration is stored in `.golangci.yml` and tuned specifically for CLI applications.
+
+**Auto-fix capabilities**: 6 out of 11 enabled linters support automatic fixes, including whitespace formatting, deprecated API updates, and code style improvements.
+
+### Testing
+```bash
+# Run tests
+make test
+```
+
+All available commands can be viewed with:
+```bash
+make help
+```
 
 ## Website
 

@@ -9,7 +9,7 @@ import (
 )
 
 //go:embed ascii-art.txt
-var welcomeAsciiArt string
+var welcomeASCIIArt string
 
 // WelcomeOverlay represents the first-time user welcome overlay
 type WelcomeOverlay struct {
@@ -21,23 +21,23 @@ type WelcomeOverlay struct {
 var (
 	welcomeOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("240")).
+				BorderForeground(lipgloss.Color(borderMuted)).
 				Padding(1, 2).
 				MaxWidth(65) // Same as help dialog that works
 
-	welcomeAsciiStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#9d87ae")). // Same color as main ASCII art
+	welcomeASCIIStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(agateColor)). // Same color as main ASCII art
 				MarginBottom(1)
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("250")). // Light gray
+				Foreground(lipgloss.Color(textDescription)). // Light gray
 				Align(lipgloss.Center).
 				Bold(true).
 				Width(55). // Smaller width to avoid breaking border
 				MarginBottom(2)
 
 	welcomeFooterStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")). // Gray
+				Foreground(lipgloss.Color(textMuted)). // Gray
 				Italic(true).
 				Align(lipgloss.Center).
 				MarginTop(1)
@@ -54,7 +54,7 @@ func (w *WelcomeOverlay) Init() tea.Cmd {
 }
 
 // Update implements tea.Model
-func (w *WelcomeOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (w *WelcomeOverlay) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 	return w, nil
 }
 
@@ -70,7 +70,7 @@ func (w *WelcomeOverlay) View() string {
 	var content []string
 
 	// ASCII Art
-	content = append(content, welcomeAsciiStyle.Render(welcomeAsciiArt))
+	content = append(content, welcomeASCIIStyle.Render(welcomeASCIIArt))
 	content = append(content, "")
 
 	// Subtitle
