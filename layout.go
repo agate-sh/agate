@@ -1,6 +1,8 @@
 package main
 
 import (
+	"agate/tmux"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -134,7 +136,7 @@ func (l *Layout) calculate() {
 }
 
 // RenderPanes renders all panes with the given content
-func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focused focusState, agentColor string) (string, string, string, string) {
+func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focused focusState, agentColor string, isLoading bool, loadingState *tmux.LoadingState, agentName string) (string, string, string, string) {
 	// Determine which panes are focused
 	leftStyle := paneBaseStyle
 	tmuxStyle := paneBaseStyle
@@ -175,14 +177,25 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 		Height(l.paneHeight - 2).
 		Render(leftContentAligned)
 
-	tmuxWrapped := lipgloss.NewStyle().
-		Width(tmuxContentWidth).
-		MaxHeight(contentHeight).
-		Render(tmuxContent)
-	tmuxContentAligned := lipgloss.PlaceVertical(contentHeight, lipgloss.Top, tmuxWrapped)
+	// Handle loading state for tmux pane
+	var tmuxContentToRender string
+	if isLoading && loadingState != nil {
+		// Use the loading state to render the complete loading view
+		tmuxContentToRender = loadingState.RenderLoadingView(
+			agentName, agentColor, tmuxContentWidth, contentHeight, textMuted, textDescription,
+		)
+	} else {
+		// Use normal tmux content
+		tmuxWrapped := lipgloss.NewStyle().
+			Width(tmuxContentWidth).
+			MaxHeight(contentHeight).
+			Render(tmuxContent)
+		tmuxContentToRender = lipgloss.PlaceVertical(contentHeight, lipgloss.Top, tmuxWrapped)
+	}
+
 	tmuxPane := tmuxStyle.
 		Height(l.paneHeight - 2).
-		Render(tmuxContentAligned)
+		Render(tmuxContentToRender)
 
 	gitContentWidth := l.gitWidth - frameWidth
 	gitContentHeight := l.gitPaneHeight - frameHeight

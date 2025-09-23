@@ -14,6 +14,7 @@ import (
 	"agate/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -91,6 +92,8 @@ type model struct {
 	debugLogger         *DebugLogger           // Debug logger for development
 	debugOverlay        *DebugOverlay          // Debug overlay for development
 	showDebugOverlay    bool                   // Whether showing debug overlay
+	loadingState        *tmux.LoadingState     // Loading state manager with spinner and stopwatch
+	gitPane             *GitPane               // Git pane for file status display
 }
 
 func initialModel(subprocess string) model {
@@ -139,7 +142,10 @@ func initialModel(subprocess string) model {
 	// Set up debug logging for git package (always enabled now)
 	git.DebugLog = DebugLog
 
-	return model{
+	// Initialize GitPane
+	gitPane := NewGitPane()
+
+	m := model{
 		layout:              NewLayout(0, 0), // Will be updated on first WindowSizeMsg
 		focused:             focusTmux,       // Focus on tmux pane initially
 		leftContent:         "",              // No longer using ASCII art
@@ -163,8 +169,18 @@ func initialModel(subprocess string) model {
 		debugLogger:         debugLogger,
 		debugOverlay:        debugOverlay,
 		showDebugOverlay:    false,
+		loadingState:        tmux.NewLoadingState(),
+		gitPane:             gitPane,
 	}
+
+	// Initialize Git pane content if worktree list is available
+	if m.worktreeList != nil && m.worktreeList.HasItems() {
+		m.updateGitPane()
+	}
+
+	return m
 }
+
 
 // switchToPane handles switching focus to a specific pane with all necessary updates
 func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
@@ -182,15 +198,48 @@ func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
 			DebugLog("Failed to refresh worktree list when switching panes: %v", err)
 			// UI continues to work, but log the issue for debugging
 		}
+
+		// Update GitPane with selected worktree/repo
+		m.updateGitPane()
 	}
 
 	return m, nil
+}
+
+// updateGitPane updates the Git pane based on the currently selected worktree/repo
+func (m *model) updateGitPane() {
+	if m.gitPane == nil || m.worktreeList == nil {
+		return
+	}
+
+	// Get the selected item from the worktree list
+	selectedItem := m.worktreeList.GetSelectedItem()
+	if selectedItem == nil {
+		m.gitContent = m.gitPane.View()
+		return
+	}
+
+	var repoPath string
+	switch selectedItem.Type {
+	case "worktree":
+		if selectedItem.Worktree != nil {
+			repoPath = selectedItem.Worktree.Path
+		}
+	case "main_repo":
+		repoPath = selectedItem.RepoPath
+	}
+
+	if repoPath != "" {
+		m.gitPane.SetRepository(repoPath)
+		m.gitContent = m.gitPane.View()
+	}
 }
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		startTmuxSession(m.subprocess),
 		tea.EnterAltScreen,
+		m.loadingState.GetSpinner().Tick,
 	)
 }
 
@@ -236,6 +285,24 @@ func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 	}
 }
 
+func combineCmds(cmds ...tea.Cmd) tea.Cmd {
+	filtered := make([]tea.Cmd, 0, len(cmds))
+	for _, cmd := range cmds {
+		if cmd != nil {
+			filtered = append(filtered, cmd)
+		}
+	}
+
+	switch len(filtered) {
+	case 0:
+		return nil
+	case 1:
+		return filtered[0]
+	default:
+		return tea.Batch(filtered...)
+	}
+}
+
 type tmuxSessionStartedMsg struct {
 	session *tmux.TmuxSession
 }
@@ -254,6 +321,8 @@ type initializationCompleteMsg struct{}
 type errMsg struct {
 	error
 }
+
+type loadingTimeoutMsg struct{}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -287,12 +356,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.worktreeList.SetSize(leftWidth, leftHeight)
 		}
 
+		// Update GitPane size
+		if m.gitPane != nil {
+			gitWidth, gitHeight := m.layout.GetGitDimensions()
+			m.gitPane.SetSize(gitWidth, gitHeight)
+		}
+
 	case tmuxSessionStartedMsg:
 		m.tmuxSession = msg.session
 
 		// Initialize empty content for right panes
 		m.gitContent = ""
 		m.shellContent = ""
+
+		// Start loading timer for stopwatch
+		m.loadingState.Start()
 
 		// Set initial tmux session size using layout
 		if m.ready {
@@ -304,13 +382,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Start monitoring tmux output
-		return m, waitForTmuxOutput(m.tmuxSession)
+		// Start monitoring tmux output and set up loading timeout
+		return m, tea.Batch(
+			waitForTmuxOutput(m.tmuxSession),
+			tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+				return loadingTimeoutMsg{}
+			}),
+		)
 
 	case tmuxOutputMsg:
 		// Update output if there's new content
 		if msg.content != "" {
 			m.rightOutput = msg.content
+			// Clear loading timer once we have content
+			if m.loadingState.IsLoading() && strings.TrimSpace(msg.content) != "" {
+				m.loadingState.Stop()
+			}
 		}
 
 		// Continue monitoring (increased frequency for better responsiveness)
@@ -395,6 +482,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Worktree dialog messages
 	case WorktreeCreatedMsg:
+		var cmds []tea.Cmd
+		if m.showWorktreeDialog && m.worktreeDialog != nil {
+			var dialogCmd tea.Cmd
+			var dialogModel tea.Model
+			dialogModel, dialogCmd = m.worktreeDialog.Update(msg)
+			m.worktreeDialog = dialogModel.(*WorktreeDialog)
+			cmds = append(cmds, dialogCmd)
+		}
+
 		// Worktree created successfully - start tmux session but keep dialog open
 		// Refresh the worktree list
 		if m.worktreeList != nil {
@@ -402,6 +498,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
 				// Continue showing success message, but log the refresh failure
 			}
+			// Update Git pane after refresh
+			m.updateGitPane()
 		}
 
 		// Create and switch to new tmux session for the worktree
@@ -426,10 +524,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.shortcutOverlay.SetFocus(focusTmux.String())
 
 				// Start monitoring the new session
-				return m, waitForTmuxOutput(newSession)
+				cmds = append(cmds, waitForTmuxOutput(newSession))
 			}
 		}
-		return m, nil
+		return m, combineCmds(cmds...)
 
 	case WorktreeInitializationCompleteMsg:
 		// Initialization complete - close dialog and auto-attach
@@ -454,7 +552,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case WorktreeCreationErrorMsg:
-		// Worktree creation failed - dialog will handle error display
+		if m.showWorktreeDialog && m.worktreeDialog != nil {
+			model, cmd := m.worktreeDialog.Update(msg)
+			m.worktreeDialog = model.(*WorktreeDialog)
+			return m, cmd
+		}
+		return m, nil
+
+	case ProgressTickMsg:
+		if m.showWorktreeDialog && m.worktreeDialog != nil {
+			model, cmd := m.worktreeDialog.Update(msg)
+			m.worktreeDialog = model.(*WorktreeDialog)
+			return m, cmd
+		}
 		return m, nil
 
 	case WorktreeDialogCancelledMsg:
@@ -472,6 +582,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				DebugLog("Failed to refresh worktree list after deletion: %v", err)
 				// UI will still show deletion success, but log refresh failure
 			}
+			// Update Git pane after deletion
+			m.updateGitPane()
 		}
 		return m, nil
 
@@ -509,6 +621,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					DebugLog("Failed to refresh worktree list after adding repository: %v", err)
 					// Repository was saved successfully, but UI refresh failed
 				}
+				// Update Git pane after adding repository
+				m.updateGitPane()
 			}
 		}
 		return m, nil
@@ -518,6 +632,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showRepoDialog = false
 		m.repoDialog = nil
 		return m, nil
+
+	case loadingTimeoutMsg:
+		// After 3 seconds of loading, start periodic updates for stopwatch
+		if m.loadingState.IsLoading() {
+			return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return loadingTimeoutMsg{}
+			})
+		}
+		return m, nil
+
+	case spinner.TickMsg:
+		// Update spinner animation exactly like the bubbles example
+		var cmd tea.Cmd
+		spinner := m.loadingState.GetSpinner()
+		spinner, cmd = spinner.Update(msg)
+		m.loadingState.SetSpinner(spinner)
+		return m, cmd
 
 	case tea.KeyMsg:
 		// If welcome overlay is visible, any key closes it
@@ -685,6 +816,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Navigate up in worktree list
 			if m.focused == focusReposAndWorktrees && m.worktreeList != nil {
 				m.worktreeList.MoveUp()
+				m.updateGitPane() // Update Git pane when selection changes
 				return m, nil
 			}
 
@@ -692,6 +824,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Navigate down in worktree list
 			if m.focused == focusReposAndWorktrees && m.worktreeList != nil {
 				m.worktreeList.MoveDown()
+				m.updateGitPane() // Update Git pane when selection changes
 				return m, nil
 			}
 
@@ -799,6 +932,12 @@ func (m model) View() string {
 		leftPaneContent = "Worktree manager not available"
 	}
 
+	// Check if tmux pane is in loading state
+	var isLoading bool
+	if m.tmuxSession != nil && m.loadingState.IsLoading() {
+		isLoading = m.tmuxSession.IsLoading()
+	}
+
 	// Render all panes using the layout system
 	leftPane, tmuxPane, gitPane, shellPane := m.layout.RenderPanes(
 		leftPaneContent,
@@ -807,6 +946,9 @@ func (m model) View() string {
 		m.shellContent,
 		m.focused,
 		m.agentConfig.BorderColor, // Pass the agent's color
+		isLoading,
+		m.loadingState,
+		m.agentConfig.CompanyName,
 	)
 
 	// Add padding to titles

@@ -421,3 +421,13 @@ func (t *TmuxSession) GetPTY() *os.File {
 func (t *TmuxSession) GetSessionName() string {
 	return t.sanitizedName
 }
+
+// IsLoading checks if the tmux pane is in loading state (empty/no output)
+func (t *TmuxSession) IsLoading() bool {
+	content, err := t.CapturePaneContent()
+	if err != nil {
+		return true // Assume loading if we can't read content
+	}
+	// Check if pane is empty or contains only whitespace
+	return strings.TrimSpace(content) == ""
+}

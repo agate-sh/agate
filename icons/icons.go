@@ -49,6 +49,42 @@ var (
 		NerdFont: "\uf07b", // Nerd Font folder icon
 		Fallback: "📁",      // Unicode folder emoji
 	}
+
+	// Git status icons for individual files
+	GitModified = Icon{
+		NerdFont: "\uf040", // Nerd Font pencil/edit icon
+		Fallback: "M",      // Modified
+	}
+
+	GitAdded = Icon{
+		NerdFont: "\uf055", // Nerd Font plus circle icon
+		Fallback: "A",      // Added
+	}
+
+	GitDeleted = Icon{
+		NerdFont: "\uf056", // Nerd Font minus circle icon
+		Fallback: "D",      // Deleted
+	}
+
+	GitRenamed = Icon{
+		NerdFont: "\uf0ec", // Nerd Font arrow-right icon
+		Fallback: "R",      // Renamed
+	}
+
+	GitUntracked = Icon{
+		NerdFont: "\uf059", // Nerd Font question circle icon
+		Fallback: "?",      // Untracked
+	}
+
+	GitTypeChanged = Icon{
+		NerdFont: "\uf0ad", // Nerd Font wrench icon
+		Fallback: "T",      // Type changed
+	}
+
+	GitConflicted = Icon{
+		NerdFont: "\uf071", // Nerd Font warning icon
+		Fallback: "C",      // Conflicted
+	}
 )
 
 var useNerdFonts *bool
@@ -108,4 +144,26 @@ func GetHome() string {
 // GetFolder returns the folder icon
 func GetFolder() string {
 	return Folder.Get()
+}
+
+// GetGitStatusIcon returns the appropriate Git status icon for a file status
+func GetGitStatusIcon(status string) string {
+	switch status {
+	case "M", "MM", "AM": // Modified (index, working tree, or both)
+		return GitModified.Get()
+	case "A", "AD": // Added
+		return GitAdded.Get()
+	case "D", "DM": // Deleted
+		return GitDeleted.Get()
+	case "R", "RM": // Renamed
+		return GitRenamed.Get()
+	case "??": // Untracked
+		return GitUntracked.Get()
+	case "T": // Type changed
+		return GitTypeChanged.Get()
+	case "UU", "AA", "DD": // Conflicted
+		return GitConflicted.Get()
+	default:
+		return GitModified.Get() // Default fallback
+	}
 }
