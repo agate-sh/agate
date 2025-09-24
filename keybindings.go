@@ -8,7 +8,7 @@ import (
 type KeyMap struct {
 	// Global keys
 	Quit key.Binding
-	Help key.Binding
+	Keybindings key.Binding
 
 	// Debug
 	DebugOverlay key.Binding
@@ -39,6 +39,9 @@ type KeyMap struct {
 	// Dialog actions
 	Confirm key.Binding
 	Cancel  key.Binding
+
+	// Git pane actions
+	OpenInEditor key.Binding
 }
 
 // NewKeyMap creates a new KeyMap with default keybindings
@@ -49,9 +52,9 @@ func NewKeyMap() *KeyMap {
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
-		Help: key.NewBinding(
+		Keybindings: key.NewBinding(
 			key.WithKeys("?"),
-			key.WithHelp("?", "help"),
+			key.WithHelp("?", "keybindings"),
 		),
 
 		// Debug
@@ -131,13 +134,19 @@ func NewKeyMap() *KeyMap {
 			key.WithKeys("esc", "n"),
 			key.WithHelp("esc/n", "cancel"),
 		),
+
+		// Git pane actions
+		OpenInEditor: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵", "open with $EDITOR"),
+		),
 	}
 }
 
 // ShortHelp returns a slice of key bindings to show in the short help view
 func (k *KeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
-		k.Help,
+		k.Keybindings,
 		k.Quit,
 	}
 }
@@ -145,7 +154,7 @@ func (k *KeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Help},                             // Global
+		{k.Quit, k.Keybindings},                             // Global
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down},                               // Navigation
 		{k.AddRepo, k.NewWorktree, k.DeleteWorktree}, // Repository & Worktree
@@ -160,7 +169,7 @@ func (k *KeyMap) GetHelpSections() map[string][]key.Binding {
 	return map[string][]key.Binding{
 		"Global": {
 			k.Quit,
-			k.Help,
+			k.Keybindings,
 		},
 		"Navigation": {
 			k.Up,

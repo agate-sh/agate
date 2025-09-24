@@ -181,11 +181,20 @@ func initialModel(subprocess string) model {
 	return m
 }
 
-
 // switchToPane handles switching focus to a specific pane with all necessary updates
 func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
+	// Update previous pane's active state
+	if m.gitPane != nil {
+		m.gitPane.SetActive(false)
+	}
+
 	// Set the new focus
 	m.focused = targetPane
+
+	// Update new pane's active state
+	if targetPane == focusGit && m.gitPane != nil {
+		m.gitPane.SetActive(true)
+	}
 
 	// Update footer and shortcut overlay
 	m.footer.SetFocus(m.focused.String())
@@ -209,12 +218,14 @@ func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
 // updateGitPane updates the Git pane based on the currently selected worktree/repo
 func (m *model) updateGitPane() {
 	if m.gitPane == nil || m.worktreeList == nil {
+		DebugLog("updateGitPane: gitPane or worktreeList is nil")
 		return
 	}
 
 	// Get the selected item from the worktree list
 	selectedItem := m.worktreeList.GetSelectedItem()
 	if selectedItem == nil {
+		DebugLog("updateGitPane: no selected item")
 		m.gitContent = m.gitPane.View()
 		return
 	}
@@ -225,13 +236,18 @@ func (m *model) updateGitPane() {
 		if selectedItem.Worktree != nil {
 			repoPath = selectedItem.Worktree.Path
 		}
+		DebugLog("updateGitPane: selected worktree with path: %s", repoPath)
 	case "main_repo":
 		repoPath = selectedItem.RepoPath
+		DebugLog("updateGitPane: selected main_repo with path: %s", repoPath)
 	}
 
 	if repoPath != "" {
+		DebugLog("updateGitPane: setting repository to: %s", repoPath)
 		m.gitPane.SetRepository(repoPath)
 		m.gitContent = m.gitPane.View()
+	} else {
+		DebugLog("updateGitPane: repoPath is empty")
 	}
 }
 
@@ -239,7 +255,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		startTmuxSession(m.subprocess),
 		tea.EnterAltScreen,
-		m.loadingState.GetSpinner().Tick,
+		m.loadingState.TickCmd(),
 	)
 }
 
@@ -362,6 +378,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.gitPane.SetSize(gitWidth, gitHeight)
 		}
 
+		// Update Git pane content after all components are sized
+		// This ensures the worktree list has proper dimensions and selection
+		m.updateGitPane()
+
 	case tmuxSessionStartedMsg:
 		m.tmuxSession = msg.session
 
@@ -371,6 +391,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Start loading timer for stopwatch
 		m.loadingState.Start()
+
+		// Update Git pane now that the app is fully initialized
+		// This ensures the worktree list has been sized and has a selection
+		m.updateGitPane()
 
 		// Set initial tmux session size using layout
 		if m.ready {
@@ -393,10 +417,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tmuxOutputMsg:
 		// Update output if there's new content
 		if msg.content != "" {
+			previousOutput := m.rightOutput
 			m.rightOutput = msg.content
 			// Clear loading timer once we have content
 			if m.loadingState.IsLoading() && strings.TrimSpace(msg.content) != "" {
 				m.loadingState.Stop()
+			}
+
+			// On first real output, ensure Git pane is initialized
+			if previousOutput == "" && m.gitContent == "" {
+				m.updateGitPane()
 			}
 		}
 
@@ -559,14 +589,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case ProgressTickMsg:
-		if m.showWorktreeDialog && m.worktreeDialog != nil {
-			model, cmd := m.worktreeDialog.Update(msg)
-			m.worktreeDialog = model.(*WorktreeDialog)
-			return m, cmd
-		}
-		return m, nil
-
 	case WorktreeDialogCancelledMsg:
 		// Dialog cancelled
 		m.showWorktreeDialog = false
@@ -643,12 +665,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		// Update spinner animation exactly like the bubbles example
-		var cmd tea.Cmd
-		spinner := m.loadingState.GetSpinner()
-		spinner, cmd = spinner.Update(msg)
-		m.loadingState.SetSpinner(spinner)
-		return m, cmd
+		var cmds []tea.Cmd
+		if cmd := m.loadingState.Update(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		if m.showWorktreeDialog && m.worktreeDialog != nil {
+			var dialogCmd tea.Cmd
+			var dialogModel tea.Model
+			dialogModel, dialogCmd = m.worktreeDialog.Update(msg)
+			m.worktreeDialog = dialogModel.(*WorktreeDialog)
+			if dialogCmd != nil {
+				cmds = append(cmds, dialogCmd)
+			}
+		}
+
+		return m, combineCmds(cmds...)
 
 	case tea.KeyMsg:
 		// If welcome overlay is visible, any key closes it
@@ -699,8 +731,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle preview mode - navigation and mode switches only
 		switch {
-		case key.Matches(msg, m.keyMap.AttachTmux):
+		case key.Matches(msg, m.keyMap.AttachTmux) && m.focused != focusGit:
 			// Enter key on left pane opens/switches to worktree or main repo session
+			// Only handle if not focused on git pane (let OpenInEditor handle git pane)
 			if m.focused == focusReposAndWorktrees && m.worktreeList != nil {
 				selectedItem := m.worktreeList.GetSelectedItem()
 				if selectedItem != nil && m.subprocess != "" {
@@ -759,6 +792,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return tmuxDetachedMsg{}
 				}
 			}
+			// Fall through to other handlers if Enter wasn't handled above
+			// This allows the git pane to handle Enter for opening files
 
 		case key.Matches(msg, m.keyMap.Quit):
 			// Quit available from both panes
@@ -774,7 +809,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 
-		case key.Matches(msg, m.keyMap.Help):
+		case key.Matches(msg, m.keyMap.Keybindings):
 			// Show help dialog
 			m.showHelp = true
 			return m, nil
@@ -813,20 +848,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keyMap.Up):
-			// Navigate up in worktree list
-			if m.focused == focusReposAndWorktrees && m.worktreeList != nil {
-				m.worktreeList.MoveUp()
-				m.updateGitPane() // Update Git pane when selection changes
-				return m, nil
+			// Navigate up in focused pane
+			switch m.focused {
+			case focusReposAndWorktrees:
+				if m.worktreeList != nil {
+					m.worktreeList.MoveUp()
+					m.updateGitPane() // Update Git pane when selection changes
+				}
+			case focusGit:
+				if m.gitPane != nil {
+					m.gitPane.MoveUp()
+					m.gitContent = m.gitPane.View() // Re-render the git pane
+					return m, nil
+				}
 			}
+			return m, nil
 
 		case key.Matches(msg, m.keyMap.Down):
-			// Navigate down in worktree list
-			if m.focused == focusReposAndWorktrees && m.worktreeList != nil {
-				m.worktreeList.MoveDown()
-				m.updateGitPane() // Update Git pane when selection changes
-				return m, nil
+			// Navigate down in focused pane
+			switch m.focused {
+			case focusReposAndWorktrees:
+				if m.worktreeList != nil {
+					m.worktreeList.MoveDown()
+					m.updateGitPane() // Update Git pane when selection changes
+				}
+			case focusGit:
+				if m.gitPane != nil {
+					m.gitPane.MoveDown()
+					m.gitContent = m.gitPane.View() // Re-render the git pane
+					return m, nil
+				}
 			}
+			return m, nil
+
+		case key.Matches(msg, m.keyMap.OpenInEditor):
+			// Open file in editor (git pane only)
+			if m.focused == focusGit && m.gitPane != nil {
+				handled, cmd := m.gitPane.HandleKey("enter")
+				if handled {
+					return m, cmd
+				}
+			}
+			return m, nil
 
 		case key.Matches(msg, m.keyMap.FocusPaneRepos):
 			// Switch to repos & worktrees pane (0)
@@ -910,7 +973,12 @@ func (m model) View() string {
 	case focusGit:
 		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
 		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) + numberStyle.Render(" [1]")
-		gitTitle = focusStyle.Render("Git")
+		// Use GitPane's GetTitle for dynamic title with shortcut hint
+		if m.gitPane != nil {
+			gitTitle = focusStyle.Render(m.gitPane.GetTitle())
+		} else {
+			gitTitle = focusStyle.Render("Git")
+		}
 		shellTitle = titleStyle.Render("Shell") + numberStyle.Render(" [3]")
 	case focusShell:
 		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")

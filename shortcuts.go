@@ -35,7 +35,7 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 	shortcuts := []key.Binding{}
 
 	// Always show global shortcuts
-	shortcuts = append(shortcuts, s.keyMap.Quit, s.keyMap.Help)
+	shortcuts = append(shortcuts, s.keyMap.Quit, s.keyMap.Keybindings)
 
 	// Add context-specific shortcuts
 	switch s.mode {
@@ -88,7 +88,7 @@ func (s *ShortcutOverlay) FormatShortcuts() []Shortcut {
 func (s *ShortcutOverlay) isGlobalKey(binding key.Binding) bool {
 	// Compare by the key help text since we can't compare structs directly
 	helpKey := binding.Help().Key
-	return helpKey == s.keyMap.Quit.Help().Key || helpKey == s.keyMap.Help.Help().Key
+	return helpKey == s.keyMap.Quit.Help().Key || helpKey == s.keyMap.Keybindings.Help().Key
 }
 
 // Shortcut represents a keyboard shortcut with its description (for compatibility)
@@ -116,7 +116,7 @@ func (s *ShortcutOverlay) LeftPaneShortcuts() []Shortcut {
 func (s *ShortcutOverlay) GlobalShortcuts() []Shortcut {
 	return []Shortcut{
 		{Key: s.keyMap.Quit.Help().Key, Description: s.keyMap.Quit.Help().Desc, IsGlobal: true},
-		{Key: s.keyMap.Help.Help().Key, Description: s.keyMap.Help.Help().Desc, IsGlobal: true},
+		{Key: s.keyMap.Keybindings.Help().Key, Description: s.keyMap.Keybindings.Help().Desc, IsGlobal: true},
 	}
 }
 
@@ -131,7 +131,7 @@ func AllShortcuts(keyMap *KeyMap) map[string][]Shortcut {
 			shortcuts = append(shortcuts, Shortcut{
 				Key:         binding.Help().Key,
 				Description: binding.Help().Desc,
-				IsGlobal:    binding.Help().Key == keyMap.Quit.Help().Key || binding.Help().Key == keyMap.Help.Help().Key,
+				IsGlobal:    binding.Help().Key == keyMap.Quit.Help().Key || binding.Help().Key == keyMap.Keybindings.Help().Key,
 			})
 		}
 		result[sectionName] = shortcuts

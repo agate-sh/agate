@@ -1,12 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
+	"agate/components"
 	"agate/git"
 
-	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,7 +16,6 @@ import (
 // WorktreeDialog represents the dialog for creating new worktrees
 type WorktreeDialog struct {
 	input           textinput.Model
-	progress        progress.Model
 	err             string
 	repoName        string
 	worktreeManager *git.WorktreeManager
@@ -25,7 +25,7 @@ type WorktreeDialog struct {
 	creating        bool
 	initializing    bool
 	agentConfig     AgentConfig
-	startTime       time.Time
+	loader          *components.LaunchAgentLoader
 }
 
 // Styling for worktree dialog
@@ -66,10 +66,6 @@ func NewWorktreeDialog(worktreeManager *git.WorktreeManager, agentConfig AgentCo
 	input.CharLimit = 100
 	input.Width = 30
 
-	// Initialize progress bar with agent color
-	prog := progress.New(progress.WithSolidFill(agentConfig.BorderColor))
-	prog.Width = 40
-
 	var repoName string
 	var systemCaps git.SystemCapabilities
 
@@ -78,15 +74,17 @@ func NewWorktreeDialog(worktreeManager *git.WorktreeManager, agentConfig AgentCo
 		systemCaps = worktreeManager.GetSystemCapabilities()
 	}
 
+	loader := components.NewLaunchAgentLoader("")
+
 	return &WorktreeDialog{
 		input:           input,
-		progress:        prog,
 		repoName:        repoName,
 		worktreeManager: worktreeManager,
 		systemCaps:      systemCaps,
 		creating:        false,
 		initializing:    false,
 		agentConfig:     agentConfig,
+		loader:          loader,
 	}
 }
 
@@ -122,26 +120,22 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Worktree creation completed successfully, now start initializing
 		d.creating = false
 		d.initializing = true
-		d.startTime = time.Now()
-		// Start progress animation
-		return d, tea.Batch(
-			// Start progress updates every 100ms for 3 seconds
-			tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
-				return ProgressTickMsg{}
-			}),
-			// Wait 3 seconds before sending the complete message
-			tea.Tick(3*time.Second, func(time.Time) tea.Msg {
-				return WorktreeInitializationCompleteMsg(msg)
-			}),
-		)
-
-	case ProgressTickMsg:
-		if d.initializing {
-			// Continue progress updates
-			return d, tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
-				return ProgressTickMsg{}
-			})
+		d.err = ""
+		if d.loader != nil {
+			d.loader.SetLabel(fmt.Sprintf("Launching %s...", d.agentConfig.CompanyName))
 		}
+
+		var caseCmds []tea.Cmd
+		if d.loader != nil {
+			if cmd := d.loader.TickCmd(); cmd != nil {
+				caseCmds = append(caseCmds, cmd)
+			}
+		}
+		caseCmds = append(caseCmds, tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+			return WorktreeInitializationCompleteMsg(msg)
+		}))
+
+		return d, tea.Batch(caseCmds...)
 
 	case WorktreeCreationErrorMsg:
 		// Worktree creation failed
@@ -161,6 +155,12 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var inputCmd tea.Cmd
 		d.input, inputCmd = d.input.Update(msg)
 		cmds = append(cmds, inputCmd)
+	}
+
+	if d.initializing && d.loader != nil {
+		if cmd := d.loader.Update(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return d, tea.Batch(cmds...)
@@ -233,27 +233,17 @@ func (d *WorktreeDialog) View() string {
 	if d.creating {
 		content = append(content, dialogInfoStyle.Render("Creating worktree..."))
 	} else if d.initializing {
-		// Progress bar with agent color and loading title
-		loadingTitle := "Loading " + d.agentConfig.CompanyName + "..."
-		progressStyle := lipgloss.NewStyle().
+		loadingTitle := fmt.Sprintf("Launching %s...", d.agentConfig.CompanyName)
+		loaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(d.agentConfig.BorderColor)).
 			Bold(true)
 
-		content = append(content, progressStyle.Render(loadingTitle))
-
-		// Calculate progress (0 to 1 over 3 seconds)
-		elapsed := time.Since(d.startTime)
-		progress := float64(elapsed) / float64(3*time.Second)
-		if progress > 1.0 {
-			progress = 1.0
+		if d.loader != nil {
+			d.loader.SetLabel(loadingTitle)
+			content = append(content, loaderStyle.Render(d.loader.View()))
+		} else {
+			content = append(content, loaderStyle.Render(loadingTitle))
 		}
-		if progress < 0 {
-			progress = 0
-		}
-
-		// Create progress view with agent color
-		progressView := d.progress.ViewAs(progress)
-		content = append(content, progressView)
 	} else {
 		content = append(content, dialogButtonStyle.Render("[ Create and attach ]  [ Cancel (ESC) ]"))
 	}
@@ -297,6 +287,3 @@ type WorktreeDialogCancelledMsg struct{}
 type WorktreeInitializationCompleteMsg struct {
 	Worktree *git.WorktreeInfo
 }
-
-// ProgressTickMsg indicates a progress update tick
-type ProgressTickMsg struct{}

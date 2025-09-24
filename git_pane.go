@@ -2,20 +2,26 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"agate/git"
 	"agate/icons"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // GitPane manages the display of Git file status information
 type GitPane struct {
-	fileStatus *git.RepoFileStatus
-	width      int
-	height     int
-	repoPath   string
+	fileStatus    *git.RepoFileStatus
+	width         int
+	height        int
+	repoPath      string
+	selectedIndex int  // Currently selected file index
+	isActive      bool // Whether this pane is currently focused
 }
 
 // NewGitPane creates a new GitPane instance
@@ -45,6 +51,121 @@ func (g *GitPane) Refresh() {
 	}
 
 	g.fileStatus = git.GetFileStatuses(g.repoPath)
+	// Reset selection when refreshing
+	g.selectedIndex = 0
+}
+
+// SetActive sets whether this pane is currently focused
+func (g *GitPane) SetActive(active bool) {
+	g.isActive = active
+}
+
+// MoveUp moves the selection up one file
+func (g *GitPane) MoveUp() {
+	if g.fileStatus == nil || len(g.fileStatus.Files) == 0 {
+		return
+	}
+	if g.selectedIndex > 0 {
+		g.selectedIndex--
+	}
+}
+
+// MoveDown moves the selection down one file
+func (g *GitPane) MoveDown() {
+	if g.fileStatus == nil || len(g.fileStatus.Files) == 0 {
+		return
+	}
+	if g.selectedIndex < len(g.fileStatus.Files)-1 {
+		g.selectedIndex++
+	}
+}
+
+// GetSelectedFile returns the currently selected file, or nil if none
+func (g *GitPane) GetSelectedFile() *git.FileStatus {
+	if g.fileStatus == nil || len(g.fileStatus.Files) == 0 {
+		return nil
+	}
+	if g.selectedIndex >= 0 && g.selectedIndex < len(g.fileStatus.Files) {
+		return &g.fileStatus.Files[g.selectedIndex]
+	}
+	return nil
+}
+
+// HandleKey processes keyboard input when the pane is active
+func (g *GitPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
+	if !g.isActive {
+		return false, nil
+	}
+
+	switch key {
+	case "up", "k":
+		g.MoveUp()
+		return true, nil
+	case "down", "j":
+		g.MoveDown()
+		return true, nil
+	case "enter":
+		DebugLog("GitPane: Enter key pressed, opening selected file")
+		return true, g.openSelectedFile()
+	default:
+		return false, nil
+	}
+}
+
+// openSelectedFile opens the selected file in the user's editor
+func (g *GitPane) openSelectedFile() tea.Cmd {
+	file := g.GetSelectedFile()
+	if file == nil {
+		DebugLog("GitPane: No file selected")
+		return nil
+	}
+
+	// Build full file path
+	fullPath := filepath.Join(g.repoPath, file.DirPath, file.FileName)
+	DebugLog("GitPane: Opening file: %s", fullPath)
+
+	// Get editor from environment
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi" // Fallback to vi
+	}
+	DebugLog("GitPane: Using editor: %s", editor)
+
+	// Parse editor command (handle cases like "code --wait")
+	editorParts := strings.Fields(editor)
+	var cmd *exec.Cmd
+	if len(editorParts) > 1 {
+		// Editor has arguments (e.g., "code --wait")
+		cmd = exec.Command(editorParts[0], append(editorParts[1:], fullPath)...)
+	} else {
+		// Simple editor command (e.g., "vi")
+		cmd = exec.Command(editor, fullPath)
+	}
+
+	// Launch editor in background without blocking the terminal
+	return func() tea.Msg {
+		err := cmd.Start()
+		if err != nil {
+			DebugLog("GitPane: Error opening file: %v", err)
+		} else {
+			DebugLog("GitPane: File opened successfully in editor")
+		}
+		return nil
+	}
+}
+
+// GetTitle returns the dynamic title for the git pane
+func (g *GitPane) GetTitle() string {
+	if g.isActive {
+		// When active, show the shortcut hint in square brackets like other panes
+		return "Git " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color(textMuted)).
+			Render("[↵ open]")
+	}
+	// When not active, show the pane number
+	return "Git " + lipgloss.NewStyle().
+		Foreground(lipgloss.Color(textMuted)).
+		Render("[2]")
 }
 
 // View renders the Git pane content
@@ -76,20 +197,20 @@ func (g *GitPane) View() string {
 
 	summary := g.fileStatus.FormatSummaryLine()
 	output.WriteString(summaryStyle.Render(summary))
-	output.WriteString("\n\n")
+	// No extra padding - files start immediately after summary
 
 	// File rows
-	for _, file := range g.fileStatus.Files {
-		row := g.renderFileRow(file)
+	for i, file := range g.fileStatus.Files {
+		output.WriteString("\n") // Line break before each file
+		row := g.renderFileRow(file, i)
 		output.WriteString(row)
-		output.WriteString("\n")
 	}
 
 	return output.String()
 }
 
 // renderFileRow renders a single file row with icon, name, path, and change counts
-func (g *GitPane) renderFileRow(file git.FileStatus) string {
+func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 	// Get the appropriate icon for the file status
 	icon := icons.GetGitStatusIcon(file.Status)
 
@@ -132,9 +253,14 @@ func (g *GitPane) renderFileRow(file git.FileStatus) string {
 
 		changesStr = addStyle.Render(addStr) + " " + delStyle.Render(delStr)
 	} else if file.IsUntracked {
-		// For untracked files, show as new
+		// For untracked files, show line count in green
 		addStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(successStatus))
-		changesStr = addStyle.Render("new")
+		// For new files, show the total lines as additions
+		if file.Additions > 0 {
+			changesStr = addStyle.Render(fmt.Sprintf("+%d", file.Additions))
+		} else {
+			changesStr = addStyle.Render("new")
+		}
 	}
 
 	// Build the complete row
@@ -142,6 +268,7 @@ func (g *GitPane) renderFileRow(file git.FileStatus) string {
 	leftSide := fmt.Sprintf("%s %s%s", styledIcon, styledName, dirPath)
 
 	// Right side: changes
+	var fullRow string
 	if changesStr != "" {
 		// Calculate padding to right-align the changes
 		leftLen := lipgloss.Width(leftSide)
@@ -151,10 +278,26 @@ func (g *GitPane) renderFileRow(file git.FileStatus) string {
 			padding = 1
 		}
 
-		return leftSide + strings.Repeat(" ", padding) + changesStr
+		fullRow = leftSide + strings.Repeat(" ", padding) + changesStr
+	} else {
+		fullRow = leftSide
 	}
 
-	return leftSide
+	// Apply selection highlighting if this row is selected
+	if index == g.selectedIndex {
+		// Pad the row to full width first
+		paddedRow := fullRow
+		currentWidth := lipgloss.Width(fullRow)
+		if currentWidth < g.width {
+			paddedRow = fullRow + strings.Repeat(" ", g.width-currentWidth)
+		}
+
+		selectionStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color(textMuted))
+		return selectionStyle.Render(paddedRow)
+	}
+
+	return fullRow
 }
 
 // getIconStyle returns the appropriate style for a Git status icon
@@ -166,8 +309,8 @@ func (g *GitPane) getIconStyle(status string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(successStatus))
 	case "D", "DM": // Deleted
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(errorStatus))
-	case "??": // Untracked
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(textMuted))
+	case "??": // Untracked (new files - green like added)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(successStatus))
 	case "R": // Renamed
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(infoStatus))
 	default:

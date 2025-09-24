@@ -52,17 +52,17 @@ var (
 
 	// Git status icons for individual files
 	GitModified = Icon{
-		NerdFont: "\uf040", // Nerd Font pencil/edit icon
-		Fallback: "M",      // Modified
+		NerdFont: "\U000f1500", // Nerd Font square with dot icon (exact GitHub Desktop style)
+		Fallback: "M",          // Modified
 	}
 
 	GitAdded = Icon{
-		NerdFont: "\uf055", // Nerd Font plus circle icon
+		NerdFont: "\uf0fe", // Nerd Font plus square icon
 		Fallback: "A",      // Added
 	}
 
 	GitDeleted = Icon{
-		NerdFont: "\uf056", // Nerd Font minus circle icon
+		NerdFont: "\uf146", // Nerd Font minus square icon
 		Fallback: "D",      // Deleted
 	}
 
@@ -72,7 +72,7 @@ var (
 	}
 
 	GitUntracked = Icon{
-		NerdFont: "\uf059", // Nerd Font question circle icon
+		NerdFont: "\uf0fe", // Nerd Font plus square icon (same as added, green for new files)
 		Fallback: "?",      // Untracked
 	}
 

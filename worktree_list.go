@@ -322,6 +322,23 @@ func (wl *WorktreeList) buildItemList() {
 		repoNames = append(repoNames, repoName)
 	}
 
+	// Always include the current repository if we have a worktree manager
+	// This ensures the main repo is shown even when no worktrees exist
+	if wl.worktreeManager != nil && wl.currentRepo != "" {
+		hasCurrentRepo := false
+		for _, name := range repoNames {
+			if name == wl.currentRepo {
+				hasCurrentRepo = true
+				break
+			}
+		}
+		if !hasCurrentRepo {
+			repoNames = append(repoNames, wl.currentRepo)
+			// Add empty worktree list for current repo
+			wl.groupedWorktrees[wl.currentRepo] = []git.WorktreeInfo{}
+		}
+	}
+
 	// Sort: current repo first, then alphabetical
 	sort.Slice(repoNames, func(i, j int) bool {
 		if repoNames[i] == wl.currentRepo {

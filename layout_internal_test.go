@@ -11,7 +11,7 @@ func TestLayoutPanesMatchConfiguredHeights(t *testing.T) {
 	layout := NewLayout(160, 60)
 	sample := strings.Repeat("item\n", 30)
 
-	left, tmux, git, shell := layout.RenderPanes(sample, sample, sample, sample, focusTmux, "213")
+	left, tmux, git, shell := layout.RenderPanes(sample, sample, sample, sample, focusTmux, "213", false, nil, "")
 
 	if got := lipgloss.Height(left); got != layout.paneHeight {
 		t.Fatalf("left pane height = %d want %d", got, layout.paneHeight)

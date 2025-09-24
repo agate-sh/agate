@@ -7,20 +7,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // LoadingState manages the loading state for a tmux session
 type LoadingState struct {
 	startTime *time.Time
-	spinner   spinner.Model
+	loader    *components.LaunchAgentLoader
 }
 
 // NewLoadingState creates a new loading state manager
 func NewLoadingState() *LoadingState {
 	return &LoadingState{
-		spinner: spinner.New(spinner.WithSpinner(components.BlinkingCursor)),
+		loader: components.NewLaunchAgentLoader(""),
 	}
 }
 
@@ -53,19 +53,20 @@ func (ls *LoadingState) ShouldShowStopwatch() bool {
 	return ls.IsLoading() && ls.GetElapsed() >= 3*time.Second
 }
 
-// UpdateSpinner updates the spinner animation
-func (ls *LoadingState) UpdateSpinner(msg spinner.TickMsg) {
-	ls.spinner, _ = ls.spinner.Update(msg)
+// TickCmd starts the spinner animation.
+func (ls *LoadingState) TickCmd() tea.Cmd {
+	if ls.loader == nil {
+		return nil
+	}
+	return ls.loader.TickCmd()
 }
 
-// GetSpinner returns the current spinner model
-func (ls *LoadingState) GetSpinner() spinner.Model {
-	return ls.spinner
-}
-
-// SetSpinner updates the spinner model
-func (ls *LoadingState) SetSpinner(s spinner.Model) {
-	ls.spinner = s
+// Update handles spinner tick messages for the loader.
+func (ls *LoadingState) Update(msg tea.Msg) tea.Cmd {
+	if ls.loader == nil {
+		return nil
+	}
+	return ls.loader.Update(msg)
 }
 
 // RenderLoadingView creates the complete loading view with spinner and optional stopwatch
@@ -76,17 +77,12 @@ func (ls *LoadingState) RenderLoadingView(agentName, agentColor string, width, h
 
 	// Create loading view with spinner and agent name
 	loadingText := agentName + " is starting..."
-	spinnerView := ls.spinner.View()
+	ls.loader.SetLabel(loadingText)
 
-	// Style both spinner and text with agent color
 	loadingStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(agentColor)).
 		Bold(true)
-	styledSpinner := loadingStyle.Render(spinnerView)
-	styledLoadingText := loadingStyle.Render(loadingText)
-
-	// Combine styled spinner and text
-	loadingContent := styledSpinner + " " + styledLoadingText
+	loadingContent := loadingStyle.Render(ls.loader.View())
 
 	// Always reserve space for stopwatch to prevent jank
 	var stopwatchText string
