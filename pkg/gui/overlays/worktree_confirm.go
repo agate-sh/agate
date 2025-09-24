@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"agate/git"
-	"agate/theme"
+	"agate/pkg/git"
+	"agate/pkg/gui/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

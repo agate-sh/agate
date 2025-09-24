@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"agate/config"
+	"agate/pkg/config"
 )
 
 // DebugLogger manages debug output using Go's standard logging

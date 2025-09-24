@@ -4,7 +4,7 @@ import (
 	"agate/pkg/app"
 	"strings"
 
-	"agate/theme"
+	"agate/pkg/gui/theme"
 
 	"github.com/charmbracelet/lipgloss"
 )

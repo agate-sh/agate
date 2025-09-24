@@ -4,7 +4,7 @@ import (
 	_ "embed"
 	"strings"
 
-	"agate/theme"
+	"agate/pkg/gui/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

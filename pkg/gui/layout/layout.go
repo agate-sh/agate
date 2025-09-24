@@ -2,7 +2,7 @@ package layout
 
 import (
 	"agate/pkg/gui/theme"
-	"agate/tmux"
+	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/lipgloss"
 )

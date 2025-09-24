@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"agate/git"
-	"agate/icons"
-	"agate/theme"
+	"agate/pkg/git"
+	"agate/pkg/gui/icons"
+	"agate/pkg/gui/theme"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"

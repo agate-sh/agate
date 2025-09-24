@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"agate/components"
-	"agate/git"
-	"agate/theme"
+	"agate/pkg/gui/components"
+	"agate/pkg/git"
+	"agate/pkg/gui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
