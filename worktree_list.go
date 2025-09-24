@@ -8,6 +8,7 @@ import (
 
 	"agate/git"
 	"agate/icons"
+	"agate/theme"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,29 +57,29 @@ func newItemStyles() *itemStyles {
 	return &itemStyles{
 		repoHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(infoStatus)).
+			Foreground(lipgloss.Color(theme.InfoStatus)).
 			MarginTop(1),
 		worktreeItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textPrimary)), // White for worktree names
+			Foreground(lipgloss.Color(theme.TextPrimary)), // White for worktree names
 		worktreeSelectedItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(highlightBg)). // Black text
-			Background(lipgloss.Color(infoStatus)).
+			Foreground(lipgloss.Color(theme.HighlightBg)). // Black text
+			Background(lipgloss.Color(theme.InfoStatus)).
 			Bold(true),
 		statusClean: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(successStatus)),
+			Foreground(lipgloss.Color(theme.SuccessStatus)),
 		statusDirty: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(warningStatus)),
+			Foreground(lipgloss.Color(theme.WarningStatus)),
 		statusInfo: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textMuted)), // Gray for branch info
+			Foreground(lipgloss.Color(theme.TextMuted)), // Gray for branch info
 		repoCurrent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(selection)).
+			Foreground(lipgloss.Color(theme.Selection)).
 			Bold(true),
 		selectedItem: lipgloss.NewStyle().
 			PaddingLeft(2).
-			Foreground(lipgloss.Color(selection)),
+			Foreground(lipgloss.Color(theme.Selection)),
 		normalItem: lipgloss.NewStyle().
 			PaddingLeft(4).
-			Foreground(lipgloss.Color(textDescription)),
+			Foreground(lipgloss.Color(theme.TextDescription)),
 	}
 }
 
@@ -131,7 +132,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		// Put icon, "Main", and path all on the same line with proper spacing
 		mainDisplay := folderIcon + "  Main " + d.styles.statusInfo.Render("("+truncatedPath+")")
 
-		// Apply selection styling
+		// Apply theme.Selection styling
 		if selected {
 			line := d.styles.selectedItem.Render("▶ " + mainDisplay)
 			content = line + "\n" // Single line, but preserve the two-line structure for consistency
@@ -149,7 +150,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		// Format worktree line
 		line := item.Worktree.Name
 
-		// Apply selection styling
+		// Apply theme.Selection styling
 		if selected {
 			line = d.styles.selectedItem.Render("▶ " + line)
 		} else {
@@ -274,7 +275,7 @@ func NewWorktreeList(worktreeManager *git.WorktreeManager) *WorktreeList {
 	// Configure styles for the list itself
 	l.Styles.Title = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(infoStatus))
+		Foreground(lipgloss.Color(theme.InfoStatus))
 
 	wl := &WorktreeList{
 		list:            l,
@@ -359,7 +360,7 @@ func (wl *WorktreeList) buildItemList() {
 			return worktrees[i].CreatedAt.After(worktrees[j].CreatedAt)
 		})
 
-		// Add repository header (but skip it for selection)
+		// Add repository header (but skip it for theme.Selection)
 		wl.items = append(wl.items, WorktreeListItem{
 			Type:     "repo_header",
 			RepoName: repoName,
@@ -392,7 +393,7 @@ func (wl *WorktreeList) buildItemList() {
 		}
 	}
 
-	// Skip repo headers when setting initial selection
+	// Skip repo headers when setting initial theme.Selection
 	if len(wl.items) > 0 {
 		for i, item := range wl.items {
 			if listItem, ok := item.(WorktreeListItem); ok && (listItem.Type == "worktree" || listItem.Type == "main_repo") {
@@ -434,7 +435,7 @@ func (wl *WorktreeList) Update(msg tea.Msg) (*WorktreeList, tea.Cmd) {
 	}
 }
 
-// moveUp moves selection up, skipping repo headers
+// moveUp moves theme.Selection up, skipping repo headers
 func (wl *WorktreeList) moveUp() {
 	currentIndex := wl.list.Index()
 	if currentIndex > 0 {
@@ -452,7 +453,7 @@ func (wl *WorktreeList) moveUp() {
 	}
 }
 
-// moveDown moves selection down, skipping repo headers
+// moveDown moves theme.Selection down, skipping repo headers
 func (wl *WorktreeList) moveDown() {
 	currentIndex := wl.list.Index()
 	if currentIndex < len(wl.items)-1 {
@@ -470,12 +471,12 @@ func (wl *WorktreeList) moveDown() {
 	}
 }
 
-// MoveUp moves the selection up (for compatibility)
+// MoveUp moves the theme.Selection up (for compatibility)
 func (wl *WorktreeList) MoveUp() {
 	wl.moveUp()
 }
 
-// MoveDown moves the selection down (for compatibility)
+// MoveDown moves the theme.Selection down (for compatibility)
 func (wl *WorktreeList) MoveDown() {
 	wl.moveDown()
 }
@@ -506,13 +507,13 @@ func (wl *WorktreeList) GetSelectedItem() *WorktreeListItem {
 func (wl *WorktreeList) View() string {
 	if wl.worktreeManager == nil {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textMuted)).
+			Foreground(lipgloss.Color(theme.TextMuted)).
 			Render("Worktree manager not available")
 	}
 
 	if len(wl.items) == 0 {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textMuted)).
+			Foreground(lipgloss.Color(theme.TextMuted)).
 			Render("No repositories found\n\nPress 'r' to add a repository")
 	}
 

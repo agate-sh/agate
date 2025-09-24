@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agate/git"
+	"agate/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -23,30 +24,30 @@ type WorktreeConfirmDialog struct {
 var (
 	confirmDialogStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(errorStatus)).
+				BorderForeground(lipgloss.Color(theme.ErrorStatus)).
 				Padding(1, 2).
 				MaxWidth(50)
 
 	confirmTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color(errorStatus)).
+				Foreground(lipgloss.Color(theme.ErrorStatus)).
 				MarginBottom(1)
 
 	confirmInfoStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(textPrimary)). // White
+				Foreground(lipgloss.Color(theme.TextPrimary)). // White
 				MarginBottom(1)
 
 	confirmWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(warningStatus)).
+				Foreground(lipgloss.Color(theme.WarningStatus)).
 				MarginTop(1).
 				MarginBottom(1)
 
 	confirmButtonsStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(infoStatus)).
+				Foreground(lipgloss.Color(theme.InfoStatus)).
 				MarginTop(1)
 
 	confirmDeletingStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(textMuted)). // Gray
+				Foreground(lipgloss.Color(theme.TextMuted)). // Gray
 				MarginTop(1)
 )
 

@@ -7,6 +7,7 @@ import (
 
 	"agate/components"
 	"agate/git"
+	"agate/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,29 +33,29 @@ type WorktreeDialog struct {
 var (
 	dialogStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(borderMuted)).
+			BorderForeground(lipgloss.Color(theme.BorderMuted)).
 			Padding(1, 2).
 			MaxWidth(50)
 
 	dialogTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color(agateColor)). // Using ASCII art color
+				Foreground(lipgloss.Color(theme.AgateColor)). // Using ASCII art color
 				MarginBottom(1)
 
 	dialogErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(errorStatus)).
+				Foreground(lipgloss.Color(theme.ErrorStatus)).
 				MarginTop(1)
 
 	dialogWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(warningStatus)).
+				Foreground(lipgloss.Color(theme.WarningStatus)).
 				MarginTop(1)
 
 	dialogInfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textMuted)). // Gray
+			Foreground(lipgloss.Color(theme.TextMuted)). // Gray
 			MarginTop(1)
 
 	dialogButtonStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(infoStatus)).
+				Foreground(lipgloss.Color(theme.InfoStatus)).
 				MarginTop(1)
 )
 

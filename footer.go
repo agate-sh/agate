@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 
+	"agate/theme"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -20,13 +22,13 @@ type Footer struct {
 // Styling for footer elements
 var (
 	footerKeyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textDescription))
+			Foreground(lipgloss.Color(theme.TextDescription))
 
 	footerDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textDescription))
+			Foreground(lipgloss.Color(theme.TextDescription))
 
 	footerSeparatorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(separatorColor))
+				Foreground(lipgloss.Color(theme.SeparatorColor))
 
 
 	footerStyle = lipgloss.NewStyle().
@@ -142,12 +144,12 @@ func (f *Footer) View() string {
 			descStyle = descStyle.Foreground(lipgloss.Color(f.agentConfig.BorderColor))
 		case "git", "shell":
 			// Apply gray color when git/shell panes are focused
-			keyStyle = keyStyle.Foreground(lipgloss.Color(textDescription))
-			descStyle = descStyle.Foreground(lipgloss.Color(textDescription))
+			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextDescription))
+			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextDescription))
 		case "reposAndWorktrees":
 			// Apply white color when left pane is focused
-			keyStyle = keyStyle.Foreground(lipgloss.Color(textPrimary))
-			descStyle = descStyle.Foreground(lipgloss.Color(textPrimary))
+			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextPrimary))
+			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextPrimary))
 		}
 
 		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)

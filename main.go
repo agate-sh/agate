@@ -11,6 +11,8 @@ import (
 	"agate/config"
 	"agate/git"
 	"agate/overlay"
+	"agate/panes"
+	"agate/theme"
 	"agate/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -26,7 +28,7 @@ var asciiArt string
 var (
 	paneBaseStyle = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(borderMuted)).
+		BorderForeground(lipgloss.Color(theme.BorderMuted)).
 		Padding(1, 2)
 )
 
@@ -62,38 +64,39 @@ func (f focusState) String() string {
 }
 
 type model struct {
-	layout              *Layout // Layout manager for pane dimensions
-	leftContent         string
-	rightOutput         string // Raw tmux pane content with ANSI codes
-	gitContent          string // Content for Git pane
-	shellContent        string // Content for Shell pane
+	layout              *Layout                    // Layout manager for pane dimensions
 	tmuxSession         *tmux.TmuxSession
 	ready               bool
-	focused             focusState // Current focused pane
+	focused             focusState                 // Current focused pane
 	err                 error
-	subprocess          string                 // Command to run in tmux pane
-	mode                sessionMode            // Current interaction mode
-	agentConfig         AgentConfig            // Configuration for the specific agent
-	keyMap              *KeyMap                // Centralized keybindings
-	shortcutOverlay     *ShortcutOverlay       // Manages contextual shortcuts
-	footer              *Footer                // Footer component for shortcuts
-	helpDialog          *HelpDialog            // Help dialog overlay
-	showHelp            bool                   // Whether help dialog is visible
-	worktreeManager     *git.WorktreeManager   // Git worktree management
-	worktreeList        *WorktreeList          // Worktree list component
-	worktreeDialog      *WorktreeDialog        // Worktree creation dialog
-	worktreeConfirm     *WorktreeConfirmDialog // Worktree deletion confirmation
-	showWorktreeDialog  bool                   // Whether showing worktree creation dialog
-	showWorktreeConfirm bool                   // Whether showing worktree deletion confirmation
-	repoDialog          *RepoDialog            // Repository search dialog
-	showRepoDialog      bool                   // Whether showing repository dialog
-	welcomeOverlay      *WelcomeOverlay        // Welcome overlay for first-time users
-	showWelcomeOverlay  bool                   // Whether showing welcome overlay
-	debugLogger         *DebugLogger           // Debug logger for development
-	debugOverlay        *DebugOverlay          // Debug overlay for development
-	showDebugOverlay    bool                   // Whether showing debug overlay
-	loadingState        *tmux.LoadingState     // Loading state manager with spinner and stopwatch
-	gitPane             *GitPane               // Git pane for file status display
+	subprocess          string                     // Command to run in tmux pane
+	mode                sessionMode                // Current interaction mode
+	agentConfig         AgentConfig                // Configuration for the specific agent
+	keyMap              *GlobalKeyMap              // Global keybindings
+	shortcutOverlay     *ShortcutOverlay           // Manages contextual shortcuts
+	footer              *Footer                    // Footer component for shortcuts
+	helpDialog          *HelpDialog                // Help dialog overlay
+	showHelp            bool                       // Whether help dialog is visible
+	worktreeManager     *git.WorktreeManager       // Git worktree management
+	worktreeList        *WorktreeList              // Worktree list component
+	worktreeDialog      *WorktreeDialog            // Worktree creation dialog
+	worktreeConfirm     *WorktreeConfirmDialog     // Worktree deletion confirmation
+	showWorktreeDialog  bool                       // Whether showing worktree creation dialog
+	showWorktreeConfirm bool                       // Whether showing worktree deletion confirmation
+	repoDialog          *RepoDialog                // Repository search dialog
+	showRepoDialog      bool                       // Whether showing repository dialog
+	welcomeOverlay      *WelcomeOverlay            // Welcome overlay for first-time users
+	showWelcomeOverlay  bool                       // Whether showing welcome overlay
+	debugLogger         *DebugLogger               // Debug logger for development
+	debugOverlay        *DebugOverlay              // Debug overlay for development
+	showDebugOverlay    bool                       // Whether showing debug overlay
+	loadingState        *tmux.LoadingState         // Loading state manager with spinner and stopwatch
+
+	// Panes using the new Pane interface
+	repoPane  panes.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
+	tmuxPane  panes.Pane // Tmux terminal pane
+	gitPane   panes.Pane // Git file status pane
+	shellPane panes.Pane // Shell pane
 }
 
 func initialModel(subprocess string) model {
@@ -101,7 +104,7 @@ func initialModel(subprocess string) model {
 	agentConfig := GetAgentConfig(subprocess)
 
 	// Create keybindings and shortcut overlay
-	keyMap := NewKeyMap()
+	keyMap := NewGlobalKeyMap()
 	shortcutOverlay := NewShortcutOverlay(keyMap)
 	shortcutOverlay.SetFocus(focusTmux.String()) // Start with tmux pane focused
 	shortcutOverlay.SetMode("preview")           // Start in preview mode
@@ -142,15 +145,18 @@ func initialModel(subprocess string) model {
 	// Set up debug logging for git package (always enabled now)
 	git.DebugLog = DebugLog
 
-	// Initialize GitPane
-	gitPane := NewGitPane()
+	// Initialize all panes using the new Pane interface
+	gitPane := panes.NewGitPane()
+	tmuxPane := panes.NewTmuxPane(panes.AgentConfig{
+		CompanyName: agentConfig.CompanyName,
+		BorderColor: agentConfig.BorderColor,
+	}, tmux.NewLoadingState())
+	shellPane := panes.NewShellPane()
+	repoPane := panes.NewRepoWorktreePane(worktreeManager)
 
 	m := model{
 		layout:              NewLayout(0, 0), // Will be updated on first WindowSizeMsg
 		focused:             focusTmux,       // Focus on tmux pane initially
-		leftContent:         "",              // No longer using ASCII art
-		gitContent:          "",              // Empty Git content initially
-		shellContent:        "",              // Empty Shell content initially
 		subprocess:          subprocess,
 		mode:                modePreview, // Start in preview mode
 		agentConfig:         agentConfig,
@@ -170,12 +176,19 @@ func initialModel(subprocess string) model {
 		debugOverlay:        debugOverlay,
 		showDebugOverlay:    false,
 		loadingState:        tmux.NewLoadingState(),
-		gitPane:             gitPane,
+
+		// Initialize panes
+		repoPane:  repoPane,
+		tmuxPane:  tmuxPane,
+		gitPane:   gitPane,
+		shellPane: shellPane,
 	}
 
-	// Initialize Git pane content if worktree list is available
-	if m.worktreeList != nil && m.worktreeList.HasItems() {
-		m.updateGitPane()
+	// Initialize Git pane content if repo pane has items
+	if m.repoPane != nil {
+		if repoPane, ok := m.repoPane.(*panes.RepoWorktreePane); ok && repoPane.HasItems() {
+			m.updateGitPane()
+		}
 	}
 
 	return m
@@ -183,29 +196,35 @@ func initialModel(subprocess string) model {
 
 // switchToPane handles switching focus to a specific pane with all necessary updates
 func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
-	// Update previous pane's active state
+	// Update all panes' active state
+	if m.repoPane != nil {
+		m.repoPane.SetActive(targetPane == focusReposAndWorktrees)
+	}
+	if m.tmuxPane != nil {
+		m.tmuxPane.SetActive(targetPane == focusTmux)
+	}
 	if m.gitPane != nil {
-		m.gitPane.SetActive(false)
+		m.gitPane.SetActive(targetPane == focusGit)
+	}
+	if m.shellPane != nil {
+		m.shellPane.SetActive(targetPane == focusShell)
 	}
 
 	// Set the new focus
 	m.focused = targetPane
-
-	// Update new pane's active state
-	if targetPane == focusGit && m.gitPane != nil {
-		m.gitPane.SetActive(true)
-	}
 
 	// Update footer and shortcut overlay
 	m.footer.SetFocus(m.focused.String())
 	m.shortcutOverlay.SetFocus(m.focused.String())
 
 	// Special handling for repos & worktrees pane
-	if targetPane == focusReposAndWorktrees && m.worktreeList != nil {
-		// Refresh worktree list when focusing
-		if err := m.worktreeList.Refresh(); err != nil {
-			DebugLog("Failed to refresh worktree list when switching panes: %v", err)
-			// UI continues to work, but log the issue for debugging
+	if targetPane == focusReposAndWorktrees && m.repoPane != nil {
+		// Refresh repo pane when focusing
+		if repoPane, ok := m.repoPane.(*panes.RepoWorktreePane); ok {
+			if err := repoPane.Refresh(); err != nil {
+				DebugLog("Failed to refresh repo pane when switching panes: %v", err)
+				// UI continues to work, but log the issue for debugging
+			}
 		}
 
 		// Update GitPane with selected worktree/repo
@@ -217,37 +236,31 @@ func (m model) switchToPane(targetPane focusState) (model, tea.Cmd) {
 
 // updateGitPane updates the Git pane based on the currently selected worktree/repo
 func (m *model) updateGitPane() {
-	if m.gitPane == nil || m.worktreeList == nil {
-		DebugLog("updateGitPane: gitPane or worktreeList is nil")
+	if m.gitPane == nil || m.repoPane == nil {
+		DebugLog("updateGitPane: gitPane or repoPane is nil")
 		return
 	}
 
-	// Get the selected item from the worktree list
-	selectedItem := m.worktreeList.GetSelectedItem()
-	if selectedItem == nil {
-		DebugLog("updateGitPane: no selected item")
-		m.gitContent = m.gitPane.View()
+	// Cast to RepoWorktreePane to access GetSelectedWorktree method
+	repoPane, ok := m.repoPane.(*panes.RepoWorktreePane)
+	if !ok {
+		DebugLog("updateGitPane: repoPane is not a RepoWorktreePane")
 		return
 	}
 
-	var repoPath string
-	switch selectedItem.Type {
-	case "worktree":
-		if selectedItem.Worktree != nil {
-			repoPath = selectedItem.Worktree.Path
-		}
-		DebugLog("updateGitPane: selected worktree with path: %s", repoPath)
-	case "main_repo":
-		repoPath = selectedItem.RepoPath
-		DebugLog("updateGitPane: selected main_repo with path: %s", repoPath)
+	// Get the selected worktree from the repo pane
+	selectedWorktree := repoPane.GetSelectedWorktree()
+	if selectedWorktree == nil {
+		DebugLog("updateGitPane: no selected worktree")
+		return
 	}
 
-	if repoPath != "" {
-		DebugLog("updateGitPane: setting repository to: %s", repoPath)
-		m.gitPane.SetRepository(repoPath)
-		m.gitContent = m.gitPane.View()
-	} else {
-		DebugLog("updateGitPane: repoPath is empty")
+	repoPath := selectedWorktree.Path
+	DebugLog("updateGitPane: setting repository to: %s", repoPath)
+
+	// Cast to GitPane to access SetRepository method
+	if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
+		gitPane.SetRepository(repoPath)
 	}
 }
 
@@ -366,10 +379,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Update worktree list size
-		if m.worktreeList != nil {
+		// Update repo pane size
+		if m.repoPane != nil {
 			leftWidth, leftHeight := m.layout.GetLeftDimensions()
-			m.worktreeList.SetSize(leftWidth, leftHeight)
+			m.repoPane.SetSize(leftWidth, leftHeight)
 		}
 
 		// Update GitPane size
@@ -385,9 +398,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tmuxSessionStartedMsg:
 		m.tmuxSession = msg.session
 
-		// Initialize empty content for right panes
-		m.gitContent = ""
-		m.shellContent = ""
+		// Initialize loading state for tmux pane
+		if m.tmuxPane != nil {
+			if tmuxPane, ok := m.tmuxPane.(*panes.TmuxPane); ok {
+				tmuxPane.SetLoading(true)
+			}
+		}
 
 		// Start loading timer for stopwatch
 		m.loadingState.Start()
@@ -415,19 +431,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case tmuxOutputMsg:
-		// Update output if there's new content
+		// Update tmux pane content
 		if msg.content != "" {
-			previousOutput := m.rightOutput
-			m.rightOutput = msg.content
+			if m.tmuxPane != nil {
+				if tmuxPane, ok := m.tmuxPane.(*panes.TmuxPane); ok {
+					tmuxPane.SetContent(msg.content)
+					tmuxPane.SetLoading(false)
+				}
+			}
 			// Clear loading timer once we have content
 			if m.loadingState.IsLoading() && strings.TrimSpace(msg.content) != "" {
 				m.loadingState.Stop()
 			}
 
 			// On first real output, ensure Git pane is initialized
-			if previousOutput == "" && m.gitContent == "" {
-				m.updateGitPane()
-			}
+			m.updateGitPane()
 		}
 
 		// Continue monitoring (increased frequency for better responsiveness)
@@ -478,10 +496,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tmuxDetachedMsg:
 		m.mode = modePreview
-		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(agateColor))
-		styledASCII := asciiStyle.Render(asciiArt)
-		m.leftContent = styledASCII
+		// Left content is now handled by WorktreeList directly
+		// ASCII art will be displayed by WorktreeList
 
 		// Update footer back to preview mode
 		m.footer.SetMode("preview")
@@ -505,10 +521,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.error
-		asciiStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(agateColor))
-		styledASCII := asciiStyle.Render(asciiArt)
-		m.leftContent = styledASCII + fmt.Sprintf("\n\nError: %v", msg.error)
+		// Left content error will be displayed by WorktreeList directly
+		// Error: msg.error can be handled by WorktreeList if needed
 
 	// Worktree dialog messages
 	case WorktreeCreatedMsg:
@@ -851,14 +865,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Navigate up in focused pane
 			switch m.focused {
 			case focusReposAndWorktrees:
-				if m.worktreeList != nil {
-					m.worktreeList.MoveUp()
+				if m.repoPane != nil {
+					m.repoPane.MoveUp()
 					m.updateGitPane() // Update Git pane when selection changes
 				}
 			case focusGit:
 				if m.gitPane != nil {
 					m.gitPane.MoveUp()
-					m.gitContent = m.gitPane.View() // Re-render the git pane
 					return m, nil
 				}
 			}
@@ -868,28 +881,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Navigate down in focused pane
 			switch m.focused {
 			case focusReposAndWorktrees:
-				if m.worktreeList != nil {
-					m.worktreeList.MoveDown()
+				if m.repoPane != nil {
+					m.repoPane.MoveDown()
 					m.updateGitPane() // Update Git pane when selection changes
 				}
 			case focusGit:
 				if m.gitPane != nil {
 					m.gitPane.MoveDown()
-					m.gitContent = m.gitPane.View() // Re-render the git pane
 					return m, nil
 				}
 			}
 			return m, nil
 
-		case key.Matches(msg, m.keyMap.OpenInEditor):
-			// Open file in editor (git pane only)
-			if m.focused == focusGit && m.gitPane != nil {
-				handled, cmd := m.gitPane.HandleKey("enter")
-				if handled {
-					return m, cmd
-				}
-			}
-			return m, nil
+		// OpenInEditor is now handled by GitPane's HandleKey method directly
+		// No separate global keybinding needed
 
 		case key.Matches(msg, m.keyMap.FocusPaneRepos):
 			// Switch to repos & worktrees pane (0)
@@ -936,85 +941,95 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderLeftPaneTitle renders the title for the left pane (repos & worktrees)
+func (m model) renderLeftPaneTitle() string {
+	if m.focused == focusReposAndWorktrees {
+		focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary)).Bold(true)
+		return focusStyle.Render("Repos & Worktrees") + " " +
+			focusStyle.Render("[r: add repo, w: add worktree]")
+	}
+
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+	numberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+	return titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
+}
+
+// renderPaneTitle renders a title using the pane's GetTitleStyle method
+func (m model) renderPaneTitle(pane panes.Pane) string {
+	if pane == nil {
+		return ""
+	}
+
+	titleStyle := pane.GetTitleStyle()
+
+	// Style the text based on the title type
+	var styledText string
+	if titleStyle.Type == "badge" {
+		// Badge style (like tmux pane) with colored background
+		badgeStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color(titleStyle.Color)).
+			Foreground(lipgloss.Color(theme.TextPrimary)).
+			Padding(0, 1).
+			Bold(true)
+		styledText = badgeStyle.Render(titleStyle.Text)
+	} else {
+		// Plain style
+		var textStyle lipgloss.Style
+		if pane.IsActive() {
+			textStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary)).Bold(true)
+		} else {
+			textStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+		}
+		styledText = textStyle.Render(titleStyle.Text)
+	}
+
+	// Add shortcuts with appropriate styling
+	if titleStyle.Shortcuts != "" {
+		var shortcutStyle lipgloss.Style
+		if titleStyle.Type == "badge" && titleStyle.Color != "" {
+			// For badge titles, style shortcuts with the badge color
+			shortcutStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(titleStyle.Color)).
+				Bold(true)
+		} else if pane.IsActive() {
+			// For active plain titles, use primary text color
+			shortcutStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.TextPrimary)).
+				Bold(true)
+		} else {
+			// For inactive titles, use muted color
+			shortcutStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.TextMuted))
+		}
+		return styledText + " " + shortcutStyle.Render(titleStyle.Shortcuts)
+	}
+
+	return styledText
+}
+
 func (m model) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
 
-	// Create title strings with proper focus styling
-	var leftTitle, tmuxTitle, gitTitle, shellTitle string
+	// Render titles using the new Pane interface
+	leftTitle := m.renderLeftPaneTitle()
+	tmuxTitle := m.renderPaneTitle(m.tmuxPane)
+	gitTitle := m.renderPaneTitle(m.gitPane)
+	shellTitle := m.renderPaneTitle(m.shellPane)
 
-	// Define consistent styles
-	numberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textMuted))
-	focusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textPrimary)).Bold(true)
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textDescription))
-
-	// Agent title with colored rectangle background (for tmux pane)
-	agentTitleStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(m.agentConfig.BorderColor)).
-		Foreground(lipgloss.Color(textPrimary)).
-		Padding(0, 1).
-		Bold(true)
-
-	// Create titles based on focus
-	switch m.focused {
-	case focusReposAndWorktrees:
-		leftTitle = focusStyle.Render("Repos & Worktrees") + " " +
-			focusStyle.Render("[r: add repo, w: add worktree]")
-		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) + numberStyle.Render(" [1]")
-		gitTitle = titleStyle.Render("Git") + numberStyle.Render(" [2]")
-		shellTitle = titleStyle.Render("Shell") + numberStyle.Render(" [3]")
-	case focusTmux:
-		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
-		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) +
-			lipgloss.NewStyle().Foreground(lipgloss.Color(m.agentConfig.BorderColor)).Bold(true).Render(" [⏎ attach]")
-		gitTitle = titleStyle.Render("Git") + numberStyle.Render(" [2]")
-		shellTitle = titleStyle.Render("Shell") + numberStyle.Render(" [3]")
-	case focusGit:
-		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
-		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) + numberStyle.Render(" [1]")
-		// Use GitPane's GetTitle for dynamic title with shortcut hint
-		if m.gitPane != nil {
-			gitTitle = focusStyle.Render(m.gitPane.GetTitle())
-		} else {
-			gitTitle = focusStyle.Render("Git")
-		}
-		shellTitle = titleStyle.Render("Shell") + numberStyle.Render(" [3]")
-	case focusShell:
-		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
-		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) + numberStyle.Render(" [1]")
-		gitTitle = titleStyle.Render("Git") + numberStyle.Render(" [2]")
-		shellTitle = focusStyle.Render("Shell")
-	default:
-		leftTitle = titleStyle.Render("Repos & Worktrees") + numberStyle.Render(" [0]")
-		tmuxTitle = agentTitleStyle.Render(m.agentConfig.CompanyName) + numberStyle.Render(" [1]")
-		gitTitle = titleStyle.Render("Git") + numberStyle.Render(" [2]")
-		shellTitle = titleStyle.Render("Shell") + numberStyle.Render(" [3]")
-	}
-
-	// Prepare content for each pane
-	var leftPaneContent string
-	if m.worktreeList != nil {
-		leftPaneContent = m.worktreeList.View()
-	} else {
-		leftPaneContent = "Worktree manager not available"
-	}
-
-	// Check if tmux pane is in loading state
-	var isLoading bool
-	if m.tmuxSession != nil && m.loadingState.IsLoading() {
-		isLoading = m.tmuxSession.IsLoading()
-	}
+	// Render pane content using the new Pane interface
+	leftPaneContent := m.repoPane.View()
 
 	// Render all panes using the layout system
 	leftPane, tmuxPane, gitPane, shellPane := m.layout.RenderPanes(
 		leftPaneContent,
-		m.rightOutput, // tmux content
-		m.gitContent,
-		m.shellContent,
+		m.tmuxPane.View(),
+		m.gitPane.View(),
+		m.shellPane.View(),
 		m.focused,
 		m.agentConfig.BorderColor, // Pass the agent's color
-		isLoading,
+		false, // isLoading - handled by tmux pane internally now
 		m.loadingState,
 		m.agentConfig.CompanyName,
 	)

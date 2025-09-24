@@ -1,6 +1,7 @@
 package main
 
 import (
+	"agate/theme"
 	"agate/tmux"
 
 	"github.com/charmbracelet/lipgloss"
@@ -146,14 +147,14 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	// Apply focus styling
 	switch focused {
 	case focusReposAndWorktrees:
-		leftStyle = leftStyle.BorderForeground(lipgloss.Color(borderActive))
+		leftStyle = leftStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	case focusTmux:
 		// Use the agent's specific color when tmux is focused
 		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(agentColor))
 	case focusGit:
-		gitStyle = gitStyle.BorderForeground(lipgloss.Color(borderActive))
+		gitStyle = gitStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	case focusShell:
-		shellStyle = shellStyle.BorderForeground(lipgloss.Color(borderActive))
+		shellStyle = shellStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	}
 
 	// Correct approach: Apply Width() first, then PlaceVertical
@@ -182,7 +183,7 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	if isLoading && loadingState != nil {
 		// Use the loading state to render the complete loading view
 		tmuxContentToRender = loadingState.RenderLoadingView(
-			agentName, agentColor, tmuxContentWidth, contentHeight, textMuted, textDescription,
+			agentName, agentColor, tmuxContentWidth, contentHeight, theme.TextMuted, theme.TextDescription,
 		)
 	} else {
 		// Use normal tmux content

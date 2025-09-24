@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agate/config"
+	"agate/theme"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,7 +28,7 @@ func NewDebugOverlay(debugLogger *DebugLogger) *DebugOverlay {
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(white)). // White border
+		BorderForeground(lipgloss.Color(theme.White)). // White border
 		Padding(1)
 
 	return &DebugOverlay{
@@ -95,14 +96,14 @@ func (d *DebugOverlay) View() string {
 
 	// Create header with title and path on same row
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(white)). // White
+		Foreground(lipgloss.Color(theme.White)). // White
 		Bold(true)
 
 	pathStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(textMuted)) // File path uses muted color
+		Foreground(lipgloss.Color(theme.TextMuted)) // File path uses muted color
 
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(textDescription)). // Help text uses description color
+		Foreground(lipgloss.Color(theme.TextDescription)). // Help text uses description color
 		Align(lipgloss.Center)
 
 	titleRow := titleStyle.Render("Debug Log Viewer") + " " + pathStyle.Render("("+debugLogPath+")")
@@ -133,7 +134,7 @@ func (d *DebugOverlay) View() string {
 	// Apply overlay styling
 	overlayStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(white)). // White border
+		BorderForeground(lipgloss.Color(theme.White)). // White border
 		Padding(1, 2).
 		Width(d.width - 4).
 		Height(d.height - 4)

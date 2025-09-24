@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"strings"
 
+	"agate/theme"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -21,23 +23,23 @@ type WelcomeOverlay struct {
 var (
 	welcomeOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(borderMuted)).
+				BorderForeground(lipgloss.Color(theme.BorderMuted)).
 				Padding(1, 2).
 				MaxWidth(65) // Same as help dialog that works
 
 	welcomeASCIIStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(agateColor)). // Same color as main ASCII art
+				Foreground(lipgloss.Color(theme.AgateColor)). // Same color as main ASCII art
 				MarginBottom(1)
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(textDescription)). // Light gray
+				Foreground(lipgloss.Color(theme.TextDescription)). // Light gray
 				Align(lipgloss.Center).
 				Bold(true).
 				Width(55). // Smaller width to avoid breaking border
 				MarginBottom(2)
 
 	welcomeFooterStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(textMuted)). // Gray
+				Foreground(lipgloss.Color(theme.TextMuted)). // Gray
 				Italic(true).
 				Align(lipgloss.Center).
 				MarginTop(1)

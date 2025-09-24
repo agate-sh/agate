@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 
+	"agate/theme"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -11,42 +13,42 @@ import (
 type HelpDialog struct {
 	width  int
 	height int
-	keyMap *KeyMap
+	keyMap *GlobalKeyMap
 }
 
 // Styling for help dialog
 var (
 	helpOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(borderMuted)).
+				BorderForeground(lipgloss.Color(theme.BorderMuted)).
 				Padding(1, 2).
 				MaxWidth(65) // Increase width to prevent border cutoff
 
 	helpTitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(agateColor)). // Using ASCII art color
+			Foreground(lipgloss.Color(theme.AgateColor)). // Using ASCII art color
 			MarginBottom(1)
 
 	helpSectionStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color(infoStatus)). // Cyan
+				Foreground(lipgloss.Color(theme.InfoStatus)). // Cyan
 				MarginTop(1)
 
 	helpKeyStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(warningYellow)) // Yellow
+			Foreground(lipgloss.Color(theme.WarningYellow)) // Yellow
 
 	helpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textDescription))
+			Foreground(lipgloss.Color(theme.TextDescription))
 
 	helpFooterStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textMuted)).
+			Foreground(lipgloss.Color(theme.TextMuted)).
 			Italic(true).
 			MarginTop(1)
 )
 
 // NewHelpDialog creates a new help dialog
-func NewHelpDialog(keyMap *KeyMap) *HelpDialog {
+func NewHelpDialog(keyMap *GlobalKeyMap) *HelpDialog {
 	return &HelpDialog{
 		keyMap: keyMap,
 	}

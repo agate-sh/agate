@@ -6,13 +6,13 @@ import (
 
 // ShortcutOverlay manages the display of contextual shortcuts
 type ShortcutOverlay struct {
-	keyMap  *KeyMap
+	keyMap  *GlobalKeyMap
 	focused string
 	mode    string // "preview" or "attached"
 }
 
 // NewShortcutOverlay creates a new shortcut overlay
-func NewShortcutOverlay(keyMap *KeyMap) *ShortcutOverlay {
+func NewShortcutOverlay(keyMap *GlobalKeyMap) *ShortcutOverlay {
 	return &ShortcutOverlay{
 		keyMap:  keyMap,
 		focused: "left",
@@ -121,7 +121,7 @@ func (s *ShortcutOverlay) GlobalShortcuts() []Shortcut {
 }
 
 // AllShortcuts returns all available shortcuts for the help dialog
-func AllShortcuts(keyMap *KeyMap) map[string][]Shortcut {
+func AllShortcuts(keyMap *GlobalKeyMap) map[string][]Shortcut {
 	sections := keyMap.GetHelpSections()
 	result := make(map[string][]Shortcut)
 
