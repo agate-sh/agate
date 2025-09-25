@@ -74,11 +74,13 @@ func newItemStyles() *itemStyles {
 		statusInfo: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextMuted)), // Gray for branch info
 		repoCurrent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Selection)).
+			Foreground(lipgloss.Color(theme.TextPrimary)).
+			Background(lipgloss.Color(theme.RowHighlight)).
 			Bold(true),
 		selectedItem: lipgloss.NewStyle().
 			PaddingLeft(2).
-			Foreground(lipgloss.Color(theme.Selection)),
+			Foreground(lipgloss.Color(theme.TextPrimary)).
+			Background(lipgloss.Color(theme.RowHighlight)),
 		normalItem: lipgloss.NewStyle().
 			PaddingLeft(4).
 			Foreground(lipgloss.Color(theme.TextDescription)),

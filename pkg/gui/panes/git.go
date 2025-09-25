@@ -1,6 +1,7 @@
 package panes
 
 import (
+	"agate/pkg/common"
 	"agate/pkg/gui/components"
 	"fmt"
 	"os"
@@ -170,7 +171,8 @@ func (g *GitPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if g.IsActive() {
 		// When active, show the shortcut hint
-		shortcuts = "[↵ open]"
+		help := common.GlobalKeys.OpenInEditor.Help()
+		shortcuts = fmt.Sprintf("[%s: %s]", help.Key, help.Desc)
 	} else {
 		// When not active, show pane number
 		shortcuts = "[2]"
@@ -319,16 +321,83 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 
 	// Apply selection highlighting if this row is selected
 	if index == g.selectedIndex {
-		// Pad the row to full width first
-		paddedRow := fullRow
-		currentWidth := lipgloss.Width(fullRow)
-		if currentWidth < g.GetWidth() {
-			paddedRow = fullRow + strings.Repeat(" ", g.GetWidth()-currentWidth)
+		// We need to rebuild the row with background applied to each part
+		// Create styles with background
+		bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.RowHighlight))
+
+		// Reapply all styles with background
+		iconWithBg := g.getIconStyle(file.Status).Background(lipgloss.Color(theme.RowHighlight)).Render(icon)
+		nameWithBg := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextPrimary)).
+			Background(lipgloss.Color(theme.RowHighlight)).
+			Render(file.FileName)
+
+		// Directory path with background
+		dirPathWithBg := ""
+		if file.DirPath != "" && file.DirPath != "." {
+			truncated := truncatePath(file.DirPath, availableForPath)
+			dirPathWithBg = bgStyle.Render(" ") + lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.TextMuted)).
+				Background(lipgloss.Color(theme.RowHighlight)).
+				Render(truncated)
 		}
 
-		selectionStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.TextMuted))
-		return selectionStyle.Render(paddedRow)
+		// Changes with background
+		changesWithBg := ""
+		if file.Additions > 0 || file.Deletions > 0 {
+			addStr := fmt.Sprintf("+%d", file.Additions)
+			delStr := fmt.Sprintf("-%d", file.Deletions)
+
+			addWithBg := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.SuccessStatus)).
+				Background(lipgloss.Color(theme.RowHighlight)).
+				Render(addStr)
+			delWithBg := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.ErrorStatus)).
+				Background(lipgloss.Color(theme.RowHighlight)).
+				Render(delStr)
+
+			spacerWithBg := bgStyle.Render(" ")
+			changesWithBg = addWithBg + spacerWithBg + delWithBg
+		} else if file.IsUntracked {
+			if file.Additions > 0 {
+				changesWithBg = lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.SuccessStatus)).
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Render(fmt.Sprintf("+%d", file.Additions))
+			} else {
+				changesWithBg = lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.SuccessStatus)).
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Render("new")
+			}
+		}
+
+		// Build the row with backgrounds
+		leftSide := iconWithBg + bgStyle.Render(" ") + nameWithBg + dirPathWithBg
+
+		// Calculate padding
+		var fullRow string
+		if changesWithBg != "" {
+			leftLen := lipgloss.Width(leftSide)
+			rightLen := lipgloss.Width(changesWithBg)
+			padding := g.GetWidth() - leftLen - rightLen - 2
+			if padding < 1 {
+				padding = 1
+			}
+			paddingStr := bgStyle.Render(strings.Repeat(" ", padding))
+			fullRow = leftSide + paddingStr + changesWithBg
+		} else {
+			fullRow = leftSide
+		}
+
+		// Pad to full width with background
+		currentWidth := lipgloss.Width(fullRow)
+		if currentWidth < g.GetWidth() {
+			fullRow = fullRow + bgStyle.Render(strings.Repeat(" ", g.GetWidth()-currentWidth))
+		}
+
+		return fullRow
 	}
 
 	return fullRow

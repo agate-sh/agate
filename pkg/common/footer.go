@@ -110,7 +110,7 @@ func (f *Footer) View() string {
 			// Determine if this shortcut should be highlighted based on current focus
 			shouldHighlight := false
 
-			if (f.focused == "tmux" || f.focused == "git" || f.focused == "shell") && shortcut.Key == "⏎" {
+			if (f.focused == "tmux" || f.focused == "git" || f.focused == "shell") && shortcut.Key == "a" {
 				// Only highlight "attach to tmux" when any right pane is focused
 				shouldHighlight = true
 			} else if f.focused == "reposAndWorktrees" && (shortcut.Key == "n" || shortcut.Key == "d") {

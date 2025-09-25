@@ -26,5 +26,5 @@ var (
 	SeparatorColor = "#4a4a4a" // 238 - very dark gray for separators
 	WarningYellow  = "#f1fa8c" // 220 - yellow for warnings/highlights
 	White          = "#ffffff" // 7 - white for debug overlay and other UI elements
-	Selection      = "#dfcfae" // warm beige for selected items
+	RowHighlight   = "#525252" // subtle medium gray for row highlighting
 )

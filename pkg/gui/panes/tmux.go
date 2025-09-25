@@ -1,9 +1,11 @@
 package panes
 
 import (
+	"agate/pkg/common"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
 	"agate/pkg/tmux"
+	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,9 +55,12 @@ func (t *TmuxPane) SetLoading(loading bool) {
 // GetTitleStyle returns the badge-style title for the tmux pane
 func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
-	if t.IsActive() {
+	isActive := t.IsActive()
+	// Debug: Let's see what's happening
+	if isActive {
 		// When active, show attach hint with agent color
-		shortcuts = "[⏎ attach]"
+		help := common.GlobalKeys.AttachTmux.Help()
+		shortcuts = fmt.Sprintf("[%s: %s]", help.Key, help.Desc)
 	} else {
 		// When not active, show pane number
 		shortcuts = "[1]"
@@ -105,8 +110,8 @@ func (t *TmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 func (t *TmuxPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Tmux pane keybindings - attach and detach
 	attachTmux := key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("⏎", "attach to tmux"),
+		key.WithKeys("a"),
+		key.WithHelp("a", "attach to tmux"),
 	)
 
 	detachTmux := key.NewBinding(

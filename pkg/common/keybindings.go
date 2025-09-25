@@ -38,7 +38,7 @@ type GlobalKeyMap struct {
 	DeleteWorktree key.Binding // d - delete worktree (repos pane action, context-sensitive)
 
 	// Tmux interaction - conceptually belongs to tmux pane but globally accessible
-	AttachTmux key.Binding // Enter - attach to tmux session
+	AttachTmux key.Binding // a - attach to tmux session
 	DetachTmux key.Binding // Ctrl+Q - detach from tmux session
 
 	// Dialog actions - global because dialogs overlay all content
@@ -48,11 +48,13 @@ type GlobalKeyMap struct {
 	// List interaction - used by multiple panes (repos, git, etc.)
 	Filter      key.Binding // / - start filtering
 	ClearFilter key.Binding // Esc - clear filter
+
+	// Git pane actions
+	OpenInEditor key.Binding // Enter - open selected file in editor
 }
 
-// NewGlobalKeyMap creates a new GlobalKeyMap with default keybindings
-func NewGlobalKeyMap() *GlobalKeyMap {
-	return &GlobalKeyMap{
+// GlobalKeys is the single source of truth for all keybindings in the application
+var GlobalKeys = &GlobalKeyMap{
 		// Global keys
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
@@ -103,8 +105,8 @@ func NewGlobalKeyMap() *GlobalKeyMap {
 			key.WithHelp("r", "add repo"),
 		),
 		NewWorktree: key.NewBinding(
-			key.WithKeys("w"),
-			key.WithHelp("w", "new worktree"),
+			key.WithKeys("n"),
+			key.WithHelp("n", "new worktree"),
 		),
 		DeleteWorktree: key.NewBinding(
 			key.WithKeys("d"),
@@ -113,8 +115,8 @@ func NewGlobalKeyMap() *GlobalKeyMap {
 
 		// Tmux interaction
 		AttachTmux: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("↵", "attach to tmux"),
+			key.WithKeys("a"),
+			key.WithHelp("a", "attach to tmux"),
 		),
 		DetachTmux: key.NewBinding(
 			key.WithKeys("ctrl+q"),
@@ -140,7 +142,40 @@ func NewGlobalKeyMap() *GlobalKeyMap {
 			key.WithKeys("esc", "n"),
 			key.WithHelp("esc/n", "cancel"),
 		),
+
+		// Git pane actions
+		OpenInEditor: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵", "open in editor"),
+		),
+}
+
+// FormatTitleShortcut formats a keybinding for display in pane title bars
+// Example: "[a to attach]", "[r to add repo]"
+func FormatTitleShortcut(binding key.Binding) string {
+	help := binding.Help()
+	// Special case for multi-key shortcuts
+	if help.Key == "↑/k" {
+		return "[↑/k to " + help.Desc + "]"
 	}
+	if help.Key == "↓/j" {
+		return "[↓/j to " + help.Desc + "]"
+	}
+	// For single keys, add "to" for better readability
+	return "[" + help.Key + " to " + help.Desc + "]"
+}
+
+// FormatFooterShortcut formats a keybinding for display in the footer
+// Example: "a: attach", "r: add repo"
+func FormatFooterShortcut(binding key.Binding) string {
+	help := binding.Help()
+	return help.Key + ": " + help.Desc
+}
+
+// FormatCompactShortcut formats a keybinding in compact form for title bars
+// Example: "[a]", "[ctrl+q]"
+func FormatCompactShortcut(binding key.Binding) string {
+	return "[" + binding.Help().Key + "]"
 }
 
 // ShortHelp returns a slice of key bindings to show in the short help view
