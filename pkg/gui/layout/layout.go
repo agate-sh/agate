@@ -1,17 +1,12 @@
 package layout
 
 import (
+	"agate/pkg/app"
+	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
 	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	PaneBaseStyle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.BorderMuted)).
-		Padding(1, 2)
 )
 
 type FocusState int
@@ -103,19 +98,20 @@ func (l *Layout) calculate() {
 	}
 
 	// Get frame dimensions from pane style
-	frameWidth := PaneBaseStyle.GetHorizontalFrameSize()
-	frameHeight := PaneBaseStyle.GetVerticalFrameSize()
+	frameWidth := components.PaneBaseStyle.GetHorizontalFrameSize()
+	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
+	contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
 	minPaneHeight := frameHeight + 1 // At least one line of content inside the frame
 	if availableHeight < minPaneHeight {
 		availableHeight = minPaneHeight
 	}
 
 	// We have 3 main columns: left, tmux, and the stacked right column
-	// Subtract the frame width for each column to get available content width
-	totalFrameWidth := frameWidth * 3
+	// Subtract the frame width and internal padding for each column to get available content width
+	totalChromeWidth := (frameWidth + contentPaddingWidth) * 3
 
 	// Calculate available content width
-	availableContentWidth := usableWidth - totalFrameWidth
+	availableContentWidth := usableWidth - totalChromeWidth
 	if availableContentWidth < 0 {
 		availableContentWidth = 0
 	}
@@ -130,10 +126,10 @@ func (l *Layout) calculate() {
 	l.shellContentWidth = rightSectionWidth
 
 	// Calculate full pane widths (with borders)
-	l.leftWidth = l.leftContentWidth + frameWidth
-	l.tmuxWidth = l.tmuxContentWidth + frameWidth
-	l.gitWidth = l.gitContentWidth + frameWidth
-	l.shellWidth = l.shellContentWidth + frameWidth
+	l.leftWidth = l.leftContentWidth + contentPaddingWidth + frameWidth
+	l.tmuxWidth = l.tmuxContentWidth + contentPaddingWidth + frameWidth
+	l.gitWidth = l.gitContentWidth + contentPaddingWidth + frameWidth
+	l.shellWidth = l.shellContentWidth + contentPaddingWidth + frameWidth
 
 	// Calculate heights
 	l.paneHeight = availableHeight
@@ -169,20 +165,20 @@ func (l *Layout) calculate() {
 }
 
 // RenderPanes renders all panes with the given content
-func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focused FocusState, agentColor string, isLoading bool, loadingState *tmux.LoadingState, agentName string) (string, string, string, string) {
+func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focused FocusState, isLoading bool, loadingState *tmux.LoadingState) (string, string, string, string) {
 	// Determine which panes are focused
-	leftStyle := PaneBaseStyle
-	tmuxStyle := PaneBaseStyle
-	gitStyle := PaneBaseStyle
-	shellStyle := PaneBaseStyle
+	leftStyle := components.PaneBaseStyle
+	tmuxStyle := components.PaneBaseStyle
+	gitStyle := components.PaneBaseStyle
+	shellStyle := components.PaneBaseStyle
 
 	// Apply focus styling
 	switch focused {
 	case FocusReposAndWorktrees:
 		leftStyle = leftStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	case FocusTmux:
-		// Use the agent's specific color when tmux is focused
-		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(agentColor))
+		// Use the agent's specific color from global state when tmux is focused
+		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	case FocusGit:
 		gitStyle = gitStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	case FocusShell:
@@ -191,18 +187,37 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 
 	// Correct approach: Apply Width() first, then PlaceVertical
 	// Calculate the content height (excluding borders and padding)
-	frameHeight := PaneBaseStyle.GetVerticalFrameSize()
+	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
 	contentHeight := l.paneHeight - frameHeight
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 
-	frameWidth := PaneBaseStyle.GetHorizontalFrameSize()
-	leftContentWidth := l.leftWidth - frameWidth
-	tmuxContentWidth := l.tmuxWidth - frameWidth
+	horizontalPadding := components.PaneContentHorizontalPadding() * 2
+	leftFullWidth := l.leftContentWidth + horizontalPadding
+	tmuxFullWidth := l.tmuxContentWidth + horizontalPadding
+	gitFullWidth := l.gitContentWidth + horizontalPadding
+	shellFullWidth := l.shellContentWidth + horizontalPadding
+
+	// Inner widths without padding
+	tmuxContentWidth := l.tmuxContentWidth
+
+	// Ensure content includes horizontal padding unless the pane already accounted for it
+	if lipgloss.Width(leftContent) < leftFullWidth {
+		leftContent = components.ApplyPaneContentPadding(leftContent, l.leftContentWidth)
+	}
+	if lipgloss.Width(tmuxContent) < tmuxFullWidth {
+		tmuxContent = components.ApplyPaneContentPadding(tmuxContent, l.tmuxContentWidth)
+	}
+	if lipgloss.Width(gitContent) < gitFullWidth {
+		gitContent = components.ApplyPaneContentPadding(gitContent, l.gitContentWidth)
+	}
+	if lipgloss.Width(shellContent) < shellFullWidth {
+		shellContent = components.ApplyPaneContentPadding(shellContent, l.shellContentWidth)
+	}
 
 	leftWrapped := lipgloss.NewStyle().
-		Width(leftContentWidth).
+		Width(leftFullWidth).
 		MaxHeight(contentHeight).
 		Render(leftContent)
 	leftContentAligned := lipgloss.PlaceVertical(contentHeight, lipgloss.Top, leftWrapped)
@@ -215,28 +230,30 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	if isLoading && loadingState != nil {
 		// Use the loading state to render the complete loading view
 		tmuxContentToRender = loadingState.RenderLoadingView(
-			agentName, agentColor, tmuxContentWidth, contentHeight, theme.TextMuted, theme.TextDescription,
+			app.GetCurrentAgentName(), app.GetCurrentAgentColor(), tmuxContentWidth, contentHeight, theme.TextMuted, theme.TextDescription,
 		)
 	} else {
 		// Use normal tmux content
 		tmuxWrapped := lipgloss.NewStyle().
-			Width(tmuxContentWidth).
+			Width(tmuxFullWidth).
 			MaxHeight(contentHeight).
 			Render(tmuxContent)
 		tmuxContentToRender = lipgloss.PlaceVertical(contentHeight, lipgloss.Top, tmuxWrapped)
+	}
+	if lipgloss.Width(tmuxContentToRender) < tmuxFullWidth {
+		tmuxContentToRender = components.ApplyPaneContentPadding(tmuxContentToRender, l.tmuxContentWidth)
 	}
 
 	tmuxPane := tmuxStyle.
 		Height(l.paneHeight - 2).
 		Render(tmuxContentToRender)
 
-	gitContentWidth := l.gitWidth - frameWidth
 	gitContentHeight := l.gitPaneHeight - frameHeight
 	if gitContentHeight < 1 {
 		gitContentHeight = 1
 	}
 	gitWrapped := lipgloss.NewStyle().
-		Width(gitContentWidth).
+		Width(gitFullWidth).
 		MaxHeight(gitContentHeight).
 		Render(gitContent)
 	gitContentAligned := lipgloss.PlaceVertical(gitContentHeight, lipgloss.Top, gitWrapped)
@@ -244,13 +261,12 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 		Height(l.gitPaneHeight - 2).
 		Render(gitContentAligned)
 
-	shellContentWidth := l.shellWidth - frameWidth
 	shellContentHeight := l.shellPaneHeight - frameHeight
 	if shellContentHeight < 1 {
 		shellContentHeight = 1
 	}
 	shellWrapped := lipgloss.NewStyle().
-		Width(shellContentWidth).
+		Width(shellFullWidth).
 		MaxHeight(shellContentHeight).
 		Render(shellContent)
 	shellContentAligned := lipgloss.PlaceVertical(shellContentHeight, lipgloss.Top, shellWrapped)
@@ -273,7 +289,7 @@ func (l *Layout) GetLeftDimensions() (width, height int) {
 
 // GetGitDimensions returns the content dimensions for the git pane
 func (l *Layout) GetGitDimensions() (width, height int) {
-	frameHeight := PaneBaseStyle.GetVerticalFrameSize()
+	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
 	gitContentHeight := l.gitPaneHeight - frameHeight
 	if gitContentHeight < 1 {
 		gitContentHeight = 1
@@ -283,7 +299,7 @@ func (l *Layout) GetGitDimensions() (width, height int) {
 
 // GetShellDimensions returns the content dimensions for the shell pane
 func (l *Layout) GetShellDimensions() (width, height int) {
-	frameHeight := PaneBaseStyle.GetVerticalFrameSize()
+	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
 	shellContentHeight := l.shellPaneHeight - frameHeight
 	if shellContentHeight < 1 {
 		shellContentHeight = 1

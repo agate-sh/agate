@@ -20,10 +20,11 @@ import (
 
 // GitPane manages the display of Git file status information
 type GitPane struct {
-	*components.BasePane                     // Embedded BasePane for common functionality
-	fileStatus    *git.RepoFileStatus
-	repoPath      string
-	selectedIndex int // Currently selected file index
+	*components.BasePane // Embedded BasePane for common functionality
+	fileStatus           *git.RepoFileStatus
+	repoPath             string
+	selectedIndex        int // Currently selected file index
+	fullWidth            int // Cached width including pane padding
 }
 
 // NewGitPane creates a new GitPane instance
@@ -36,6 +37,7 @@ func NewGitPane() *GitPane {
 // SetSize updates the dimensions of the Git pane
 func (g *GitPane) SetSize(width, height int) {
 	g.BasePane.SetSize(width, height)
+	g.fullWidth = components.PaneFullWidth(width)
 }
 
 // SetRepository updates the repository path and refreshes file status
@@ -223,16 +225,21 @@ func (g *GitPane) View() string {
 
 	// Render the file list with status
 	var output strings.Builder
+	innerWidth := g.GetWidth()
+	if g.fullWidth == 0 {
+		g.fullWidth = components.PaneFullWidth(innerWidth)
+	}
 
 	// Summary line (centered)
 	summaryStyle := lipgloss.NewStyle().
-		Width(g.GetWidth()).
+		Width(innerWidth).
 		Align(lipgloss.Center).
 		Foreground(lipgloss.Color(theme.TextDescription)).
 		Bold(true)
 
 	summary := g.fileStatus.FormatSummaryLine()
-	output.WriteString(summaryStyle.Render(summary))
+	summaryLine := summaryStyle.Render(summary)
+	output.WriteString(components.ApplyPaneContentPadding(summaryLine, innerWidth))
 	// No extra padding - files start immediately after summary
 
 	// File rows
@@ -249,6 +256,7 @@ func (g *GitPane) View() string {
 func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 	// Get the appropriate icon for the file status
 	icon := icons.GetGitStatusIcon(file.Status)
+	innerWidth := g.GetWidth()
 
 	// Style for the icon based on status
 	iconStyle := g.getIconStyle(file.Status)
@@ -266,7 +274,7 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 	// Calculate available width for the path
 	// Account for: icon(2) + space(1) + filename + space(2) + changes(~10) + margins
 	usedWidth := 2 + 1 + len(file.FileName) + 2 + 10 + 4
-	availableForPath := g.GetWidth() - usedWidth
+	availableForPath := innerWidth - usedWidth
 	if availableForPath < 0 {
 		availableForPath = 0
 	}
@@ -309,7 +317,7 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 		// Calculate padding to right-align the changes
 		leftLen := lipgloss.Width(leftSide)
 		rightLen := lipgloss.Width(changesStr)
-		padding := g.GetWidth() - leftLen - rightLen - 2 // 2 for margins
+		padding := innerWidth - leftLen - rightLen - 2 // 2 for margins
 		if padding < 1 {
 			padding = 1
 		}
@@ -320,7 +328,7 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 	}
 
 	// Apply selection highlighting if this row is selected
-	if index == g.selectedIndex {
+	if index == g.selectedIndex && g.IsActive() {
 		// We need to rebuild the row with background applied to each part
 		// Create styles with background
 		bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.RowHighlight))
@@ -381,7 +389,7 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 		if changesWithBg != "" {
 			leftLen := lipgloss.Width(leftSide)
 			rightLen := lipgloss.Width(changesWithBg)
-			padding := g.GetWidth() - leftLen - rightLen - 2
+			padding := innerWidth - leftLen - rightLen - 2
 			if padding < 1 {
 				padding = 1
 			}
@@ -393,14 +401,27 @@ func (g *GitPane) renderFileRow(file git.FileStatus, index int) string {
 
 		// Pad to full width with background
 		currentWidth := lipgloss.Width(fullRow)
-		if currentWidth < g.GetWidth() {
-			fullRow = fullRow + bgStyle.Render(strings.Repeat(" ", g.GetWidth()-currentWidth))
+		if currentWidth < innerWidth {
+			fullRow = fullRow + bgStyle.Render(strings.Repeat(" ", innerWidth-currentWidth))
+		}
+
+		padCount := components.PaneContentHorizontalPadding()
+		if padCount > 0 {
+			pad := strings.Repeat(" ", padCount)
+			leftPad := bgStyle.Render(pad)
+			rightPad := bgStyle.Render(pad)
+			fullRow = leftPad + fullRow + rightPad
+		}
+
+		finalWidth := lipgloss.Width(fullRow)
+		if g.fullWidth > 0 && finalWidth < g.fullWidth {
+			fullRow += bgStyle.Render(strings.Repeat(" ", g.fullWidth-finalWidth))
 		}
 
 		return fullRow
 	}
 
-	return fullRow
+	return components.ApplyPaneContentPadding(fullRow, innerWidth)
 }
 
 // getIconStyle returns the appropriate style for a Git status icon
@@ -424,7 +445,7 @@ func (g *GitPane) getIconStyle(status string) lipgloss.Style {
 // renderEmptyState renders a centered message for empty/error states
 func (g *GitPane) renderEmptyState(message string) string {
 	style := lipgloss.NewStyle().
-		Width(g.GetWidth()).
+		Width(components.PaneFullWidth(g.GetWidth())).
 		Height(g.GetHeight()).
 		Align(lipgloss.Center, lipgloss.Center).
 		Foreground(lipgloss.Color(theme.TextMuted))

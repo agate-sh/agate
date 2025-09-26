@@ -1,10 +1,71 @@
 package components
 
 import (
+	"strings"
+
+	"agate/pkg/gui/theme"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	paneContentHorizontalPadding = 2
+	paneContentVerticalPadding   = 1
+)
+
+var (
+	// PaneBaseStyle defines the default border and chrome for panes. Horizontal
+	// padding is handled by pane content rendering so row highlights can extend
+	// across the full width.
+	PaneBaseStyle = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(theme.BorderMuted)).
+		Padding(paneContentVerticalPadding, 0)
+)
+
+// PaneContentHorizontalPadding returns the padding applied inside panes on the
+// left and right edges. Content renderers should account for this when
+// calculating their available width so highlighted rows can span the entire
+// pane.
+func PaneContentHorizontalPadding() int {
+	return paneContentHorizontalPadding
+}
+
+// PaneContentVerticalPadding returns the top/bottom padding applied inside panes.
+func PaneContentVerticalPadding() int {
+	return paneContentVerticalPadding
+}
+
+// PaneFullWidth converts an inner content width into the full width required to
+// include horizontal padding on both sides.
+func PaneFullWidth(innerWidth int) int {
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+	return innerWidth + paneContentHorizontalPadding*2
+}
+
+// ApplyPaneContentPadding ensures content includes the standard horizontal pane
+// padding by prefixing and suffixing each line with the configured spacing. The
+// innerWidth parameter should represent the width available for the content
+// itself, excluding padding.
+func ApplyPaneContentPadding(content string, innerWidth int) string {
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+	lines := strings.Split(content, "\n")
+	leftPad := strings.Repeat(" ", paneContentHorizontalPadding)
+	rightPad := strings.Repeat(" ", paneContentHorizontalPadding)
+	contentStyle := lipgloss.NewStyle().Width(innerWidth)
+	paddedLines := make([]string, len(lines))
+	for i, line := range lines {
+		normalized := contentStyle.Render(line)
+		paddedLines[i] = leftPad + normalized + rightPad
+	}
+	return strings.Join(paddedLines, "\n")
+}
 
 // TitleStyle defines how a pane's title should be rendered
 type TitleStyle struct {

@@ -1,11 +1,15 @@
 package panes
 
 import (
+	"agate/pkg/app"
 	"agate/pkg/common"
+	"agate/pkg/config"
 	"agate/pkg/gui/components"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"agate/pkg/git"
 	"agate/pkg/gui/theme"
@@ -23,18 +27,25 @@ type RepoWorktreePane struct {
 	worktreeManager  *git.WorktreeManager
 	groupedWorktrees map[string][]git.WorktreeInfo
 	currentRepo      string
+	activeWorktree   *git.WorktreeInfo
+	mainWorktree     *git.WorktreeInfo
 	items            []list.Item
 	delegate         itemDelegate
 	expandedRepos    map[string]bool // Track which repos are expanded
+	lastSavedPath    string
+	lastSavedBranch  string
+	lastSavedRepo    string
+	isGitRepo        bool
 }
 
 // WorktreeListItem implements list.Item interface for worktrees
 type WorktreeListItem struct {
-	Type     string // "repo_header" or "worktree"
-	RepoName string
-	RepoPath string // Full path to repository
-	Worktree *git.WorktreeInfo
-	Index    int // Index in original repo list
+	Type       string // "repo_header" or "worktree"
+	RepoName   string
+	RepoPath   string // Full path to repository
+	Worktree   *git.WorktreeInfo
+	Index      int // Index in original repo list
+	IsSelected bool
 }
 
 // FilterValue implements list.Item
@@ -50,6 +61,7 @@ type itemDelegate struct {
 	currentRepo   string
 	styles        *itemStyles
 	expandedRepos map[string]bool
+	isActive      bool
 }
 
 type itemStyles struct {
@@ -60,10 +72,14 @@ type itemStyles struct {
 	expandArrow   lipgloss.Style
 	collapseArrow lipgloss.Style
 	mustedText    lipgloss.Style
-	width         int
+	innerWidth    int
+	fullWidth     int
+	paddingLeft   int
+	paddingRight  int
 }
 
 func newItemStyles() *itemStyles {
+	padding := components.PaneContentHorizontalPadding()
 	return &itemStyles{
 		repoHeader: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextPrimary)).
@@ -82,6 +98,8 @@ func newItemStyles() *itemStyles {
 			Foreground(lipgloss.Color(theme.TextMuted)),
 		mustedText: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextMuted)),
+		paddingLeft:  padding,
+		paddingRight: padding,
 	}
 }
 
@@ -108,60 +126,149 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 
 	selected := index == m.Index()
-	content := ""
-	width := d.styles.width
-	if width == 0 {
-		width = 80 // Default width
+	innerWidth := d.styles.innerWidth
+	paddingLeft := d.styles.paddingLeft
+	paddingRight := d.styles.paddingRight
+	if innerWidth <= 0 {
+		innerWidth = m.Width() - paddingLeft - paddingRight
+		if innerWidth < 0 {
+			innerWidth = 0
+		}
 	}
+	fullWidth := innerWidth + paddingLeft + paddingRight
+	leftPad := strings.Repeat(" ", paddingLeft)
+	rightPad := strings.Repeat(" ", paddingRight)
 
-	if workItem.Type == "repo_header" {
-		// Repository header with expand/collapse indicator
+	highlight := selected && d.isActive
+
+	var linePlain string
+	var lineStyled string
+
+	switch workItem.Type {
+	case "repo_header":
 		repoName := workItem.RepoName
 		var arrow string
 		if d.expandedRepos != nil && d.expandedRepos[repoName] {
-			arrow = "▼ " // Expanded
+			arrow = "▼ "
 		} else {
-			arrow = "▶ " // Collapsed
+			arrow = "▶ "
 		}
 
-		// Build content string
+		linePlain = arrow + repoName
 		if workItem.RepoName == d.currentRepo {
-			content = arrow + repoName + " (current)"
-		} else {
-			content = arrow + repoName
+			linePlain += " (current)"
 		}
 
-		// Apply highlighting for selected items
-		if selected {
-			// Full row highlight with background
-			content = d.styles.selectedItem.
-				Width(width).
-				Bold(true).
-				Render(content)
+		if highlight {
+			lineStyled = linePlain
 		} else {
-			// Normal styling without background
 			arrowStyled := d.styles.mustedText.Render(arrow)
 			if workItem.RepoName == d.currentRepo {
 				nameStyled := d.styles.repoCurrent.Render(repoName)
 				currentStyled := d.styles.mustedText.Render(" (current)")
-				content = arrowStyled + nameStyled + currentStyled
+				lineStyled = arrowStyled + nameStyled + currentStyled
 			} else {
 				nameStyled := d.styles.repoHeader.Render(repoName)
-				content = arrowStyled + nameStyled
+				lineStyled = arrowStyled + nameStyled
 			}
 		}
-	} else if workItem.Type == "worktree" && workItem.Worktree != nil {
-		// Simple worktree display - just the name
-		line := "    " + workItem.Worktree.Name // Indent for hierarchy
 
-		if selected {
-			// Full row highlight with background
-			content = d.styles.selectedItem.
-				Width(width).
-				Render(line)
-		} else {
-			content = d.styles.normalItem.Render(line)
+	case "worktree":
+		if workItem.Worktree == nil {
+			return
 		}
+		label := workItem.Worktree.Branch
+		if strings.TrimSpace(label) == "" {
+			label = workItem.Worktree.Name
+		}
+		linePlain = "    " + label
+		if highlight {
+			lineStyled = linePlain
+		} else {
+			lineStyled = d.styles.normalItem.Render(linePlain)
+		}
+
+	default:
+		return
+	}
+
+	hint := ""
+	if highlight && workItem.Type == "worktree" && !workItem.IsSelected {
+		hint = " ⏎"
+	}
+
+	contentWidth := innerWidth
+	var body string
+	activeHighlight := highlight || workItem.IsSelected
+	if activeHighlight {
+		bodyStyle := d.styles.selectedItem
+		if workItem.Type == "repo_header" {
+			bodyStyle = bodyStyle.Bold(true)
+		}
+
+		if hint != "" {
+			hintStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color(theme.RowHighlight)).
+				Foreground(lipgloss.Color(theme.TextMuted))
+			hintRendered := hintStyle.Render(hint)
+			hintWidth := lipgloss.Width(hintRendered)
+			available := contentWidth - hintWidth
+			if available < 0 {
+				available = 0
+			}
+			bodySegment := bodyStyle.Width(available).Render(linePlain)
+			body = bodySegment + hintRendered
+			if lipgloss.Width(body) < contentWidth {
+				body += bodyStyle.Width(contentWidth - lipgloss.Width(body)).Render("")
+			}
+		} else {
+			body = bodyStyle.Width(contentWidth).Render(linePlain)
+		}
+	} else {
+		body = lipgloss.NewStyle().Width(contentWidth).Render(lineStyled)
+	}
+
+	var leftBorder string
+	baseHighlightStyle := lipgloss.NewStyle()
+	if activeHighlight {
+		baseHighlightStyle = baseHighlightStyle.Background(lipgloss.Color(theme.RowHighlight))
+	}
+
+	if workItem.IsSelected && paddingLeft > 0 {
+		cursorRune := components.BlinkingCursor.Frames[0]
+		if len(cursorRune) == 0 {
+			cursorRune = "█"
+		}
+		agentColor := app.GetCurrentAgentColor()
+		cursorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(agentColor)).
+			Background(lipgloss.Color(theme.RowHighlight)).
+			Render(cursorRune)
+		remaining := paddingLeft - 1
+		if remaining < 0 {
+			remaining = 0
+		}
+		leftBorder = cursorStyle
+		if remaining > 0 {
+			leftBorder += baseHighlightStyle.Render(strings.Repeat(" ", remaining))
+		}
+	} else {
+		leftBorder = baseHighlightStyle.Render(leftPad)
+	}
+
+	rightPadStyle := lipgloss.NewStyle()
+	if activeHighlight {
+		rightPadStyle = rightPadStyle.Background(lipgloss.Color(theme.RowHighlight))
+	}
+	rightSegment := rightPadStyle.Render(rightPad)
+
+	content := leftBorder + body + rightSegment
+	if lipgloss.Width(content) < fullWidth {
+		padStyle := rightPadStyle
+		if !highlight {
+			padStyle = lipgloss.NewStyle()
+		}
+		content += padStyle.Render(strings.Repeat(" ", fullWidth-lipgloss.Width(content)))
 	}
 
 	if _, err := fmt.Fprint(w, content); err != nil {
@@ -169,13 +276,17 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 }
 
-
 // NewRepoWorktreePane creates a new RepoWorktreePane instance
 func NewRepoWorktreePane(worktreeManager *git.WorktreeManager) *RepoWorktreePane {
 	styles := newItemStyles()
 
 	// Create the expanded repos map that will be shared
 	expandedRepos := make(map[string]bool)
+
+	repoSelections, err := config.GetRepoSelections()
+	if err != nil {
+		repoSelections = map[string]config.RepoSelection{}
+	}
 
 	// Create delegate with reference to shared map
 	delegate := itemDelegate{
@@ -201,7 +312,47 @@ func NewRepoWorktreePane(worktreeManager *git.WorktreeManager) *RepoWorktreePane
 
 	// Initial refresh
 	if worktreeManager != nil {
+		pane.isGitRepo = worktreeManager.IsGitRepo()
+		if pane.isGitRepo {
+			pane.currentRepo = worktreeManager.GetRepositoryName()
+		}
+		if mainWorktree, err := worktreeManager.GetMainWorktreeInfo(); err == nil {
+			pane.mainWorktree = mainWorktree
+			if pane.isGitRepo {
+				pane.activeWorktree = mainWorktree
+			}
+		}
 		pane.Refresh()
+
+		if len(repoSelections) > 0 {
+			if pane.isGitRepo {
+				repoName := pane.currentRepo
+				if repoName != "" {
+					if selection, ok := repoSelections[repoName]; ok {
+						pane.lastSavedRepo = repoName
+						pane.lastSavedPath = selection.Worktree.Path
+						pane.lastSavedBranch = selection.Worktree.Branch
+						if !pane.SelectWorktreeByRef(repoName, selection.Worktree) && pane.mainWorktree != nil {
+							pane.setActiveWorktree(pane.mainWorktree)
+						}
+					} else if pane.mainWorktree != nil {
+						pane.setActiveWorktree(pane.mainWorktree)
+					}
+				}
+			} else {
+				if firstRepo := pane.firstRepoName(); firstRepo != "" {
+					if selection, ok := repoSelections[firstRepo]; ok {
+						pane.lastSavedRepo = firstRepo
+						pane.lastSavedPath = selection.Worktree.Path
+						pane.lastSavedBranch = selection.Worktree.Branch
+						pane.SelectWorktreeByRef(firstRepo, selection.Worktree)
+					}
+				}
+			}
+		} else if pane.isGitRepo && pane.mainWorktree != nil {
+			// Persist default selection for current repo when none saved yet.
+			pane.setActiveWorktree(pane.mainWorktree)
+		}
 	}
 
 	return pane
@@ -210,9 +361,18 @@ func NewRepoWorktreePane(worktreeManager *git.WorktreeManager) *RepoWorktreePane
 // SetSize updates the dimensions of the repo worktree pane
 func (r *RepoWorktreePane) SetSize(width, height int) {
 	r.BasePane.SetSize(width, height)
-	r.list.SetSize(width, height)
-	// Update delegate width for proper row highlighting
-	r.delegate.styles.width = width
+	fullWidth := components.PaneFullWidth(width)
+	r.list.SetSize(fullWidth, height)
+	// Update delegate widths so row highlighting spans the padded content
+	r.delegate.styles.innerWidth = width
+	r.delegate.styles.fullWidth = fullWidth
+}
+
+// SetActive sets whether the pane is focused and updates row highlighting state
+func (r *RepoWorktreePane) SetActive(active bool) {
+	r.BasePane.SetActive(active)
+	r.delegate.isActive = active
+	r.list.SetDelegate(r.delegate)
 }
 
 // GetTitleStyle returns the title style for the repo worktree pane
@@ -241,7 +401,7 @@ func (r *RepoWorktreePane) View() string {
 	if r.worktreeManager == nil {
 		// Show placeholder message
 		style := lipgloss.NewStyle().
-			Width(r.GetWidth()).
+			Width(components.PaneFullWidth(r.GetWidth())).
 			Height(r.GetHeight()).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(lipgloss.Color(theme.TextMuted))
@@ -275,6 +435,7 @@ func (r *RepoWorktreePane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 	case "enter":
 		// Toggle repository expansion
 		if len(r.items) > 0 {
+			currentIndex := r.list.Index()
 			selectedItem := r.list.SelectedItem()
 			if workItem, ok := selectedItem.(WorktreeListItem); ok {
 				if workItem.Type == "repo_header" {
@@ -284,8 +445,10 @@ func (r *RepoWorktreePane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 					r.delegate.expandedRepos = r.expandedRepos
 					// Update the list's delegate
 					r.list.SetDelegate(r.delegate)
-					r.buildItemList()
-					r.list.SetItems(r.items)
+					r.rebuildListPreservingSelection(currentIndex)
+				} else if workItem.Type == "worktree" && workItem.Worktree != nil {
+					r.setActiveWorktree(workItem.Worktree)
+					r.rebuildListPreservingSelection(currentIndex)
 				}
 			}
 		}
@@ -343,6 +506,11 @@ func (r *RepoWorktreePane) moveDown() {
 
 // GetSelectedWorktree returns the currently selected worktree
 func (r *RepoWorktreePane) GetSelectedWorktree() *git.WorktreeInfo {
+	if r.activeWorktree != nil {
+		clone := *r.activeWorktree
+		return &clone
+	}
+
 	if len(r.items) == 0 {
 		return nil
 	}
@@ -350,10 +518,80 @@ func (r *RepoWorktreePane) GetSelectedWorktree() *git.WorktreeInfo {
 	selectedItem := r.list.SelectedItem()
 	if workItem, ok := selectedItem.(WorktreeListItem); ok {
 		if workItem.Type == "worktree" {
-			return workItem.Worktree
+			clone := *workItem.Worktree
+			return &clone
 		}
 	}
 	return nil
+}
+
+// SelectWorktreeByRef attempts to select a worktree using the provided repo name and reference.
+func (r *RepoWorktreePane) SelectWorktreeByRef(repoName string, ref config.WorktreeRef) bool {
+	repoName = strings.TrimSpace(repoName)
+	if repoName != "" && r.expandedRepos != nil {
+		r.expandedRepos[repoName] = true
+		r.rebuildListPreservingSelection(r.list.Index())
+	}
+
+	if strings.TrimSpace(ref.Path) != "" {
+		if r.SelectWorktreeByPath(ref.Path) {
+			return true
+		}
+	}
+
+	if strings.TrimSpace(ref.Branch) != "" {
+		return r.selectWorktreeByBranch(repoName, ref.Branch)
+	}
+
+	return false
+}
+
+// SelectWorktreeByPath attempts to select the worktree matching the provided path.
+func (r *RepoWorktreePane) SelectWorktreeByPath(worktreePath string) bool {
+	if strings.TrimSpace(worktreePath) == "" {
+		return false
+	}
+
+	target := filepath.Clean(worktreePath)
+
+	for idx, item := range r.items {
+		workItem, ok := item.(WorktreeListItem)
+		if !ok || workItem.Type != "worktree" || workItem.Worktree == nil {
+			continue
+		}
+
+		if filepath.Clean(workItem.Worktree.Path) == target {
+			r.setActiveWorktree(workItem.Worktree)
+			r.rebuildListPreservingSelection(idx)
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *RepoWorktreePane) selectWorktreeByBranch(repoName, branch string) bool {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return false
+	}
+
+	for idx, item := range r.items {
+		workItem, ok := item.(WorktreeListItem)
+		if !ok || workItem.Type != "worktree" || workItem.Worktree == nil {
+			continue
+		}
+		if repoName != "" && workItem.RepoName != repoName {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(workItem.Worktree.Branch), branch) {
+			r.setActiveWorktree(workItem.Worktree)
+			r.rebuildListPreservingSelection(idx)
+			return true
+		}
+	}
+
+	return false
 }
 
 // HasWorktrees returns whether there are any worktrees available
@@ -375,6 +613,18 @@ func (r *RepoWorktreePane) Refresh() error {
 	groups, err := r.worktreeManager.ListWorktrees()
 	if err != nil {
 		return err
+	}
+
+	if mainWorktree, err := r.worktreeManager.GetMainWorktreeInfo(); err == nil {
+		r.mainWorktree = mainWorktree
+		if r.isGitRepo {
+			if r.currentRepo == "" {
+				r.currentRepo = mainWorktree.RepoName
+			}
+			if r.activeWorktree == nil || (r.activeWorktree != nil && r.activeWorktree.Path == mainWorktree.Path) {
+				r.activeWorktree = mainWorktree
+			}
+		}
 	}
 
 	r.groupedWorktrees = groups
@@ -444,6 +694,15 @@ func (r *RepoWorktreePane) buildItemList() {
 
 		// Only add worktrees if repository is expanded
 		if r.expandedRepos[repoName] {
+			if repoName == r.currentRepo && r.mainWorktree != nil {
+				mainCopy := *r.mainWorktree
+				r.items = append(r.items, WorktreeListItem{
+					Type:       "worktree",
+					RepoName:   repoName,
+					Worktree:   &mainCopy,
+					IsSelected: r.isActiveWorktree(&mainCopy),
+				})
+			}
 			// Add worktrees for this repository
 			if worktrees, exists := r.groupedWorktrees[repoName]; exists {
 				// Sort worktrees by name
@@ -452,10 +711,12 @@ func (r *RepoWorktreePane) buildItemList() {
 				})
 
 				for _, worktree := range worktrees {
+					wt := worktree
 					r.items = append(r.items, WorktreeListItem{
-						Type:     "worktree",
-						RepoName: repoName,
-						Worktree: &worktree,
+						Type:       "worktree",
+						RepoName:   repoName,
+						Worktree:   &wt,
+						IsSelected: r.isActiveWorktree(&wt),
 					})
 				}
 			}
@@ -467,13 +728,99 @@ func (r *RepoWorktreePane) buildItemList() {
 	r.delegate.expandedRepos = r.expandedRepos
 }
 
+func (r *RepoWorktreePane) firstRepoName() string {
+	for _, item := range r.items {
+		if workItem, ok := item.(WorktreeListItem); ok && workItem.Type == "repo_header" {
+			return workItem.RepoName
+		}
+	}
+	return ""
+}
+
+func (r *RepoWorktreePane) isActiveWorktree(worktree *git.WorktreeInfo) bool {
+	if worktree == nil || r.activeWorktree == nil {
+		return false
+	}
+	return worktree.Path == r.activeWorktree.Path
+}
+
+func (r *RepoWorktreePane) setActiveWorktree(worktree *git.WorktreeInfo) {
+	if worktree == nil {
+		return
+	}
+	clone := *worktree
+	r.activeWorktree = &clone
+	if worktree.RepoName != "" {
+		r.currentRepo = worktree.RepoName
+	}
+	r.delegate.currentRepo = r.currentRepo
+	if r.expandedRepos != nil {
+		r.expandedRepos[r.currentRepo] = true
+	}
+	r.persistSelection(r.activeWorktree)
+}
+
+func (r *RepoWorktreePane) persistSelection(worktree *git.WorktreeInfo) {
+	if worktree == nil {
+		return
+	}
+
+	repoKey := strings.TrimSpace(worktree.RepoName)
+	if repoKey == "" && r.worktreeManager != nil {
+		repoKey = strings.TrimSpace(r.worktreeManager.GetRepositoryName())
+	}
+	if repoKey == "" {
+		return
+	}
+
+	samePath := false
+	if r.lastSavedRepo == repoKey && r.lastSavedPath != "" && worktree.Path != "" {
+		samePath = filepath.Clean(r.lastSavedPath) == filepath.Clean(worktree.Path)
+	}
+
+	if samePath && r.lastSavedBranch == worktree.Branch {
+		return
+	}
+
+	worktreeRef := config.WorktreeRef{
+		Path:   worktree.Path,
+		Branch: worktree.Branch,
+	}
+
+	if err := config.SetLastWorktreeForRepo(repoKey, worktreeRef); err != nil {
+		git.DebugLog("failed to persist workspace selection: %v", err)
+		return
+	}
+
+	r.lastSavedRepo = repoKey
+	r.lastSavedPath = worktree.Path
+	r.lastSavedBranch = worktree.Branch
+}
+
+func (r *RepoWorktreePane) rebuildListPreservingSelection(selectedIndex int) {
+	r.buildItemList()
+	r.list.SetItems(r.items)
+	if len(r.items) == 0 {
+		return
+	}
+	if selectedIndex < 0 {
+		selectedIndex = 0
+	}
+	if selectedIndex >= len(r.items) {
+		selectedIndex = len(r.items) - 1
+	}
+	r.list.Select(selectedIndex)
+}
+
 // SetCurrentRepo sets the current repository
 func (r *RepoWorktreePane) SetCurrentRepo(repoName string) {
 	r.currentRepo = repoName
+	if r.mainWorktree != nil && r.mainWorktree.RepoName == repoName {
+		r.setActiveWorktree(r.mainWorktree)
+	}
 	r.delegate.currentRepo = repoName
 	r.delegate.expandedRepos = r.expandedRepos
-	r.buildItemList()
-	r.list.SetItems(r.items)
+	r.rebuildListPreservingSelection(r.list.Index())
 }
 
 // GetPaneSpecificKeybindings returns repo worktree pane specific keybindings

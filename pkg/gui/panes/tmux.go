@@ -1,6 +1,7 @@
 package panes
 
 import (
+	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
@@ -16,22 +17,16 @@ type TmuxPane struct {
 	*components.BasePane
 	session      *tmux.TmuxSession
 	content      string
-	agentConfig  AgentConfig
 	loadingState *tmux.LoadingState
 	isLoading    bool
 }
 
-// AgentConfig represents agent-specific configuration
-type AgentConfig struct {
-	CompanyName string
-	BorderColor string
-}
-
 // NewTmuxPane creates a new TmuxPane instance
-func NewTmuxPane(agentConfig AgentConfig, loadingState *tmux.LoadingState) *TmuxPane {
+func NewTmuxPane(loadingState *tmux.LoadingState) *TmuxPane {
+	// Get agent name from global state for the title
+	agentName := app.GetCurrentAgentName()
 	return &TmuxPane{
-		BasePane:     components.NewBasePane(1, agentConfig.CompanyName), // Pane index 1
-		agentConfig:  agentConfig,
+		BasePane:     components.NewBasePane(1, agentName), // Pane index 1
 		loadingState: loadingState,
 		isLoading:    false,
 	}
@@ -68,8 +63,8 @@ func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 
 	return components.TitleStyle{
 		Type:      "badge",
-		Color:     t.agentConfig.BorderColor, // Use agent's brand color for badge
-		Text:      t.agentConfig.CompanyName,
+		Color:     app.GetCurrentAgentColor(), // Use agent's brand color from global state
+		Text:      app.GetCurrentAgentName(),
 		Shortcuts: shortcuts,
 	}
 }
@@ -79,8 +74,8 @@ func (t *TmuxPane) View() string {
 	if t.isLoading && t.loadingState != nil {
 		// Show loading view
 		return t.loadingState.RenderLoadingView(
-			t.agentConfig.CompanyName,
-			t.agentConfig.BorderColor,
+			app.GetCurrentAgentName(),
+			app.GetCurrentAgentColor(),
 			t.GetWidth(),
 			t.GetHeight(),
 			theme.TextMuted,

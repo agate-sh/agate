@@ -53,6 +53,7 @@ type WorktreeManager struct {
 	repoPath     string
 	worktreeBase string
 	systemCaps   SystemCapabilities
+	isGitRepo    bool
 }
 
 // NewWorktreeManager creates a new WorktreeManager instance
@@ -65,6 +66,7 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 
 	// Get repository root
 	repoPath, err := getRepositoryRoot(workDir)
+	isGitRepo := err == nil
 	if err != nil {
 		// Allow non-Git directories but warn user
 		repoPath = workDir
@@ -84,7 +86,13 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 		repoPath:     repoPath,
 		worktreeBase: worktreeBase,
 		systemCaps:   systemCaps,
+		isGitRepo:    isGitRepo,
 	}, nil
+}
+
+// IsGitRepo indicates whether the manager was initialized inside a Git repository.
+func (wm *WorktreeManager) IsGitRepo() bool {
+	return wm.isGitRepo
 }
 
 // GetSystemCapabilities returns the system's COW capabilities
@@ -189,6 +197,37 @@ func (wm *WorktreeManager) GetRepositoryName() string {
 // GetRepositoryPath returns the full path to the main repository
 func (wm *WorktreeManager) GetRepositoryPath() string {
 	return wm.repoPath
+}
+
+// GetMainWorktreeInfo returns metadata about the primary worktree (the main repository checkout)
+func (wm *WorktreeManager) GetMainWorktreeInfo() (*WorktreeInfo, error) {
+	if wm.repoPath == "" {
+		return nil, fmt.Errorf("repository path is not set")
+	}
+
+	info, err := os.Stat(wm.repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat repository path: %w", err)
+	}
+
+	gitStatus, err := wm.getWorktreeGitStatus(wm.repoPath)
+	if err != nil {
+		gitStatus = &GitStatus{Branch: "", IsClean: true}
+	}
+
+	name := gitStatus.Branch
+	if name == "" {
+		name = "main"
+	}
+
+	return &WorktreeInfo{
+		Name:      name,
+		Path:      wm.repoPath,
+		RepoName:  wm.GetRepositoryName(),
+		Branch:    gitStatus.Branch,
+		GitStatus: gitStatus,
+		CreatedAt: info.ModTime(),
+	}, nil
 }
 
 // sanitizeRepoName cleans a repository name for filesystem use

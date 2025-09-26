@@ -14,7 +14,6 @@ type Footer struct {
 	width           int
 	height          int
 	focused         string // "left" or "right"
-	agentConfig     app.AgentConfig
 	showHelp        bool   // Whether help dialog is shown
 	mode            string // "preview", "focused", "attached"
 	shortcutOverlay *ShortcutOverlay
@@ -57,11 +56,6 @@ func (f *Footer) SetSize(width, height int) {
 // SetFocus updates which pane is focused
 func (f *Footer) SetFocus(focused string) {
 	f.focused = focused
-}
-
-// SetAgentConfig updates the agent configuration for coloring
-func (f *Footer) SetAgentConfig(config app.AgentConfig) {
-	f.agentConfig = config
 }
 
 // SetShowHelp updates whether help is shown
@@ -141,8 +135,9 @@ func (f *Footer) View() string {
 		switch f.focused {
 		case "tmux":
 			// Apply agent color when tmux pane is focused
-			keyStyle = keyStyle.Foreground(lipgloss.Color(f.agentConfig.BorderColor))
-			descStyle = descStyle.Foreground(lipgloss.Color(f.agentConfig.BorderColor))
+			agentColor := app.GetCurrentAgentColor()
+			keyStyle = keyStyle.Foreground(lipgloss.Color(agentColor))
+			descStyle = descStyle.Foreground(lipgloss.Color(agentColor))
 		case "git", "shell":
 			// Apply gray color when git/shell panes are focused
 			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextDescription))
