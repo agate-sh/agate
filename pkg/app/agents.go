@@ -67,6 +67,14 @@ var CursorAgent = AgentConfig{
 	CompanyName:    "Cursor",
 }
 
+// GithubCopilot agent configuration with the specific color
+var GithubCopilotAgent = AgentConfig{
+	Name:           "copilot",
+	BorderColor:    "#81a1be",
+	ExecutableName: "copilot",
+	CompanyName:    "GitHub Copilot",
+}
+
 // Default configuration for unknown agents
 var DefaultAgent = AgentConfig{
 	Name:           "default",
@@ -89,6 +97,7 @@ func GetAgentConfig(subprocess string) AgentConfig {
 		CNAgent,
 		OpenCodeAgent,
 		CursorAgent,
+		GithubCopilotAgent,
 	}
 
 	// Check if the subprocess contains any known agent executable names

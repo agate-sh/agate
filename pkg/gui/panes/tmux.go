@@ -94,7 +94,13 @@ func (t *TmuxPane) View() string {
 
 // Update handles tea.Msg updates for the tmux pane
 func (t *TmuxPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
-	// TmuxPane doesn't handle specific update messages currently
+	// Handle spinner tick messages for loading state
+	if t.loadingState != nil {
+		if cmd := t.loadingState.Update(msg); cmd != nil {
+			return t, cmd
+		}
+	}
+
 	// Content updates are handled externally via SetContent
 	return t, nil
 }
