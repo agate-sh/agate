@@ -174,10 +174,13 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 func NewRepoWorktreePane(worktreeManager *git.WorktreeManager) *RepoWorktreePane {
 	styles := newItemStyles()
 
-	// Create delegate
+	// Create the expanded repos map that will be shared
+	expandedRepos := make(map[string]bool)
+
+	// Create delegate with reference to shared map
 	delegate := itemDelegate{
 		styles:        styles,
-		expandedRepos: make(map[string]bool),
+		expandedRepos: expandedRepos,
 	}
 
 	// Create list model with styles
@@ -193,7 +196,7 @@ func NewRepoWorktreePane(worktreeManager *git.WorktreeManager) *RepoWorktreePane
 		list:            l,
 		worktreeManager: worktreeManager,
 		delegate:        delegate,
-		expandedRepos:   make(map[string]bool),
+		expandedRepos:   expandedRepos, // Use the same map reference
 	}
 
 	// Initial refresh
@@ -277,7 +280,10 @@ func (r *RepoWorktreePane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 				if workItem.Type == "repo_header" {
 					// Toggle expansion state
 					r.expandedRepos[workItem.RepoName] = !r.expandedRepos[workItem.RepoName]
+					// Update the delegate with the current expandedRepos state
 					r.delegate.expandedRepos = r.expandedRepos
+					// Update the list's delegate
+					r.list.SetDelegate(r.delegate)
 					r.buildItemList()
 					r.list.SetItems(r.items)
 				}
