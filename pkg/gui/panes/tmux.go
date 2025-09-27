@@ -19,6 +19,7 @@ type TmuxPane struct {
 	content      string
 	loadingState *tmux.LoadingState
 	isLoading    bool
+	mode         string // "preview" or "attached"
 }
 
 // NewTmuxPane creates a new TmuxPane instance
@@ -29,6 +30,7 @@ func NewTmuxPane(loadingState *tmux.LoadingState) *TmuxPane {
 		BasePane:     components.NewBasePane(1, agentName), // Pane index 1
 		loadingState: loadingState,
 		isLoading:    false,
+		mode:         "preview", // Start in preview mode
 	}
 }
 
@@ -47,15 +49,23 @@ func (t *TmuxPane) SetLoading(loading bool) {
 	t.isLoading = loading
 }
 
+// SetMode sets the interaction mode (preview/attached)
+func (t *TmuxPane) SetMode(mode string) {
+	t.mode = mode
+}
+
 // GetTitleStyle returns the badge-style title for the tmux pane
 func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	isActive := t.IsActive()
-	// Debug: Let's see what's happening
+
 	if isActive {
-		// When active, show attach hint with agent color
-		help := common.GlobalKeys.AttachTmux.Help()
-		shortcuts = fmt.Sprintf("[%s: %s]", help.Key, help.Desc)
+		// When active, show both attach and detach hints
+		attachHelp := common.GlobalKeys.AttachTmux.Help()
+		detachHelp := common.GlobalKeys.DetachTmux.Help()
+		shortcuts = fmt.Sprintf("[%s: %s, %s: %s]",
+			attachHelp.Key, attachHelp.Desc,
+			detachHelp.Key, detachHelp.Desc)
 	} else {
 		// When not active, show pane number
 		shortcuts = "[1]"
@@ -109,16 +119,9 @@ func (t *TmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 
 // GetPaneSpecificKeybindings returns tmux pane specific keybindings
 func (t *TmuxPane) GetPaneSpecificKeybindings() []key.Binding {
-	// Tmux pane keybindings - attach and detach
-	attachTmux := key.NewBinding(
-		key.WithKeys("a"),
-		key.WithHelp("a", "attach to tmux"),
-	)
-
-	detachTmux := key.NewBinding(
-		key.WithKeys("ctrl+q"),
-		key.WithHelp("ctrl+q", "detach from tmux"),
-	)
-
-	return []key.Binding{attachTmux, detachTmux}
+	// Use the global keybindings to ensure consistency
+	return []key.Binding{
+		common.GlobalKeys.AttachTmux,
+		common.GlobalKeys.DetachTmux,
+	}
 }

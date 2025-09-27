@@ -17,12 +17,12 @@ import (
 
 // RepoDialog represents the dialog for adding new repositories using fzf
 type RepoDialog struct {
-	width          int
-	height         int
+	width     int
+	height    int
 	searching bool
 	err       string
 	startTime time.Time
-	spinner        spinner.Model
+	spinner   spinner.Model
 }
 
 // NewRepoDialog creates a new repository search dialog

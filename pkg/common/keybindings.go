@@ -17,8 +17,8 @@ import (
 // while keeping them globally accessible through the pane interface.
 type GlobalKeyMap struct {
 	// Truly global keys - work from any pane, any context
-	Quit        key.Binding // q, Ctrl+C - quit application
-	Keybindings key.Binding // ? - show help
+	Quit         key.Binding // q, Ctrl+C - quit application
+	Keybindings  key.Binding // ? - show help
 	DebugOverlay key.Binding // Ctrl+D - toggle debug overlay
 
 	// Global navigation keys - work within any focusable pane
@@ -55,99 +55,99 @@ type GlobalKeyMap struct {
 
 // GlobalKeys is the single source of truth for all keybindings in the application
 var GlobalKeys = &GlobalKeyMap{
-		// Global keys
-		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
-		),
-		Keybindings: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "keybindings"),
-		),
+	// Global keys
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+	Keybindings: key.NewBinding(
+		key.WithKeys("?"),
+		key.WithHelp("?", "keybindings"),
+	),
 
-		// Debug
-		DebugOverlay: key.NewBinding(
-			key.WithKeys("ctrl+d"),
-			key.WithHelp("ctrl+d", "debug overlay"),
-		),
+	// Debug
+	DebugOverlay: key.NewBinding(
+		key.WithKeys("ctrl+d"),
+		key.WithHelp("ctrl+d", "debug overlay"),
+	),
 
-		// Navigation
-		Up: key.NewBinding(
-			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "move up"),
-		),
-		Down: key.NewBinding(
-			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "move down"),
-		),
+	// Navigation
+	Up: key.NewBinding(
+		key.WithKeys("up", "k"),
+		key.WithHelp("↑/k", "move up"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down", "j"),
+		key.WithHelp("↓/j", "move down"),
+	),
 
-		// Direct pane switching (zero-based indexing)
-		FocusPaneRepos: key.NewBinding(
-			key.WithKeys("0"),
-			key.WithHelp("0", "focus repos & worktrees"),
-		),
-		FocusPaneTmux: key.NewBinding(
-			key.WithKeys("1"),
-			key.WithHelp("1", "focus tmux"),
-		),
-		FocusPaneGit: key.NewBinding(
-			key.WithKeys("2"),
-			key.WithHelp("2", "focus git"),
-		),
-		FocusPaneShell: key.NewBinding(
-			key.WithKeys("3"),
-			key.WithHelp("3", "focus shell"),
-		),
+	// Direct pane switching (zero-based indexing)
+	FocusPaneRepos: key.NewBinding(
+		key.WithKeys("0"),
+		key.WithHelp("0", "focus repos & worktrees"),
+	),
+	FocusPaneTmux: key.NewBinding(
+		key.WithKeys("1"),
+		key.WithHelp("1", "focus tmux"),
+	),
+	FocusPaneGit: key.NewBinding(
+		key.WithKeys("2"),
+		key.WithHelp("2", "focus git"),
+	),
+	FocusPaneShell: key.NewBinding(
+		key.WithKeys("3"),
+		key.WithHelp("3", "focus shell"),
+	),
 
-		// Repository and Worktree management
-		AddRepo: key.NewBinding(
-			key.WithKeys("r"),
-			key.WithHelp("r", "add repo"),
-		),
-		NewWorktree: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n", "new worktree"),
-		),
-		DeleteWorktree: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "delete worktree"),
-		),
+	// Repository and Worktree management
+	AddRepo: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "add repo"),
+	),
+	NewWorktree: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "new worktree"),
+	),
+	DeleteWorktree: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "delete worktree"),
+	),
 
-		// Tmux interaction
-		AttachTmux: key.NewBinding(
-			key.WithKeys("a"),
-			key.WithHelp("a", "attach to tmux"),
-		),
-		DetachTmux: key.NewBinding(
-			key.WithKeys("ctrl+q"),
-			key.WithHelp("ctrl+q", "detach from tmux"),
-		),
+	// Tmux interaction
+	AttachTmux: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "attach to tmux"),
+	),
+	DetachTmux: key.NewBinding(
+		key.WithKeys("ctrl+q"),
+		key.WithHelp("ctrl+q", "detach from tmux"),
+	),
 
-		// List navigation
-		Filter: key.NewBinding(
-			key.WithKeys("/"),
-			key.WithHelp("/", "filter list"),
-		),
-		ClearFilter: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "clear filter"),
-		),
+	// List navigation
+	Filter: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "filter list"),
+	),
+	ClearFilter: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "clear filter"),
+	),
 
-		// Dialog actions
-		Confirm: key.NewBinding(
-			key.WithKeys("enter", "y"),
-			key.WithHelp("↵/y", "confirm"),
-		),
-		Cancel: key.NewBinding(
-			key.WithKeys("esc", "n"),
-			key.WithHelp("esc/n", "cancel"),
-		),
+	// Dialog actions
+	Confirm: key.NewBinding(
+		key.WithKeys("enter", "y"),
+		key.WithHelp("↵/y", "confirm"),
+	),
+	Cancel: key.NewBinding(
+		key.WithKeys("esc", "n"),
+		key.WithHelp("esc/n", "cancel"),
+	),
 
-		// Git pane actions
-		OpenInEditor: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("↵", "open in editor"),
-		),
+	// Git pane actions
+	OpenInEditor: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("↵", "open in editor"),
+	),
 }
 
 // FormatTitleShortcut formats a keybinding for display in pane title bars
@@ -189,9 +189,9 @@ func (k *GlobalKeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Keybindings},                             // Global
+		{k.Quit, k.Keybindings}, // Global
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
-		{k.Up, k.Down},                               // Navigation
+		{k.Up, k.Down}, // Navigation
 		{k.AddRepo, k.NewWorktree, k.DeleteWorktree}, // Repository & Worktree
 		{k.AttachTmux, k.DetachTmux},                 // Tmux
 		{k.Filter, k.ClearFilter},                    // Filtering

@@ -1,7 +1,9 @@
 package tmux
 
 import (
+	"agate/internal/debug"
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
@@ -57,14 +59,41 @@ func (t *TmuxSession) SetPtyFactory(factory PtyFactory) {
 
 // sanitizeName creates a valid tmux session name
 func sanitizeName(name string) string {
-	// Replace spaces and special characters with underscores
-	sanitized := strings.ReplaceAll(name, " ", "_")
-	sanitized = strings.ReplaceAll(sanitized, "/", "_")
-	sanitized = strings.ReplaceAll(sanitized, ":", "_")
+	original := strings.TrimSpace(name)
+	if original == "" {
+		original = "default"
+	}
 
-	// Add prefix to ensure uniqueness
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("agate_%s_%d", sanitized, timestamp)
+	// Replace unsupported characters with underscores to keep tmux happy.
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '_' || r == '-' || r == '.':
+			return r
+		default:
+			return '_'
+		}
+	}, original)
+
+	sanitized = strings.Trim(sanitized, "_-.")
+	if sanitized == "" {
+		sanitized = "session"
+	}
+
+	const maxSanitizedLen = 80
+	if len(sanitized) > maxSanitizedLen {
+		sanitized = sanitized[:maxSanitizedLen]
+	}
+
+	hash := sha1.Sum([]byte(original))
+	hashSuffix := fmt.Sprintf("%x", hash[:4])
+
+	return fmt.Sprintf("agate_%s_%s", sanitized, hashSuffix)
 }
 
 // Start creates and starts a new tmux session
@@ -134,7 +163,7 @@ func (t *TmuxSession) Restore() error {
 	// Close existing PTY if any
 	if t.ptmx != nil {
 		if err := t.ptmx.Close(); err != nil {
-			fmt.Printf("Warning: Failed to close existing PTY: %v\n", err)
+			debug.DebugLog("Failed to close existing PTY during restore: %v", err)
 		}
 		t.ptmx = nil
 	}
@@ -169,6 +198,15 @@ func (t *TmuxSession) sessionExists() (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// AttachCommand returns an exec.Cmd to attach to the tmux session
+// This is used with tea.ExecProcess for proper terminal handoff
+func (t *TmuxSession) AttachCommand() *exec.Cmd {
+	if t.sanitizedName == "" {
+		return nil
+	}
+	return exec.Command("tmux", "attach-session", "-t", t.sanitizedName)
 }
 
 // Attach attaches to the tmux session for interactive use
@@ -263,42 +301,40 @@ func (t *TmuxSession) Detach() {
 	wg := t.wg
 	attachCh := t.attachCh
 
-	// Cancel goroutines created by Attach first
-	if cancel != nil {
-		cancel()
-	}
+	// Defer cleanup like Claude Squad does
+	defer func() {
+		if attachCh != nil {
+			close(attachCh)
+		}
+		t.attachCh = nil
+		t.cancel = nil
+		t.ctx = nil
+		t.wg = nil
+	}()
 
-	// Close the attached pty session.
+	// 1. Close the attached pty session (like Claude Squad)
 	if t.ptmx != nil {
 		err := t.ptmx.Close()
 		if err != nil {
-			// This is a fatal error. We can't detach if we can't close the PTY. It's better to just panic and have the
-			// user re-invoke the program than to ruin their terminal pane.
 			msg := fmt.Sprintf("error closing attach pty session: %v", err)
 			panic(msg)
 		}
 	}
 
-	// Wait for goroutines to finish before cleanup
-	if wg != nil {
-		wg.Wait()
-	}
-
-	// Clean up state
-	if attachCh != nil {
-		close(attachCh)
-	}
-	t.attachCh = nil
-	t.cancel = nil
-	t.ctx = nil
-	t.wg = nil
-
-	// Attach goroutines should die on EOF due to the ptmx closing. Call
-	// t.Restore to set a new t.ptmx.
+	// 2. Restore the session (like Claude Squad)
 	if err := t.Restore(); err != nil {
-		// This is a fatal error. Our invariant that a started TmuxSession always has a valid ptmx is violated.
 		msg := fmt.Sprintf("error restoring pty session: %v", err)
 		panic(msg)
+	}
+
+	// 3. Cancel goroutines (like Claude Squad)
+	if cancel != nil {
+		cancel()
+	}
+
+	// 4. Wait for goroutines to finish (like Claude Squad)
+	if wg != nil {
+		wg.Wait()
 	}
 }
 
@@ -402,7 +438,7 @@ func (t *TmuxSession) Kill() error {
 	// Close PTY
 	if t.ptmx != nil {
 		if err := t.ptmx.Close(); err != nil {
-			fmt.Printf("Warning: Failed to close PTY during session kill: %v\n", err)
+			debug.DebugLog("Failed to close PTY during session kill: %v", err)
 		}
 		t.ptmx = nil
 	}

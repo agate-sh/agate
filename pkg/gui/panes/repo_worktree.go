@@ -825,21 +825,10 @@ func (r *RepoWorktreePane) SetCurrentRepo(repoName string) {
 
 // GetPaneSpecificKeybindings returns repo worktree pane specific keybindings
 func (r *RepoWorktreePane) GetPaneSpecificKeybindings() []key.Binding {
-	// Repository and worktree management keybindings
-	addRepo := key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "add repository"),
-	)
-
-	newWorktree := key.NewBinding(
-		key.WithKeys("w"),
-		key.WithHelp("w", "new worktree"),
-	)
-
-	deleteWorktree := key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", "delete worktree"),
-	)
-
-	return []key.Binding{addRepo, newWorktree, deleteWorktree}
+	// Use the global keybindings to ensure consistency
+	return []key.Binding{
+		common.GlobalKeys.AddRepo,
+		common.GlobalKeys.NewWorktree,
+		common.GlobalKeys.DeleteWorktree,
+	}
 }

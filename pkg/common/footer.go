@@ -30,7 +30,6 @@ var (
 	footerSeparatorStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(theme.SeparatorColor))
 
-
 	footerStyle = lipgloss.NewStyle().
 			Padding(0, 1)
 )

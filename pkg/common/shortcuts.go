@@ -55,6 +55,7 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 			// Right panes (tmux/git/shell) shortcuts
 			shortcuts = append(shortcuts,
 				s.keyMap.AttachTmux,
+				s.keyMap.DetachTmux, // Show detach hint for reference
 				s.keyMap.FocusPaneRepos,
 			)
 		}

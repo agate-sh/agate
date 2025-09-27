@@ -197,13 +197,8 @@ func (g *GitPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 // GetPaneSpecificKeybindings returns git pane specific keybindings
 func (g *GitPane) GetPaneSpecificKeybindings() []key.Binding {
-	// Git pane specific keybindings - currently just the open in editor action
-	openInEditor := key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("↵", "open with $EDITOR"),
-	)
-
-	return []key.Binding{openInEditor}
+	// Use the global keybindings to ensure consistency
+	return []key.Binding{common.GlobalKeys.OpenInEditor}
 }
 
 // View renders the Git pane content

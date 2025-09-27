@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"agate/pkg/gui/theme"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/ansi"
@@ -64,34 +65,33 @@ func PlaceOverlay(
 	// Create a new array of background lines with the fade effect applied
 	fadedBgLines := make([]string, len(bgLines))
 
-	// Compile regular expressions for ANSI color codes
-	// Match background color codes like \x1b[48;2;R;G;Bm or \x1b[48;5;Nm
-	bgColorRegex := regexp.MustCompile(`\x1b\[48;[25];[0-9;]+m`)
+	// General-purpose ANSI stripping expressions so we can reapply muted styling
+	sgrSequenceRegex := regexp.MustCompile(`\x1b\[[0-9;?:=]*[ -/]*[@-~]`)
+	oscSequenceRegex := regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	dcsSequenceRegex := regexp.MustCompile(`\x1bP[\s\S]*?\x1b\\`)
+	charsetSequenceRegex := regexp.MustCompile(`\x1b[\(\)][0-9A-Za-z]`)
 
-	// Match foreground color codes like \x1b[38;2;R;G;Bm or \x1b[38;5;Nm
-	fgColorRegex := regexp.MustCompile(`\x1b\[38;[25];[0-9;]+m`)
-
-	// Match simple color codes like \x1b[31m
-	simpleColorRegex := regexp.MustCompile(`\x1b\[[0-9]+m`)
+	mutedTextStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+	mutedHighlightStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextMuted)).
+		Background(lipgloss.Color(theme.HighlightBg))
 
 	for i, line := range bgLines {
-		// Replace background color codes with a faded version
-		content := bgColorRegex.ReplaceAllString(line, "\x1b[48;5;236m") // Dark gray background
+		hasBackgroundColor := strings.Contains(line, "\x1b[48;")
 
-		// Replace foreground color codes with a faded version
-		content = fgColorRegex.ReplaceAllString(content, "\x1b[38;5;240m") // Medium gray foreground
+		cleaned := dcsSequenceRegex.ReplaceAllString(line, "")
+		cleaned = oscSequenceRegex.ReplaceAllString(cleaned, "")
+		cleaned = charsetSequenceRegex.ReplaceAllString(cleaned, "")
+		cleaned = sgrSequenceRegex.ReplaceAllString(cleaned, "")
+		cleaned = strings.ReplaceAll(cleaned, "\r", "")
+		cleaned = strings.ReplaceAll(cleaned, "\x0f", "") // tmux reset / shift-in sequences
+		cleaned = strings.ReplaceAll(cleaned, "\x0e", "")
 
-		// Replace simple color codes with a faded version
-		content = simpleColorRegex.ReplaceAllStringFunc(content, func(match string) string {
-			// Skip reset codes
-			if match == "\x1b[0m" {
-				return match
-			}
-			// Replace with dimmed color
-			return "\x1b[38;5;240m" // Medium gray
-		})
-
-		fadedBgLines[i] = content
+		if hasBackgroundColor {
+			fadedBgLines[i] = mutedHighlightStyle.Render(cleaned)
+		} else {
+			fadedBgLines[i] = mutedTextStyle.Render(cleaned)
+		}
 	}
 
 	// Replace the original background with the faded version
