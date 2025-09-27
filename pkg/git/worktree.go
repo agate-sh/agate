@@ -56,7 +56,7 @@ type WorktreeManager struct {
 	isGitRepo    bool
 }
 
-// NewWorktreeManager creates a new WorktreeManager instance
+// NewWorktreeManager creates a new agentManager instance
 func NewWorktreeManager() (*WorktreeManager, error) {
 	// Get current working directory
 	workDir, err := os.Getwd()
@@ -309,7 +309,7 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (*WorktreeInfo, err
 		}
 	}
 
-	// Get Git status for the new worktree
+	// Get Git status for the new agent
 	gitStatus, err := wm.getWorktreeGitStatus(worktreePath)
 	if err != nil {
 		// Don't fail on status error, just use empty status

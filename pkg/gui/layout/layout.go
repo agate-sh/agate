@@ -12,7 +12,7 @@ import (
 type FocusState int
 
 const (
-	FocusReposAndWorktrees FocusState = iota
+	FocusAgents FocusState = iota
 	FocusTmux
 	FocusGit
 	FocusShell
@@ -21,8 +21,8 @@ const (
 // String returns the string representation of the focus state
 func (f FocusState) String() string {
 	switch f {
-	case FocusReposAndWorktrees:
-		return "reposAndWorktrees"
+	case FocusAgents:
+		return "agents"
 	case FocusTmux:
 		return "tmux"
 	case FocusGit:
@@ -174,7 +174,7 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 
 	// Apply focus styling
 	switch focused {
-	case FocusReposAndWorktrees:
+	case FocusAgents:
 		leftStyle = leftStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	case FocusTmux:
 		// Use the agent's specific color from global state when tmux is focused

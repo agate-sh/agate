@@ -51,7 +51,7 @@ var (
 				MarginTop(1)
 )
 
-// NewWorktreeConfirmDialog creates a new worktree deletion confirmation dialog
+// NewWorktreeConfirmDialog creates a new agent deletion confirmation dialog
 func NewWorktreeConfirmDialog(worktree *git.WorktreeInfo, worktreeManager *git.WorktreeManager) *WorktreeConfirmDialog {
 	return &WorktreeConfirmDialog{
 		worktree:        worktree,

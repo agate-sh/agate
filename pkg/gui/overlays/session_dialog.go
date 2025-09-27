@@ -15,8 +15,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// WorktreeDialog represents the dialog for creating new worktrees
-type WorktreeDialog struct {
+// SessionDialog represents the dialog for creating new agent sessions
+type SessionDialog struct {
 	input           textinput.Model
 	err             string
 	repoName        string
@@ -74,10 +74,10 @@ var (
 			Foreground(lipgloss.Color(theme.TextMuted))
 )
 
-// NewWorktreeDialog creates a new worktree creation dialog
-func NewWorktreeDialog(worktreeManager *git.WorktreeManager, agentConfig app.AgentConfig) *WorktreeDialog {
+// NewSessionDialog creates a new agent creation dialog
+func NewSessionDialog(worktreeManager *git.WorktreeManager, agentConfig app.AgentConfig) *SessionDialog {
 	input := textinput.New()
-	input.Placeholder = "  Branch name, ↵ for random name"
+	input.Placeholder = "  branch-name, ↵ for random name"
 	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
 	input.Focus()
 	input.CharLimit = 100
@@ -93,7 +93,7 @@ func NewWorktreeDialog(worktreeManager *git.WorktreeManager, agentConfig app.Age
 
 	loader := components.NewLaunchAgentLoader("")
 
-	return &WorktreeDialog{
+	return &SessionDialog{
 		input:           input,
 		repoName:        repoName,
 		worktreeManager: worktreeManager,
@@ -106,12 +106,12 @@ func NewWorktreeDialog(worktreeManager *git.WorktreeManager, agentConfig app.Age
 }
 
 // Init implements tea.Model
-func (d *WorktreeDialog) Init() tea.Cmd {
+func (d *SessionDialog) Init() tea.Cmd {
 	return textinput.Blink
 }
 
 // Update implements tea.Model
-func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -129,7 +129,7 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Cancel dialog
 			return d, func() tea.Msg {
-				return WorktreeDialogCancelledMsg{}
+				return SessionDialogCancelledMsg{}
 			}
 		}
 
@@ -139,7 +139,7 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.initializing = true
 		d.err = ""
 		if d.loader != nil {
-			d.loader.SetLabel(fmt.Sprintf("Launching %s...", d.agentConfig.CompanyName))
+			d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName))
 		}
 
 		var caseCmds []tea.Cmd
@@ -183,8 +183,8 @@ func (d *WorktreeDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return d, tea.Batch(cmds...)
 }
 
-// createAndAttachWorktree creates a new worktree and attaches to it
-func (d *WorktreeDialog) createAndAttachWorktree() tea.Cmd {
+// createAndAttachWorktree creates a new agent and attaches to it
+func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 	if d.worktreeManager == nil {
 		return func() tea.Msg {
 			return WorktreeCreationErrorMsg{Error: "Worktree manager not available"}
@@ -204,28 +204,44 @@ func (d *WorktreeDialog) createAndAttachWorktree() tea.Cmd {
 		}
 	}
 
-	// Set creating state
+	// Set creating state and prepare for agent loader
 	d.creating = true
+	d.initializing = false
 	d.err = ""
+	if d.loader != nil {
+		d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName))
+	}
 
-	// Create worktree in background
-	return func() tea.Msg {
+	// Create worktree in background and start loader ticking
+	var cmds []tea.Cmd
+
+	// Add the worktree creation command
+	cmds = append(cmds, func() tea.Msg {
 		worktree, err := d.worktreeManager.CreateWorktree(branchName)
 		if err != nil {
 			return WorktreeCreationErrorMsg{Error: err.Error()}
 		}
 		return WorktreeCreatedMsg{Worktree: worktree}
+	})
+
+	// Start the loader spinner animation
+	if d.loader != nil {
+		if tickCmd := d.loader.TickCmd(); tickCmd != nil {
+			cmds = append(cmds, tickCmd)
+		}
 	}
+
+	return tea.Batch(cmds...)
 }
 
 // SetSize updates the dialog dimensions
-func (d *WorktreeDialog) SetSize(width, height int) {
+func (d *SessionDialog) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 }
 
 // View implements tea.Model and renders the dialog
-func (d *WorktreeDialog) View() string {
+func (d *SessionDialog) View() string {
 	var content []string
 	maxContentWidth := 0
 
@@ -236,16 +252,16 @@ func (d *WorktreeDialog) View() string {
 		}
 	}
 
-	// Header: Repository name > New worktree
+	// Header: Repository name > new agent
 	repoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextDescription))
 	titleStyle := dialogTitleStyle.Copy()
 
 	repoText := repoStyle.Render(d.repoName)
 	arrowText := titleStyle.Render(" > ")
-	worktreeText := titleStyle.Render("New worktree")
+	sessionText := titleStyle.Render("New agent")
 
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrowText, worktreeText)
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrowText, sessionText)
 	appendLine(headerLine)
 
 	// Horizontal divider - will be sized later after we know content width
@@ -258,11 +274,9 @@ func (d *WorktreeDialog) View() string {
 		content = append(content, "")
 	}
 
-	// Progress or button
-	if d.creating {
-		appendLine(dialogInfoStyle.Render("Creating worktree..."))
-	} else if d.initializing {
-		loadingTitle := fmt.Sprintf("Launching %s...", d.agentConfig.CompanyName)
+	// Progress or button - skip creating state, go directly to agent loading
+	if d.creating || d.initializing {
+		loadingTitle := fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName)
 		loaderStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(d.agentConfig.BorderColor)).
 			Bold(true)
@@ -387,8 +401,8 @@ type WorktreeCreationErrorMsg struct {
 	Error string
 }
 
-// WorktreeDialogCancelledMsg indicates the dialog was cancelled
-type WorktreeDialogCancelledMsg struct{}
+// SessionDialogCancelledMsg indicates the dialog was cancelled
+type SessionDialogCancelledMsg struct{}
 
 // WorktreeInitializationCompleteMsg indicates the worktree and session are ready
 type WorktreeInitializationCompleteMsg struct {

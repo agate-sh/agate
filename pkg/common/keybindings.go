@@ -9,7 +9,7 @@ import (
 // Note: This contains both truly global keybindings (like quit, help) and
 // conceptually pane-specific keybindings that need to be globally accessible.
 // For example:
-// - 'w' (new worktree) conceptually belongs to the repos pane but works globally
+// - 'n' (new agent) conceptually belongs to the repos pane but works globally
 // - 'r' (add repo) conceptually belongs to the repos pane but works globally
 // - Git pane actions like "open in editor" are pane-specific and should be handled by the pane
 //
@@ -26,7 +26,7 @@ type GlobalKeyMap struct {
 	Down key.Binding // ↓, j - move down in active pane
 
 	// Pane switching - always global for quick navigation
-	FocusPaneRepos key.Binding // 0 - focus repos & worktrees pane
+	FocusPaneRepos key.Binding // 0 - focus agents pane
 	FocusPaneTmux  key.Binding // 1 - focus tmux pane
 	FocusPaneGit   key.Binding // 2 - focus git pane
 	FocusPaneShell key.Binding // 3 - focus shell pane
@@ -36,6 +36,7 @@ type GlobalKeyMap struct {
 	AddRepo        key.Binding // r - add repository (repos pane action, but global)
 	NewWorktree    key.Binding // w - create worktree (repos pane action, but global)
 	DeleteWorktree key.Binding // d - delete worktree (repos pane action, context-sensitive)
+	DeleteSession  key.Binding // D - delete entire session (worktree + tmux, destructive)
 
 	// Tmux interaction - conceptually belongs to tmux pane but globally accessible
 	AttachTmux key.Binding // a - attach to tmux session
@@ -84,7 +85,7 @@ var GlobalKeys = &GlobalKeyMap{
 	// Direct pane switching (zero-based indexing)
 	FocusPaneRepos: key.NewBinding(
 		key.WithKeys("0"),
-		key.WithHelp("0", "focus repos & worktrees"),
+		key.WithHelp("0", "focus agents"),
 	),
 	FocusPaneTmux: key.NewBinding(
 		key.WithKeys("1"),
@@ -106,11 +107,15 @@ var GlobalKeys = &GlobalKeyMap{
 	),
 	NewWorktree: key.NewBinding(
 		key.WithKeys("n"),
-		key.WithHelp("n", "new worktree"),
+		key.WithHelp("n", "new agent"),
 	),
 	DeleteWorktree: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete worktree"),
+	),
+	DeleteSession: key.NewBinding(
+		key.WithKeys("D"),
+		key.WithHelp("D", "delete session"),
 	),
 
 	// Tmux interaction
@@ -192,7 +197,7 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Keybindings}, // Global
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down}, // Navigation
-		{k.AddRepo, k.NewWorktree, k.DeleteWorktree}, // Repository & Worktree
+		{k.AddRepo, k.NewWorktree, k.DeleteWorktree, k.DeleteSession}, // Repository & Worktree
 		{k.AttachTmux, k.DetachTmux},                 // Tmux
 		{k.Filter, k.ClearFilter},                    // Filtering
 		{k.Confirm, k.Cancel},                        // Dialogs
@@ -220,6 +225,7 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.AddRepo,
 			k.NewWorktree,
 			k.DeleteWorktree,
+			k.DeleteSession,
 		},
 		"Tmux Interaction": {
 			k.AttachTmux,

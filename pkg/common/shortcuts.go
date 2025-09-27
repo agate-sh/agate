@@ -41,7 +41,7 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 	switch s.mode {
 	case "preview":
 		switch s.focused {
-		case "reposAndWorktrees":
+		case "agents":
 			// Left pane (repos & worktrees list) shortcuts
 			shortcuts = append(shortcuts,
 				s.keyMap.AddRepo,

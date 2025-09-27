@@ -253,7 +253,7 @@ type WorktreeList struct {
 	delegate         itemDelegate
 }
 
-// NewWorktreeList creates a new WorktreeList instance
+// NewWorktreeList creates a new agentList instance
 func NewWorktreeList(worktreeManager *git.WorktreeManager) *WorktreeList {
 	styles := newItemStyles()
 

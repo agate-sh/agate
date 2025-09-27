@@ -106,7 +106,7 @@ func (f *Footer) View() string {
 			if (f.focused == "tmux" || f.focused == "git" || f.focused == "shell") && shortcut.Key == "a" {
 				// Only highlight "attach to tmux" when any right pane is focused
 				shouldHighlight = true
-			} else if f.focused == "reposAndWorktrees" && (shortcut.Key == "n" || shortcut.Key == "d") {
+			} else if f.focused == "agents" && (shortcut.Key == "n" || shortcut.Key == "d") {
 				// Highlight worktree shortcuts when left pane focused
 				shouldHighlight = true
 			}
@@ -141,7 +141,7 @@ func (f *Footer) View() string {
 			// Apply gray color when git/shell panes are focused
 			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextDescription))
 			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextDescription))
-		case "reposAndWorktrees":
+		case "agents":
 			// Apply white color when left pane is focused
 			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextPrimary))
 			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextPrimary))

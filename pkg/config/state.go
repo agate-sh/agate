@@ -16,6 +16,7 @@ type AppState struct {
 	Version   int            `json:"version"`
 	UI        UIState        `json:"ui"`
 	Workspace WorkspaceState `json:"workspace"`
+	Sessions  SessionState   `json:"sessions"`
 }
 
 func defaultAppState() AppState {
@@ -27,6 +28,9 @@ func defaultAppState() AppState {
 		Workspace: WorkspaceState{
 			Repositories:   []string{},
 			RepoSelections: map[string]RepoSelection{},
+		},
+		Sessions: SessionState{
+			SessionMappings: map[string]PersistedSession{},
 		},
 	}
 }
@@ -43,6 +47,9 @@ func (s *AppState) normalize() {
 	}
 	if s.Workspace.RepoSelections == nil {
 		s.Workspace.RepoSelections = map[string]RepoSelection{}
+	}
+	if s.Sessions.SessionMappings == nil {
+		s.Sessions.SessionMappings = map[string]PersistedSession{}
 	}
 }
 

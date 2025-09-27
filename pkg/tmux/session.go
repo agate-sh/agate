@@ -42,7 +42,7 @@ type TmuxSession struct {
 
 // NewTmuxSession creates a new tmux session manager
 func NewTmuxSession(name, program string) *TmuxSession {
-	sanitizedName := sanitizeName(name)
+	sanitizedName := SanitizeName(name)
 	return &TmuxSession{
 		name:          name,
 		sanitizedName: sanitizedName,
@@ -57,8 +57,8 @@ func (t *TmuxSession) SetPtyFactory(factory PtyFactory) {
 	t.ptyFactory = factory
 }
 
-// sanitizeName creates a valid tmux session name
-func sanitizeName(name string) string {
+// SanitizeName creates a valid tmux session name
+func SanitizeName(name string) string {
 	original := strings.TrimSpace(name)
 	if original == "" {
 		original = "default"
@@ -99,7 +99,7 @@ func sanitizeName(name string) string {
 // Start creates and starts a new tmux session
 func (t *TmuxSession) Start(workDir string) error {
 	// Check if session already exists
-	exists, err := t.sessionExists()
+	exists, err := t.SessionExists()
 	if err != nil {
 		return fmt.Errorf("error checking session existence: %w", err)
 	}
@@ -111,7 +111,7 @@ func (t *TmuxSession) Start(workDir string) error {
 		ptmx, err := t.ptyFactory.Start(cmd)
 		if err != nil {
 			// Cleanup any partially created session if any exists.
-			if exists, _ := t.sessionExists(); exists {
+			if exists, _ := t.SessionExists(); exists {
 				cleanupCmd := exec.Command("tmux", "kill-session", "-t", t.sanitizedName)
 				if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
 					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
@@ -124,7 +124,7 @@ func (t *TmuxSession) Start(workDir string) error {
 		timeout := time.After(2 * time.Second)
 		sleepDuration := 5 * time.Millisecond
 		for {
-			if exists, _ := t.sessionExists(); exists {
+			if exists, _ := t.SessionExists(); exists {
 				break
 			}
 			select {
@@ -184,8 +184,8 @@ func (t *TmuxSession) Restore() error {
 	return nil
 }
 
-// sessionExists checks if a tmux session exists
-func (t *TmuxSession) sessionExists() (bool, error) {
+// SessionExists checks if a tmux session exists
+func (t *TmuxSession) SessionExists() (bool, error) {
 	cmd := exec.Command("tmux", "has-session", "-t", t.sanitizedName)
 	err := cmd.Run()
 	if err != nil {
