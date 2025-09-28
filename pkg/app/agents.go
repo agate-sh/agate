@@ -1,7 +1,10 @@
 // Package app provides the core application logic for agate
 package app
 
-import "strings"
+import (
+	"os/exec"
+	"strings"
+)
 
 // AgentConfig defines the configuration for different AI agents
 type AgentConfig struct {
@@ -109,4 +112,39 @@ func GetAgentConfig(subprocess string) AgentConfig {
 
 	// Return default if no match found
 	return DefaultAgent
+}
+
+// GetAllAgents returns a list of all configured agents
+func GetAllAgents() []AgentConfig {
+	return []AgentConfig{
+		ClaudeAgent,
+		AmpAgent,
+		GeminiAgent,
+		CodexAgent,
+		CNAgent,
+		OpenCodeAgent,
+		CursorAgent,
+		GithubCopilotAgent,
+	}
+}
+
+// IsValidAgent checks if the given agent name is valid
+func IsValidAgent(name string) bool {
+	// Convert to lowercase for case-insensitive matching
+	lower := strings.ToLower(name)
+
+	agents := GetAllAgents()
+	for _, agent := range agents {
+		if strings.ToLower(agent.ExecutableName) == lower {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsInstalled checks if the agent's binary is installed
+func (a AgentConfig) IsInstalled() bool {
+	_, err := exec.LookPath(a.ExecutableName)
+	return err == nil
 }

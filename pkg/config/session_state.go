@@ -8,6 +8,7 @@ import (
 type SessionState struct {
 	SessionMappings map[string]PersistedSession `json:"session_mappings"` // WorktreeKey -> PersistedSession
 	ActiveSession   string                      `json:"active_session"`   // Currently active session key
+	DefaultAgent    string                      `json:"default_agent"`    // Default agent for new sessions
 }
 
 // PersistedSession represents a session's persistent data
@@ -83,6 +84,26 @@ func SetActiveSession(sessionKey string) error {
 	}
 
 	state.Sessions.ActiveSession = sessionKey
+	return SaveState(state)
+}
+
+// GetDefaultAgent returns the default agent for new sessions
+func GetDefaultAgent() (string, error) {
+	state, err := LoadState()
+	if err != nil {
+		return "", err
+	}
+	return state.Sessions.DefaultAgent, nil
+}
+
+// SetDefaultAgent sets the default agent for new sessions
+func SetDefaultAgent(agent string) error {
+	state, err := LoadState()
+	if err != nil {
+		return err
+	}
+
+	state.Sessions.DefaultAgent = agent
 	return SaveState(state)
 }
 

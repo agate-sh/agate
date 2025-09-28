@@ -10,6 +10,8 @@ import (
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,7 +19,9 @@ import (
 
 // SessionDialog represents the dialog for creating new agent sessions
 type SessionDialog struct {
-	input           textinput.Model
+	branchInput     textinput.Model
+	agentInput      textinput.Model
+	focusedField    int // 0 = branch, 1 = agent
 	err             string
 	repoName        string
 	worktreeManager *git.WorktreeManager
@@ -26,8 +30,29 @@ type SessionDialog struct {
 	height          int
 	creating        bool
 	initializing    bool
-	agentConfig     app.AgentConfig
+	selectedAgent   app.AgentConfig
+	defaultAgent    string
 	loader          *components.LaunchAgentLoader
+	help            help.Model
+	keys            sessionKeyMap
+}
+
+// sessionKeyMap defines the keybindings for the session dialog
+type sessionKeyMap struct {
+	Tab    key.Binding
+	Escape key.Binding
+}
+
+// ShortHelp returns keybindings to show in the mini help view
+func (k sessionKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Tab, k.Escape}
+}
+
+// FullHelp returns keybindings to show in the full help view
+func (k sessionKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Tab, k.Escape},
+	}
 }
 
 const worktreeDialogMinContentWidth = 60
@@ -65,23 +90,31 @@ var (
 					Foreground(lipgloss.Color("#FFFFFF")).
 					Padding(0, 2).
 					Bold(true)
-
-	secondaryDialogButtonStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color(theme.TextMuted)).
-					Padding(0, 1)
-
-	dialogHintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.TextMuted))
 )
 
 // NewSessionDialog creates a new agent creation dialog
-func NewSessionDialog(worktreeManager *git.WorktreeManager, agentConfig app.AgentConfig) *SessionDialog {
-	input := textinput.New()
-	input.Placeholder = "  branch-name, ↵ for random name"
-	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
-	input.Focus()
-	input.CharLimit = 100
-	input.Width = 40
+func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string) *SessionDialog {
+	// Branch input - show random name as placeholder
+	branchInput := textinput.New()
+	branchInput.Placeholder = git.GenerateRandomBranchName()
+	branchInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+	branchInput.Focus()
+	branchInput.CharLimit = 100
+	branchInput.Width = 40
+	branchInput.Prompt = ""
+
+	// Agent input (normal text input, no autocomplete)
+	agentInput := textinput.New()
+	agentInput.Placeholder = "claude, codex, etc"
+	agentInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+	agentInput.CharLimit = 50
+	agentInput.Width = 40
+	agentInput.Prompt = ""
+
+	// Set default value
+	if defaultAgent != "" {
+		agentInput.SetValue(defaultAgent)
+	}
 
 	var repoName string
 	var systemCaps git.SystemCapabilities
@@ -93,15 +126,39 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, agentConfig app.Agen
 
 	loader := components.NewLaunchAgentLoader("")
 
+	// Get initial selected agent
+	selectedAgent := app.GetAgentConfig(defaultAgent)
+
+	// Initialize help
+	h := help.New()
+	h.ShowAll = false // Only show short help
+
+	// Initialize keybindings
+	keys := sessionKeyMap{
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "navigate fields"),
+		),
+		Escape: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel"),
+		),
+	}
+
 	return &SessionDialog{
-		input:           input,
+		branchInput:     branchInput,
+		agentInput:      agentInput,
+		focusedField:    0, // Start with branch focused
 		repoName:        repoName,
 		worktreeManager: worktreeManager,
 		systemCaps:      systemCaps,
 		creating:        false,
 		initializing:    false,
-		agentConfig:     agentConfig,
+		selectedAgent:   selectedAgent,
+		defaultAgent:    defaultAgent,
 		loader:          loader,
+		help:            h,
+		keys:            keys,
 	}
 }
 
@@ -123,8 +180,26 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "enter":
-			// Create and attach worktree
-			return d, d.createAndAttachWorktree()
+			// Only create if both fields are valid
+			if d.isValid() {
+				return d, d.createAndAttachWorktree()
+			}
+			return d, nil
+
+		case "tab":
+			// Switch to next field
+			d.focusedField = (d.focusedField + 1) % 2
+			d.updateFocus()
+			return d, nil
+
+		case "shift+tab":
+			// Switch to previous field
+			d.focusedField--
+			if d.focusedField < 0 {
+				d.focusedField = 1
+			}
+			d.updateFocus()
+			return d, nil
 
 		case "esc":
 			// Cancel dialog
@@ -139,7 +214,7 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.initializing = true
 		d.err = ""
 		if d.loader != nil {
-			d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName))
+			d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.selectedAgent.CompanyName))
 		}
 
 		var caseCmds []tea.Cmd
@@ -149,7 +224,7 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		caseCmds = append(caseCmds, tea.Tick(3*time.Second, func(time.Time) tea.Msg {
-			return WorktreeInitializationCompleteMsg(msg)
+			return WorktreeInitializationCompleteMsg{Worktree: msg.Worktree}
 		}))
 
 		return d, tea.Batch(caseCmds...)
@@ -167,10 +242,19 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update text input if not in creating/initializing state
+	// Update text inputs if not in creating/initializing state
 	if !d.creating && !d.initializing {
+		// Update the focused input
 		var inputCmd tea.Cmd
-		d.input, inputCmd = d.input.Update(msg)
+		if d.focusedField == 0 {
+			d.branchInput, inputCmd = d.branchInput.Update(msg)
+		} else {
+			d.agentInput, inputCmd = d.agentInput.Update(msg)
+			// Update selected agent when agent input changes
+			if app.IsValidAgent(d.agentInput.Value()) {
+				d.selectedAgent = app.GetAgentConfig(d.agentInput.Value())
+			}
+		}
 		cmds = append(cmds, inputCmd)
 	}
 
@@ -192,7 +276,7 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 	}
 
 	// Get branch name from input or generate random name
-	branchName := strings.TrimSpace(d.input.Value())
+	branchName := strings.TrimSpace(d.branchInput.Value())
 	if branchName == "" {
 		branchName = git.GenerateRandomBranchName()
 	}
@@ -209,7 +293,7 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 	d.initializing = false
 	d.err = ""
 	if d.loader != nil {
-		d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName))
+		d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.selectedAgent.CompanyName))
 	}
 
 	// Create worktree in background and start loader ticking
@@ -221,7 +305,10 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 		if err != nil {
 			return WorktreeCreationErrorMsg{Error: err.Error()}
 		}
-		return WorktreeCreatedMsg{Worktree: worktree}
+		return WorktreeCreatedMsg{
+			Worktree:  worktree,
+			AgentName: d.agentInput.Value(), // Pass the selected agent command
+		}
 	})
 
 	// Start the loader spinner animation
@@ -268,17 +355,12 @@ func (d *SessionDialog) View() string {
 	content = append(content, "DIVIDER_PLACEHOLDER")
 	content = append(content, "")
 
-	// Input field - just the branch name input
-	if !d.creating && !d.initializing {
-		appendLine(d.input.View())
-		content = append(content, "")
-	}
-
-	// Progress or button - skip creating state, go directly to agent loading
+	// Show form or loading state
 	if d.creating || d.initializing {
-		loadingTitle := fmt.Sprintf("%s is starting...", d.agentConfig.CompanyName)
+		// Loading state
+		loadingTitle := fmt.Sprintf("%s is starting...", d.selectedAgent.CompanyName)
 		loaderStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(d.agentConfig.BorderColor)).
+			Foreground(lipgloss.Color(d.selectedAgent.BorderColor)).
 			Bold(true)
 
 		if d.loader != nil {
@@ -286,6 +368,45 @@ func (d *SessionDialog) View() string {
 			appendLine(loaderStyle.Render(d.loader.View()))
 		} else {
 			appendLine(loaderStyle.Render(loadingTitle))
+		}
+	} else {
+		// Form state - credit card style
+		labelStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+
+		// Branch name field
+		appendLine(labelStyle.Render("Branch name"))
+		appendLine(d.branchInput.View())
+		content = append(content, "")
+
+		// Agent command field
+		appendLine(labelStyle.Render("Agent command"))
+		appendLine(d.agentInput.View())
+		content = append(content, "")
+
+		// Add button placeholder - will be replaced later with proper width
+		content = append(content, "BUTTON_PLACEHOLDER")
+
+		// Add error message directly under button (centered)
+		if d.err != "" {
+			content = append(content, "ERROR_PLACEHOLDER")
+		} else {
+			content = append(content, "")
+		}
+
+		// Add help text (will be centered later with actual width)
+		content = append(content, "HELP_PLACEHOLDER")
+
+		// Warning for non-COW systems
+		if !d.systemCaps.SupportsCOW {
+			content = append(content, "")
+			appendLine(dialogWarningStyle.Render("⚠️  Only version controlled files"))
+			appendLine(dialogWarningStyle.Render("   will be copied, which excludes"))
+			appendLine(dialogWarningStyle.Render("   things like your dependencies"))
+			appendLine(dialogWarningStyle.Render("   and .env files. This is because"))
+			appendLine(dialogWarningStyle.Render("   your OS does not support"))
+			appendLine(dialogWarningStyle.Render("   copy-on-write."))
 		}
 	}
 
@@ -301,32 +422,6 @@ func (d *SessionDialog) View() string {
 	minContentWidth := worktreeDialogMinContentWidth
 	if maxAllowedContentWidth > 0 && maxAllowedContentWidth < minContentWidth {
 		minContentWidth = maxAllowedContentWidth
-	}
-
-	// Add Create and attach button if not creating or initializing
-	if !d.creating && !d.initializing {
-		// Add some spacing before the button
-		content = append(content, "")
-
-		// Add button placeholder - will be replaced later with proper width
-		content = append(content, "BUTTON_PLACEHOLDER")
-
-		// Add error message directly under button (centered)
-		if d.err != "" {
-			content = append(content, "ERROR_PLACEHOLDER")
-		} else {
-			content = append(content, "")
-		}
-	}
-
-	// Warning for non-COW systems
-	if !d.systemCaps.SupportsCOW && !d.creating {
-		appendLine(dialogWarningStyle.Render("⚠️  Only version controlled files"))
-		appendLine(dialogWarningStyle.Render("   will be copied, which excludes"))
-		appendLine(dialogWarningStyle.Render("   things like your dependencies"))
-		appendLine(dialogWarningStyle.Render("   and .env files. This is because"))
-		appendLine(dialogWarningStyle.Render("   your OS does not support"))
-		appendLine(dialogWarningStyle.Render("   copy-on-write."))
 	}
 
 	// Ensure we have at least minimum width
@@ -353,12 +448,24 @@ func (d *SessionDialog) View() string {
 		Foreground(lipgloss.Color(theme.TextDescription))
 	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
 
-	// Create full-width button
-	buttonStyle := primaryDialogButtonStyle.Copy().
-		Background(lipgloss.Color(d.agentConfig.BorderColor)).
-		Width(actualContentWidth).
-		Align(lipgloss.Center)
-	button := buttonStyle.Render("Create and attach (↵)")
+	// Create button - disabled or enabled based on validation
+	var button string
+	if d.isValid() {
+		// Enabled button with agent color
+		buttonStyle := primaryDialogButtonStyle.Copy().
+			Background(lipgloss.Color(d.selectedAgent.BorderColor)).
+			Width(actualContentWidth).
+			Align(lipgloss.Center)
+		button = buttonStyle.Render("Create and attach (↵)")
+	} else {
+		// Disabled button
+		disabledButtonStyle := primaryDialogButtonStyle.Copy().
+			Background(lipgloss.Color(theme.TextDescription)).
+			Foreground(lipgloss.Color(theme.TextMuted)).
+			Width(actualContentWidth).
+			Align(lipgloss.Center)
+		button = disabledButtonStyle.Render("Create and attach (↵)")
+	}
 
 	// Create centered error message
 	errorMsg := ""
@@ -369,6 +476,16 @@ func (d *SessionDialog) View() string {
 		errorMsg = errorStyle.Render("Error: " + d.err)
 	}
 
+	// Create centered help text
+	helpText := ""
+	if !d.creating && !d.initializing {
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextMuted)).
+			Width(actualContentWidth).
+			Align(lipgloss.Center)
+		helpText = helpStyle.Render(d.help.View(d.keys))
+	}
+
 	// Replace placeholders with actual content
 	for i, line := range content {
 		if line == "DIVIDER_PLACEHOLDER" {
@@ -377,6 +494,8 @@ func (d *SessionDialog) View() string {
 			content[i] = button
 		} else if line == "ERROR_PLACEHOLDER" {
 			content[i] = errorMsg
+		} else if line == "HELP_PLACEHOLDER" {
+			content[i] = helpText
 		}
 	}
 
@@ -393,7 +512,8 @@ func (d *SessionDialog) View() string {
 
 // WorktreeCreatedMsg indicates a worktree was successfully created
 type WorktreeCreatedMsg struct {
-	Worktree *git.WorktreeInfo
+	Worktree  *git.WorktreeInfo
+	AgentName string // The agent command selected by the user
 }
 
 // WorktreeCreationErrorMsg indicates worktree creation failed
@@ -407,4 +527,22 @@ type SessionDialogCancelledMsg struct{}
 // WorktreeInitializationCompleteMsg indicates the worktree and session are ready
 type WorktreeInitializationCompleteMsg struct {
 	Worktree *git.WorktreeInfo
+}
+
+// isValid checks if the agent command is valid (branch name is optional)
+func (d *SessionDialog) isValid() bool {
+	agentCommand := strings.TrimSpace(d.agentInput.Value())
+	return app.IsValidAgent(agentCommand)
+}
+
+// updateFocus updates which input field is focused
+func (d *SessionDialog) updateFocus() {
+	d.branchInput.Blur()
+	d.agentInput.Blur()
+
+	if d.focusedField == 0 {
+		d.branchInput.Focus()
+	} else {
+		d.agentInput.Focus()
+	}
 }
