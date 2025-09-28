@@ -24,29 +24,29 @@ import (
 // AgentsPane manages the display of agent sessions
 type AgentsPane struct {
 	*components.BasePane
-	list             list.Model
-	sessionManager   *session.Manager
-	groupedSessions  map[string][]*session.Session // Sessions grouped by repo
-	currentRepo      string
-	activeWorktree   *git.WorktreeInfo
-	mainWorktree     *git.WorktreeInfo
-	items            []list.Item
-	delegate         itemDelegate
-	expandedRepos    map[string]bool // Track which repos are expanded
-	lastSavedPath    string
-	lastSavedBranch  string
-	lastSavedRepo    string
-	isGitRepo        bool
+	list            list.Model
+	sessionManager  *session.Manager
+	groupedSessions map[string][]*session.Session // Sessions grouped by repo
+	currentRepo     string
+	activeWorktree  *git.WorktreeInfo
+	mainWorktree    *git.WorktreeInfo
+	items           []list.Item
+	delegate        itemDelegate
+	expandedRepos   map[string]bool // Track which repos are expanded
+	lastSavedPath   string
+	lastSavedBranch string
+	lastSavedRepo   string
+	isGitRepo       bool
 }
 
 // AgentListItem implements list.Item interface for agent sessions
 type AgentListItem struct {
-	Type       string // "repo_header", "section_header", "main_session", "linked_session", "empty_message"
-	RepoName   string
-	RepoPath   string // Full path to repository
-	Worktree   *git.WorktreeInfo
-	Index      int // Index in original repo list
-	IsSelected bool
+	Type         string // "repo_header", "section_header", "main_session", "linked_session", "empty_message"
+	RepoName     string
+	RepoPath     string // Full path to repository
+	Worktree     *git.WorktreeInfo
+	Index        int // Index in original repo list
+	IsSelected   bool
 	SectionTitle string // For section headers: "Main worktree" or "Linked worktrees"
 }
 
@@ -60,11 +60,12 @@ func (i AgentListItem) FilterValue() string {
 
 // itemDelegate handles rendering of individual list items
 type itemDelegate struct {
-	currentRepo     string
-	styles          *itemStyles
-	expandedRepos   map[string]bool
-	isActive        bool
-	isMainWorktree  *git.WorktreeInfo
+	currentRepo    string
+	styles         *itemStyles
+	expandedRepos  map[string]bool
+	isActive       bool
+	isMainWorktree *git.WorktreeInfo
+	activeWorktree *git.WorktreeInfo
 }
 
 type itemStyles struct {
@@ -188,13 +189,13 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		// Section headers with Nerd Font icons
 		var icon string
 		if workItem.SectionTitle == "Main worktree" {
-			icon = "\uf07b"  // Nerd Font folder icon
+			icon = "\uf07b" // Nerd Font folder icon
 		} else if workItem.SectionTitle == "Linked worktrees" {
-			icon = "\uf0c1"  // Nerd Font link icon
+			icon = "\uf0c1" // Nerd Font link icon
 		}
 		iconStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(icon)
 		sectionStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Render(workItem.SectionTitle)
-		lineStyled = iconStyled + "  " + sectionStyled 
+		lineStyled = iconStyled + "  " + sectionStyled
 
 	case "gap":
 		// Empty line for spacing
@@ -209,7 +210,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := "\ue0a0"  // Nerd Font git branch icon
+		branchIcon := "\ue0a0" // Nerd Font git branch icon
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -225,7 +226,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := "\ue0a0"  // Nerd Font git branch icon
+		branchIcon := "\ue0a0" // Nerd Font git branch icon
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -253,12 +254,21 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		return
 	}
 
-	// Handle hint text
-	if hint == "" && highlight && (workItem.Type == "main_session" || workItem.Type == "linked_session") && !workItem.IsSelected {
-		if workItem.Type == "main_session" {
-			hint = " ⏎ to select"
+	// Handle hint text - only when pane is active and hovering a session item
+	if hint == "" && d.isActive && highlight && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+		// Use the same logic as the orange bar - workItem.IsSelected indicates active/selected
+		if workItem.IsSelected {
+			// Hovering a row that is already selected (has orange bar) - show "enter to open"
+			hint = " ↵ to open"
+			if workItem.Type == "linked_session" {
+				hint = " ↵ to open, D to delete"
+			}
 		} else {
-			hint = " ⏎ to select, D to delete"
+			// Hovering a row that is not selected (no orange bar) - show "enter to select"
+			hint = " ↵ to select"
+			if workItem.Type == "linked_session" {
+				hint = " ↵ to select, D to delete"
+			}
 		}
 	}
 
@@ -368,11 +378,11 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 	l.SetFilteringEnabled(false)
 
 	pane := &AgentsPane{
-		BasePane:        components.NewBasePane(0, "Agents"), // Updated to Agents
-		list:            l,
-		sessionManager:  sessionManager,
-		delegate:        delegate,
-		expandedRepos:   expandedRepos, // Use the same map reference
+		BasePane:       components.NewBasePane(0, "Agents"), // Updated to Agents
+		list:           l,
+		sessionManager: sessionManager,
+		delegate:       delegate,
+		expandedRepos:  expandedRepos, // Use the same map reference
 	}
 
 	// Initial refresh
@@ -529,7 +539,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		r.MoveDown()
 		return true, nil
 	case "enter":
-		// Toggle repository expansion
+		// Toggle repository expansion or attach to tmux session
 		if len(r.items) > 0 {
 			currentIndex := r.list.Index()
 			selectedItem := r.list.SelectedItem()
@@ -543,8 +553,22 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 					r.list.SetDelegate(r.delegate)
 					r.rebuildListPreservingSelection(currentIndex)
 				} else if (workItem.Type == "main_session" || workItem.Type == "linked_session") && workItem.Worktree != nil {
-					r.setActiveWorktree(workItem.Worktree)
-					r.rebuildListPreservingSelection(currentIndex)
+					// Check if this worktree is already selected
+					if r.isActiveWorktree(workItem.Worktree) {
+						// Already selected - attach to tmux session
+						if r.sessionManager != nil {
+							if session := r.sessionManager.GetSessionForWorktree(workItem.Worktree); session != nil && session.TmuxSession != nil {
+								// Return a command that triggers tmux attachment
+								return true, func() tea.Msg {
+									return AttachToSessionMsg{Session: session}
+								}
+							}
+						}
+					} else {
+						// Not selected yet - select it
+						r.setActiveWorktree(workItem.Worktree)
+						r.rebuildListPreservingSelection(currentIndex)
+					}
 				}
 			}
 		}
@@ -870,8 +894,8 @@ func (r *AgentsPane) buildItemList() {
 			} else {
 				// Show placeholder if no main session
 				r.items = append(r.items, AgentListItem{
-					Type:     "empty_message",
-					RepoName: repoName,
+					Type:         "empty_message",
+					RepoName:     repoName,
 					SectionTitle: "main",
 				})
 			}
@@ -913,8 +937,8 @@ func (r *AgentsPane) buildItemList() {
 			} else {
 				// No linked worktrees - add placeholder
 				r.items = append(r.items, AgentListItem{
-					Type:     "empty_message",
-					RepoName: repoName,
+					Type:         "empty_message",
+					RepoName:     repoName,
 					SectionTitle: "linked",
 				})
 			}
@@ -925,6 +949,7 @@ func (r *AgentsPane) buildItemList() {
 	r.delegate.currentRepo = r.currentRepo
 	r.delegate.expandedRepos = r.expandedRepos
 	r.delegate.isMainWorktree = r.mainWorktree
+	r.delegate.activeWorktree = r.activeWorktree
 }
 
 func (r *AgentsPane) firstRepoName() string {
@@ -954,6 +979,7 @@ func (r *AgentsPane) setActiveWorktree(worktree *git.WorktreeInfo) {
 	}
 	r.delegate.currentRepo = r.currentRepo
 	r.delegate.isMainWorktree = r.mainWorktree
+	r.delegate.activeWorktree = r.activeWorktree
 	if r.expandedRepos != nil {
 		r.expandedRepos[r.currentRepo] = true
 	}
@@ -1090,6 +1116,7 @@ func (r *AgentsPane) SetCurrentRepo(repoName string) {
 	r.delegate.currentRepo = repoName
 	r.delegate.expandedRepos = r.expandedRepos
 	r.delegate.isMainWorktree = r.mainWorktree
+	r.delegate.activeWorktree = r.activeWorktree
 	r.rebuildListPreservingSelection(r.list.Index())
 }
 
@@ -1103,8 +1130,12 @@ func (r *AgentsPane) GetPaneSpecificKeybindings() []key.Binding {
 	}
 }
 
-
 // DeleteSessionRequestMsg is sent when the user requests to delete a session
 type DeleteSessionRequestMsg struct {
+	Session *session.Session
+}
+
+// AttachToSessionMsg is sent when the user wants to attach to a tmux session
+type AttachToSessionMsg struct {
 	Session *session.Session
 }

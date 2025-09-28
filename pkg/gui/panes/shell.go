@@ -3,15 +3,17 @@ package panes
 import (
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
+	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ShellPane manages the display of shell content (placeholder for future implementation)
+// ShellPane manages the display of shell content using tmux like the TmuxPane
 type ShellPane struct {
 	*components.BasePane
+	session *tmux.TmuxSession
 	content string
 }
 
@@ -23,17 +25,42 @@ func NewShellPane() *ShellPane {
 	}
 }
 
+// SetSession sets the tmux session for this pane
+func (s *ShellPane) SetSession(session *tmux.TmuxSession) {
+	s.session = session
+	s.updateContent()
+}
+
 // SetContent updates the shell content to display
 func (s *ShellPane) SetContent(content string) {
 	s.content = content
+}
+
+// updateContent refreshes the content from the tmux session
+func (s *ShellPane) updateContent() {
+	if s.session != nil {
+		content, err := s.session.CapturePaneContent()
+		if err == nil {
+			s.content = content
+		}
+	}
+}
+
+// SetSize updates the dimensions and resizes the tmux session
+func (s *ShellPane) SetSize(width, height int) {
+	s.BasePane.SetSize(width, height)
+	if s.session != nil {
+		// Set tmux session size to match pane content area
+		s.session.SetDetachedSize(width, height)
+	}
 }
 
 // GetTitleStyle returns the plain title style for the shell pane
 func (s *ShellPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if s.IsActive() {
-		// When active, could show shell-specific shortcuts in the future
-		shortcuts = ""
+		// When active, show enter to attach and ctrl+q to detach
+		shortcuts = "[↵ attach, ctrl+q detach]"
 	} else {
 		// When not active, show pane number
 		shortcuts = "[3]"
@@ -49,6 +76,11 @@ func (s *ShellPane) GetTitleStyle() components.TitleStyle {
 
 // View renders the shell pane content
 func (s *ShellPane) View() string {
+	// Update content from session if available
+	if s.session != nil {
+		s.updateContent()
+	}
+
 	if s.content == "" {
 		// Show placeholder message
 		style := lipgloss.NewStyle().
@@ -57,7 +89,11 @@ func (s *ShellPane) View() string {
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(lipgloss.Color(theme.TextMuted))
 
-		return style.Render("Shell pane - coming soon")
+		if s.session == nil {
+			return style.Render("No shell session")
+		} else {
+			return style.Render("Shell starting...")
+		}
 	}
 
 	// Show shell content
@@ -72,7 +108,7 @@ func (s *ShellPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 // HandleKey processes keyboard input when the pane is active
 func (s *ShellPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
-	// ShellPane doesn't handle any keys currently
+	// ShellPane uses tmux attach/detach like TmuxPane - no direct key handling
 	return false, nil
 }
 

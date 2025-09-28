@@ -8,7 +8,6 @@ import (
 	"agate/pkg/tmux"
 )
 
-
 // PersistSessions saves all sessions to config
 func (m *Manager) PersistSessions() error {
 	for worktreeKey, session := range m.sessions {
@@ -132,4 +131,3 @@ func (m *Manager) restoreSessionFromPersisted(persistedSession config.PersistedS
 
 	return session, nil
 }
-

@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -13,9 +14,9 @@ import (
 
 // Manager is a singleton that manages all sessions
 type Manager struct {
-	sessions      map[string]*Session   // WorktreeKey -> Session
-	activeSession *Session              // Currently active session
-	worktreeMgr   *git.WorktreeManager  // Git worktree management
+	sessions      map[string]*Session  // WorktreeKey -> Session
+	activeSession *Session             // Currently active session
+	worktreeMgr   *git.WorktreeManager // Git worktree management
 }
 
 // NewManager creates a new session manager
@@ -52,17 +53,32 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 		return nil, fmt.Errorf("failed to start tmux session: %w", err)
 	}
 
+	// Create shell tmux session with user's preferred shell
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	shellSessionName := "shell_" + sessionName
+	shellTmuxSession := tmux.NewTmuxSession(shellSessionName, shell)
+	err = shellTmuxSession.Start(worktree.Path)
+	if err != nil {
+		// Clean up agent tmux session if shell session fails
+		tmuxSession.Kill()
+		return nil, fmt.Errorf("failed to start shell tmux session: %w", err)
+	}
+
 	// Create session
 	session := &Session{
-		ID:           worktreeKey + "_" + agentName,
-		Name:         sessionName,
-		WorktreeKey:  worktreeKey,
-		TmuxSession:  tmuxSession,
-		Worktree:     worktree,
-		Agent:        agentConfig,
-		CreatedAt:    time.Now(),
-		LastAccessed: time.Now(),
-		IsActive:     false,
+		ID:               worktreeKey + "_" + agentName,
+		Name:             sessionName,
+		WorktreeKey:      worktreeKey,
+		TmuxSession:      tmuxSession,
+		ShellTmuxSession: shellTmuxSession,
+		Worktree:         worktree,
+		Agent:            agentConfig,
+		CreatedAt:        time.Now(),
+		LastAccessed:     time.Now(),
+		IsActive:         false,
 	}
 
 	// Store session
@@ -158,6 +174,14 @@ func (m *Manager) DeleteSession(worktreeKey string) error {
 		}
 	}
 
+	// Kill shell tmux session
+	if session.ShellTmuxSession != nil {
+		if err := session.ShellTmuxSession.Kill(); err != nil {
+			debug.DebugLog("Failed to kill shell tmux session: %v", err)
+			// Continue with deletion even if shell kill fails
+		}
+	}
+
 	// Delete worktree if we have a worktree manager
 	if m.worktreeMgr != nil && session.Worktree != nil {
 		if err := m.worktreeMgr.DeleteWorktree(*session.Worktree); err != nil {
@@ -201,8 +225,8 @@ func (m *Manager) ListSessions() []*Session {
 func (m *Manager) GetMainSession(repoName string) *Session {
 	for _, session := range m.sessions {
 		if session.Worktree != nil &&
-		   session.Worktree.RepoName == repoName &&
-		   !m.isLinkedWorktree(session) {
+			session.Worktree.RepoName == repoName &&
+			!m.isLinkedWorktree(session) {
 			return session
 		}
 	}
@@ -214,8 +238,8 @@ func (m *Manager) GetLinkedSessions(repoName string) []*Session {
 	sessions := make([]*Session, 0)
 	for _, session := range m.sessions {
 		if session.Worktree != nil &&
-		   session.Worktree.RepoName == repoName &&
-		   m.isLinkedWorktree(session) {
+			session.Worktree.RepoName == repoName &&
+			m.isLinkedWorktree(session) {
 			sessions = append(sessions, session)
 		}
 	}
@@ -258,4 +282,3 @@ func (m *Manager) CleanupOrphanedSessions() {
 func (m *Manager) GetWorktreeManager() *git.WorktreeManager {
 	return m.worktreeMgr
 }
-

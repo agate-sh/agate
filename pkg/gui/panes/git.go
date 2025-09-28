@@ -173,8 +173,7 @@ func (g *GitPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if g.IsActive() {
 		// When active, show the shortcut hint
-		help := common.GlobalKeys.OpenInEditor.Help()
-		shortcuts = fmt.Sprintf("[%s: %s]", help.Key, help.Desc)
+		shortcuts = "[↵ enter open in editor]"
 	} else {
 		// When not active, show pane number
 		shortcuts = "[2]"
@@ -229,13 +228,15 @@ func (g *GitPane) View() string {
 	summaryStyle := lipgloss.NewStyle().
 		Width(innerWidth).
 		Align(lipgloss.Center).
-		Foreground(lipgloss.Color(theme.TextDescription)).
+		Foreground(lipgloss.Color(theme.TextPrimary)).
 		Bold(true)
 
 	summary := g.fileStatus.FormatSummaryLine()
 	summaryLine := summaryStyle.Render(summary)
 	output.WriteString(components.ApplyPaneContentPadding(summaryLine, innerWidth))
-	// No extra padding - files start immediately after summary
+
+	// Add one line gap after the summary
+	output.WriteString("\n")
 
 	// File rows
 	for i, file := range g.fileStatus.Files {

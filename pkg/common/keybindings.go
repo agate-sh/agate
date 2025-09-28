@@ -198,9 +198,9 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down}, // Navigation
 		{k.AddRepo, k.NewWorktree, k.DeleteWorktree, k.DeleteSession}, // Repository & Worktree
-		{k.AttachTmux, k.DetachTmux},                 // Tmux
-		{k.Filter, k.ClearFilter},                    // Filtering
-		{k.Confirm, k.Cancel},                        // Dialogs
+		{k.AttachTmux, k.DetachTmux},                                  // Tmux
+		{k.Filter, k.ClearFilter},                                     // Filtering
+		{k.Confirm, k.Cancel},                                         // Dialogs
 	}
 }
 

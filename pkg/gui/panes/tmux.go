@@ -6,7 +6,6 @@ import (
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
 	"agate/pkg/tmux"
-	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,12 +59,8 @@ func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 	isActive := t.IsActive()
 
 	if isActive {
-		// When active, show both attach and detach hints
-		attachHelp := common.GlobalKeys.AttachTmux.Help()
-		detachHelp := common.GlobalKeys.DetachTmux.Help()
-		shortcuts = fmt.Sprintf("[%s: %s, %s: %s]",
-			attachHelp.Key, attachHelp.Desc,
-			detachHelp.Key, detachHelp.Desc)
+		// When active, show enter to attach and ctrl+q to detach
+		shortcuts = "[↵ attach, ctrl+q detach]"
 	} else {
 		// When not active, show pane number
 		shortcuts = "[1]"

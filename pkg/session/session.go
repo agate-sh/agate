@@ -16,9 +16,10 @@ type Session struct {
 	WorktreeKey string `json:"worktree_key"` // Stable key for worktree identification
 
 	// Session-specific resources
-	TmuxSession *tmux.TmuxSession    `json:"-"`            // Not persisted - recreated on startup
-	Worktree    *git.WorktreeInfo    `json:"worktree"`     // Worktree information
-	Agent       app.AgentConfig      `json:"agent"`        // This session's agent configuration
+	TmuxSession      *tmux.TmuxSession `json:"-"`        // Agent tmux session - not persisted
+	ShellTmuxSession *tmux.TmuxSession `json:"-"`        // Shell tmux session - not persisted
+	Worktree         *git.WorktreeInfo `json:"worktree"` // Worktree information
+	Agent            app.AgentConfig   `json:"agent"`    // This session's agent configuration
 
 	// State tracking
 	CreatedAt    time.Time `json:"created_at"`

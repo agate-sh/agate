@@ -18,8 +18,8 @@ type SessionDeleteConfirmDialog struct {
 	height          int
 	session         *session.Session
 	sessionManager  *session.Manager
-	worktree        *git.WorktreeInfo     // For worktree-only deletion
-	worktreeManager *git.WorktreeManager  // For worktree-only deletion
+	worktree        *git.WorktreeInfo    // For worktree-only deletion
+	worktreeManager *git.WorktreeManager // For worktree-only deletion
 	focused         bool
 }
 

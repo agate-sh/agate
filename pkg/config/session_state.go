@@ -13,15 +13,15 @@ type SessionState struct {
 
 // PersistedSession represents a session's persistent data
 type PersistedSession struct {
-	ID             string    `json:"id"`
-	WorktreeKey    string    `json:"worktree_key"`
-	TmuxName       string    `json:"tmux_name"`       // Tmux session name
-	AgentName      string    `json:"agent_name"`      // Agent used for this session
-	WorktreePath   string    `json:"worktree_path"`   // Path to worktree
-	Branch         string    `json:"branch"`          // Branch name
-	RepoName       string    `json:"repo_name"`       // Repository name
-	CreatedAt      time.Time `json:"created_at"`
-	LastAccessed   time.Time `json:"last_accessed"`
+	ID           string    `json:"id"`
+	WorktreeKey  string    `json:"worktree_key"`
+	TmuxName     string    `json:"tmux_name"`     // Tmux session name
+	AgentName    string    `json:"agent_name"`    // Agent used for this session
+	WorktreePath string    `json:"worktree_path"` // Path to worktree
+	Branch       string    `json:"branch"`        // Branch name
+	RepoName     string    `json:"repo_name"`     // Repository name
+	CreatedAt    time.Time `json:"created_at"`
+	LastAccessed time.Time `json:"last_accessed"`
 }
 
 // GetSessionMappings returns a copy of the stored session mappings
@@ -106,4 +106,3 @@ func SetDefaultAgent(agent string) error {
 	state.Sessions.DefaultAgent = agent
 	return SaveState(state)
 }
-
