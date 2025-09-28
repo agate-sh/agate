@@ -59,11 +59,11 @@ func (s *ShellPane) SetSize(width, height int) {
 func (s *ShellPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if s.IsActive() {
-		// When active, show enter to attach and ctrl+q to detach
-		shortcuts = "[↵ attach, ctrl+q detach]"
+		// When active, format shortcuts like the footer (without brackets)
+		shortcuts = "↵ attach • ctrl+q detach"
 	} else {
 		// When not active, show pane number
-		shortcuts = "[3]"
+		shortcuts = "(3)"
 	}
 
 	return components.TitleStyle{

@@ -59,11 +59,11 @@ func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 	isActive := t.IsActive()
 
 	if isActive {
-		// When active, show enter to attach and ctrl+q to detach
-		shortcuts = "[↵ attach, ctrl+q detach]"
+		// When active, format shortcuts like the footer (without brackets)
+		shortcuts = "↵ attach • ctrl+q detach"
 	} else {
 		// When not active, show pane number
-		shortcuts = "[1]"
+		shortcuts = "(1)"
 	}
 
 	return components.TitleStyle{

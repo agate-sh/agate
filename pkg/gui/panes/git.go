@@ -172,11 +172,11 @@ func (g *GitPane) GetTitle() string {
 func (g *GitPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if g.IsActive() {
-		// When active, show the shortcut hint
-		shortcuts = "[↵ enter open in editor]"
+		// When active, format shortcuts like the footer (without brackets)
+		shortcuts = "↵ open in editor"
 	} else {
 		// When not active, show pane number
-		shortcuts = "[2]"
+		shortcuts = "(2)"
 	}
 
 	return components.TitleStyle{
