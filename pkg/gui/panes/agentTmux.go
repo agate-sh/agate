@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TmuxPane manages the display of tmux terminal content
-type TmuxPane struct {
+// AgentTmuxPane manages the display of tmux terminal content
+type AgentTmuxPane struct {
 	*components.BasePane
 	session      *tmux.TmuxSession
 	content      string
@@ -21,11 +21,11 @@ type TmuxPane struct {
 	mode         string // "preview" or "attached"
 }
 
-// NewTmuxPane creates a new TmuxPane instance
-func NewTmuxPane(loadingState *tmux.LoadingState) *TmuxPane {
+// NewAgentTmuxPane creates a new AgentTmuxPane instance
+func NewAgentTmuxPane(loadingState *tmux.LoadingState) *AgentTmuxPane {
 	// Get agent name from global state for the title
 	agentName := app.GetCurrentAgentName()
-	return &TmuxPane{
+	return &AgentTmuxPane{
 		BasePane:     components.NewBasePane(1, agentName), // Pane index 1
 		loadingState: loadingState,
 		isLoading:    false,
@@ -34,27 +34,27 @@ func NewTmuxPane(loadingState *tmux.LoadingState) *TmuxPane {
 }
 
 // SetSession sets the tmux session for this pane
-func (t *TmuxPane) SetSession(session *tmux.TmuxSession) {
+func (t *AgentTmuxPane) SetSession(session *tmux.TmuxSession) {
 	t.session = session
 }
 
 // SetContent updates the tmux content to display
-func (t *TmuxPane) SetContent(content string) {
+func (t *AgentTmuxPane) SetContent(content string) {
 	t.content = content
 }
 
 // SetLoading sets the loading state
-func (t *TmuxPane) SetLoading(loading bool) {
+func (t *AgentTmuxPane) SetLoading(loading bool) {
 	t.isLoading = loading
 }
 
 // SetMode sets the interaction mode (preview/attached)
-func (t *TmuxPane) SetMode(mode string) {
+func (t *AgentTmuxPane) SetMode(mode string) {
 	t.mode = mode
 }
 
 // GetTitleStyle returns the badge-style title for the tmux pane
-func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
+func (t *AgentTmuxPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	isActive := t.IsActive()
 
@@ -75,7 +75,7 @@ func (t *TmuxPane) GetTitleStyle() components.TitleStyle {
 }
 
 // View renders the tmux pane content
-func (t *TmuxPane) View() string {
+func (t *AgentTmuxPane) View() string {
 	if t.isLoading && t.loadingState != nil {
 		// Show loading view
 		return t.loadingState.RenderLoadingView(
@@ -93,7 +93,7 @@ func (t *TmuxPane) View() string {
 }
 
 // Update handles tea.Msg updates for the tmux pane
-func (t *TmuxPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
+func (t *AgentTmuxPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 	// Handle spinner tick messages for loading state
 	if t.loadingState != nil {
 		if cmd := t.loadingState.Update(msg); cmd != nil {
@@ -106,14 +106,14 @@ func (t *TmuxPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 }
 
 // HandleKey processes keyboard input when the pane is active
-func (t *TmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
-	// TmuxPane key handling is managed at the main model level
+func (t *AgentTmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
+	// AgentTmuxPane key handling is managed at the main model level
 	// (attach/detach logic, scrolling, etc.)
 	return false, nil
 }
 
 // GetPaneSpecificKeybindings returns tmux pane specific keybindings
-func (t *TmuxPane) GetPaneSpecificKeybindings() []key.Binding {
+func (t *AgentTmuxPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Use the global keybindings to ensure consistency
 	return []key.Binding{
 		common.GlobalKeys.AttachTmux,

@@ -10,34 +10,34 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ShellPane manages the display of shell content using tmux like the TmuxPane
-type ShellPane struct {
+// ShellTmuxPane manages the display of shell content using tmux like the AgentTmuxPane
+type ShellTmuxPane struct {
 	*components.BasePane
 	session *tmux.TmuxSession
 	content string
 }
 
-// NewShellPane creates a new ShellPane instance
-func NewShellPane() *ShellPane {
-	return &ShellPane{
+// NewShellTmuxPane creates a new ShellTmuxPane instance
+func NewShellTmuxPane() *ShellTmuxPane {
+	return &ShellTmuxPane{
 		BasePane: components.NewBasePane(3, "Shell"), // Pane index 3
 		content:  "",
 	}
 }
 
 // SetSession sets the tmux session for this pane
-func (s *ShellPane) SetSession(session *tmux.TmuxSession) {
+func (s *ShellTmuxPane) SetSession(session *tmux.TmuxSession) {
 	s.session = session
 	s.updateContent()
 }
 
 // SetContent updates the shell content to display
-func (s *ShellPane) SetContent(content string) {
+func (s *ShellTmuxPane) SetContent(content string) {
 	s.content = content
 }
 
 // updateContent refreshes the content from the tmux session
-func (s *ShellPane) updateContent() {
+func (s *ShellTmuxPane) updateContent() {
 	if s.session != nil {
 		content, err := s.session.CapturePaneContent()
 		if err == nil {
@@ -47,7 +47,7 @@ func (s *ShellPane) updateContent() {
 }
 
 // SetSize updates the dimensions and resizes the tmux session
-func (s *ShellPane) SetSize(width, height int) {
+func (s *ShellTmuxPane) SetSize(width, height int) {
 	s.BasePane.SetSize(width, height)
 	if s.session != nil {
 		// Set tmux session size to match pane content area
@@ -56,7 +56,7 @@ func (s *ShellPane) SetSize(width, height int) {
 }
 
 // GetTitleStyle returns the plain title style for the shell pane
-func (s *ShellPane) GetTitleStyle() components.TitleStyle {
+func (s *ShellTmuxPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if s.IsActive() {
 		// When active, format shortcuts like the footer (without brackets)
@@ -75,7 +75,7 @@ func (s *ShellPane) GetTitleStyle() components.TitleStyle {
 }
 
 // View renders the shell pane content
-func (s *ShellPane) View() string {
+func (s *ShellTmuxPane) View() string {
 	// Update content from session if available
 	if s.session != nil {
 		s.updateContent()
@@ -101,19 +101,19 @@ func (s *ShellPane) View() string {
 }
 
 // Update handles tea.Msg updates for the shell pane
-func (s *ShellPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
-	// ShellPane doesn't handle specific update messages currently
+func (s *ShellTmuxPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
+	// ShellTmuxPane doesn't handle specific update messages currently
 	return s, nil
 }
 
 // HandleKey processes keyboard input when the pane is active
-func (s *ShellPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
-	// ShellPane uses tmux attach/detach like TmuxPane - no direct key handling
+func (s *ShellTmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
+	// ShellTmuxPane uses tmux attach/detach like AgentTmuxPane - no direct key handling
 	return false, nil
 }
 
 // GetPaneSpecificKeybindings returns shell pane specific keybindings
-func (s *ShellPane) GetPaneSpecificKeybindings() []key.Binding {
+func (s *ShellTmuxPane) GetPaneSpecificKeybindings() []key.Binding {
 	// No shell-specific keybindings currently
 	return []key.Binding{}
 }
