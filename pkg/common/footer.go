@@ -88,9 +88,8 @@ func (f *Footer) View() string {
 		return ""
 	}
 
-	// Group shortcuts into categories with new logic
-	var paneSpecificShortcuts []Shortcut         // Shortcuts that should be highlighted for current pane
-	var globalNonHighlightedShortcuts []Shortcut // Shortcuts that are shown but not highlighted
+	// Find the core global shortcuts and help/quit shortcuts
+	var coreShortcuts []Shortcut // n, a, s shortcuts with agent color
 	var quitShortcut *Shortcut
 	var helpShortcut *Shortcut
 
@@ -99,80 +98,29 @@ func (f *Footer) View() string {
 			quitShortcut = &shortcut
 		} else if shortcut.Key == "?" && shortcut.IsGlobal {
 			helpShortcut = &shortcut
-		} else if !shortcut.IsGlobal {
-			// Determine if this shortcut should be highlighted based on current focus
-			shouldHighlight := false
-
-			if (f.focused == "tmux" || f.focused == "git" || f.focused == "shell") && shortcut.Key == "a" {
-				// Only highlight "attach to tmux" when any right pane is focused
-				shouldHighlight = true
-			} else if f.focused == "agents" && (shortcut.Key == "n" || shortcut.Key == "d") {
-				// Highlight worktree shortcuts when left pane focused
-				shouldHighlight = true
-			}
-
-			if shouldHighlight {
-				paneSpecificShortcuts = append(paneSpecificShortcuts, shortcut)
-			} else {
-				globalNonHighlightedShortcuts = append(globalNonHighlightedShortcuts, shortcut)
-			}
+		} else if shortcut.Key == "n" || shortcut.Key == "a" || shortcut.Key == "s" {
+			// Core global shortcuts that should be styled with agent colors
+			coreShortcuts = append(coreShortcuts, shortcut)
 		}
 	}
 
 	var parts []string
 
-	// Render pane-specific shortcuts (highlighted)
-	for i, shortcut := range paneSpecificShortcuts {
+	// Render core global shortcuts (n, a, s) with agent colors
+	agentColor := app.GetCurrentAgentColor()
+	for i, shortcut := range coreShortcuts {
 		if i > 0 {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
 
-		keyStyle := footerKeyStyle.Bold(true)
-		descStyle := footerDescStyle
-
-		// Apply appropriate highlighting color based on current pane focus
-		switch f.focused {
-		case "tmux":
-			// Apply agent color when tmux pane is focused
-			agentColor := app.GetCurrentAgentColor()
-			keyStyle = keyStyle.Foreground(lipgloss.Color(agentColor))
-			descStyle = descStyle.Foreground(lipgloss.Color(agentColor))
-		case "git", "shell":
-			// Apply gray color when git/shell panes are focused
-			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextDescription))
-			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextDescription))
-		case "agents":
-			// Apply white color when left pane is focused
-			keyStyle = keyStyle.Foreground(lipgloss.Color(theme.TextPrimary))
-			descStyle = descStyle.Foreground(lipgloss.Color(theme.TextPrimary))
-		}
+		keyStyle := footerKeyStyle.Bold(true).Foreground(lipgloss.Color(agentColor))
+		descStyle := footerDescStyle.Foreground(lipgloss.Color(agentColor))
 
 		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
 		parts = append(parts, part)
 	}
 
-	// Add pipe separator before non-highlighted shortcuts if we have highlighted ones
-	if len(paneSpecificShortcuts) > 0 && len(globalNonHighlightedShortcuts) > 0 {
-		parts = append(parts, footerSeparatorStyle.Render(" │ "))
-	}
-
-	// Render non-highlighted shortcuts (in default gray color)
-	for i, shortcut := range globalNonHighlightedShortcuts {
-		if len(parts) > 0 && len(paneSpecificShortcuts) == 0 && i > 0 {
-			parts = append(parts, footerSeparatorStyle.Render(" • "))
-		} else if i > 0 {
-			parts = append(parts, footerSeparatorStyle.Render(" • "))
-		}
-
-		keyStyle := footerKeyStyle.Bold(true)
-		descStyle := footerDescStyle
-		// Keep default gray styling
-
-		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
-		parts = append(parts, part)
-	}
-
-	// Add separator before global shortcuts (quit/help)
+	// Add pipe separator before help/quit shortcuts
 	if len(parts) > 0 && (quitShortcut != nil || helpShortcut != nil) {
 		parts = append(parts, footerSeparatorStyle.Render(" │ "))
 	}

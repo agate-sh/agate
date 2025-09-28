@@ -34,35 +34,14 @@ func (s *ShortcutOverlay) SetMode(mode string) {
 func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 	shortcuts := []key.Binding{}
 
-	// Always show global shortcuts
-	shortcuts = append(shortcuts, s.keyMap.Quit, s.keyMap.Keybindings)
-
-	// Add context-specific shortcuts
-	switch s.mode {
-	case "preview":
-		switch s.focused {
-		case "agents":
-			// Left pane (repos & worktrees list) shortcuts
-			shortcuts = append(shortcuts,
-				s.keyMap.AddRepo,
-				s.keyMap.NewWorktree,
-				s.keyMap.DeleteWorktree,
-				s.keyMap.FocusPaneTmux,
-				s.keyMap.FocusPaneGit,
-				s.keyMap.FocusPaneShell,
-			)
-		case "tmux", "git", "shell":
-			// Right panes (tmux/git/shell) shortcuts
-			shortcuts = append(shortcuts,
-				s.keyMap.AttachTmux,
-				s.keyMap.DetachTmux, // Show detach hint for reference
-				s.keyMap.FocusPaneRepos,
-			)
-		}
-	case "attached":
-		// When attached to tmux, only show detach option
-		shortcuts = append(shortcuts, s.keyMap.DetachTmux)
-	}
+	// Always show core global shortcuts
+	shortcuts = append(shortcuts,
+		s.keyMap.NewWorktree,  // n - new agent
+		s.keyMap.AttachTmux,   // a - attach to agent
+		s.keyMap.AttachShell,  // s - attach to shell
+		s.keyMap.Quit,         // q - quit
+		s.keyMap.Keybindings,  // ? - keybindings
+	)
 
 	return shortcuts
 }

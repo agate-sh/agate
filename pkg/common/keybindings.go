@@ -38,9 +38,10 @@ type GlobalKeyMap struct {
 	DeleteWorktree key.Binding // d - delete worktree (repos pane action, context-sensitive)
 	DeleteSession  key.Binding // D - delete entire session (worktree + tmux, destructive)
 
-	// Tmux interaction - conceptually belongs to tmux pane but globally accessible
-	AttachTmux key.Binding // a - attach to tmux session
-	DetachTmux key.Binding // Ctrl+Q - detach from tmux session
+	// Session interaction - conceptually belongs to panes but globally accessible
+	AttachTmux  key.Binding // a - attach to agent session (tmux)
+	AttachShell key.Binding // s - attach to shell session
+	DetachTmux  key.Binding // Ctrl+Q - detach from tmux session
 
 	// Dialog actions - global because dialogs overlay all content
 	Confirm key.Binding // Enter, y - confirm dialog action
@@ -118,10 +119,14 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("D", "delete session"),
 	),
 
-	// Tmux interaction
+	// Session interaction
 	AttachTmux: key.NewBinding(
 		key.WithKeys("a"),
-		key.WithHelp("a", "attach to tmux"),
+		key.WithHelp("a", "attach to agent"),
+	),
+	AttachShell: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "attach to shell"),
 	),
 	DetachTmux: key.NewBinding(
 		key.WithKeys("ctrl+q"),
@@ -198,7 +203,7 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down}, // Navigation
 		{k.AddRepo, k.NewWorktree, k.DeleteWorktree, k.DeleteSession}, // Repository & Worktree
-		{k.AttachTmux, k.DetachTmux},                                  // Tmux
+		{k.AttachTmux, k.AttachShell, k.DetachTmux},                   // Session
 		{k.Filter, k.ClearFilter},                                     // Filtering
 		{k.Confirm, k.Cancel},                                         // Dialogs
 	}
@@ -227,8 +232,9 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.DeleteWorktree,
 			k.DeleteSession,
 		},
-		"Tmux Interaction": {
+		"Session Interaction": {
 			k.AttachTmux,
+			k.AttachShell,
 			k.DetachTmux,
 		},
 		"List Controls": {
