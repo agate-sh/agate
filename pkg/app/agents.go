@@ -46,13 +46,6 @@ var CodexAgent = AgentConfig{
 	CompanyName:    "Codex",
 }
 
-// CN agent configuration with the specific color
-var CNAgent = AgentConfig{
-	Name:           "cn",
-	BorderColor:    "#82a2be",
-	ExecutableName: "cn",
-	CompanyName:    "Continue",
-}
 
 // OpenCode agent configuration with the specific color
 var OpenCodeAgent = AgentConfig{
@@ -78,6 +71,13 @@ var GithubCopilotAgent = AgentConfig{
 	CompanyName:    "GitHub Copilot",
 }
 
+var ContinueAgent = AgentConfig{
+	Name:           "cn",
+	BorderColor:    "#3782a6",
+	ExecutableName: "cn",
+	CompanyName:    "Continue",
+}
+
 // Default configuration for unknown agents
 var DefaultAgent = AgentConfig{
 	Name:           "default",
@@ -97,7 +97,7 @@ func GetAgentConfig(subprocess string) AgentConfig {
 		AmpAgent,
 		GeminiAgent,
 		CodexAgent,
-		CNAgent,
+		ContinueAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
@@ -121,7 +121,7 @@ func GetAllAgents() []AgentConfig {
 		AmpAgent,
 		GeminiAgent,
 		CodexAgent,
-		CNAgent,
+		ContinueAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,

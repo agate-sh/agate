@@ -1,0 +1,103 @@
+---
+title: 'Quickstart'
+description: 'Get started with Agate in minutes'
+---
+
+## Your First Agate Application
+
+Let's build a simple Agate application to get you familiar with the framework.
+
+### Step 1: Initialize a New Project
+
+Create a new directory for your project:
+
+```bash
+mkdir my-agate-app
+cd my-agate-app
+go mod init my-agate-app
+```
+
+### Step 2: Create Your Main Application
+
+Create a `main.go` file:
+
+```go main.go
+package main
+
+import (
+    "log"
+    "github.com/agate-sh/agate/pkg/app"
+)
+
+func main() {
+    // Initialize Agate application
+    agateApp := app.New()
+
+    // Configure your application
+    agateApp.SetTitle("My First Agate App")
+
+    // Start the application
+    if err := agateApp.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Step 3: Run Your Application
+
+```bash
+go run main.go
+```
+
+Congratulations! You've created your first Agate application.
+
+## Adding Agents
+
+Agents are the core building blocks of Agate applications. Let's add a simple agent:
+
+```go
+// Add to your main.go
+agent := &MyAgent{
+    name: "hello-agent",
+}
+
+agateApp.RegisterAgent(agent)
+```
+
+## Key Concepts
+
+<AccordionGroup>
+  <Accordion title="Agents">
+    Agents are modular components that handle specific functionality in your application.
+    They can be interactive, run background tasks, or provide specific services.
+  </Accordion>
+
+  <Accordion title="Shell Integration">
+    Agate provides built-in shell management for running commands and managing
+    terminal sessions within your application.
+  </Accordion>
+
+  <Accordion title="UI Components">
+    Rich terminal UI components for building interactive interfaces including
+    overlays, forms, and data displays.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/getting-started/configuration"
+  >
+    Learn how to configure Agate for your needs
+  </Card>
+  <Card
+    title="Agent System"
+    icon="robot"
+    href="/guides/agents"
+  >
+    Deep dive into the agent architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Agate",
+  "logo": {
+    "dark": "/images/logo/dark.svg",
+    "light": "/images/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373",
+    "anchors": {
+      "from": "#0D9373",
+      "to": "#07C983"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/agate-sh/agate"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://github.com/agate-sh/agate"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "Guides",
+      "url": "guides"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "index",
+        "getting-started/installation",
+        "getting-started/quickstart",
+        "getting-started/configuration"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "guides/agents",
+        "guides/shells",
+        "guides/overlays",
+        "guides/keybindings"
+      ]
+    },
+    {
+      "group": "API Documentation",
+      "pages": [
+        "api-reference/introduction",
+        "api-reference/agent-system",
+        "api-reference/shell-management",
+        "api-reference/ui-components"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/agate-sh/agate",
+    "twitter": "https://twitter.com/agate_sh"
+  },
+  "analytics": {
+    "posthog": {
+      "apiKey": ""
+    }
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
+  }
+}

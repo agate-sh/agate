@@ -1,0 +1,103 @@
+---
+title: "API Reference"
+description: "Complete API reference for Agate framework"
+---
+
+## API Overview
+
+The Agate API provides a comprehensive set of interfaces for building terminal-based applications. This reference covers all public APIs, interfaces, and utilities available in the framework.
+
+## Core Packages
+
+### `pkg/app`
+
+The main application package containing the core Agate application structure.
+
+```go
+import "github.com/agate-sh/agate/pkg/app"
+```
+
+Key types:
+- `App` - Main application instance
+- `Config` - Application configuration
+- `Agent` - Agent interface
+
+### `pkg/ui`
+
+UI components and rendering utilities.
+
+```go
+import "github.com/agate-sh/agate/pkg/ui"
+```
+
+Key types:
+- `Component` - Base UI component interface
+- `Overlay` - Overlay component for modal dialogs
+- `Border` - Border styling utilities
+
+### `pkg/shell`
+
+Shell management and tmux integration.
+
+```go
+import "github.com/agate-sh/agate/pkg/shell"
+```
+
+Key types:
+- `Shell` - Shell session management
+- `TmuxManager` - tmux integration utilities
+- `Command` - Command execution utilities
+
+## Quick Reference
+
+### Creating an Application
+
+```go
+app := app.New()
+app.SetTitle("My App")
+app.Run()
+```
+
+### Registering Agents
+
+```go
+agent := &MyAgent{}
+app.RegisterAgent(agent)
+```
+
+### Configuration
+
+```go
+config := app.Config()
+config.SetTheme("dark")
+config.EnableDebug(true)
+```
+
+## Error Handling
+
+All Agate APIs follow Go conventions for error handling:
+
+```go
+if err := app.Run(); err != nil {
+    log.Fatal(err)
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Agent System API"
+    icon="robot"
+    href="/api-reference/agent-system"
+  >
+    Detailed agent system API reference
+  </Card>
+  <Card
+    title="UI Components API"
+    icon="window"
+    href="/api-reference/ui-components"
+  >
+    Complete UI components reference
+  </Card>
+</CardGroup>

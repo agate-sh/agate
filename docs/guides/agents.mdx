@@ -1,0 +1,224 @@
+---
+title: 'Agent System'
+description: 'Understanding Agate agents and how to build them'
+---
+
+## What are Agents?
+
+Agents are the core building blocks of Agate applications. They are modular, reusable components that encapsulate specific functionality and can interact with users, manage state, and communicate with other agents.
+
+## Agent Types
+
+### Interactive Agents
+
+Interactive agents provide user interfaces and handle user input:
+
+```go
+type InteractiveAgent struct {
+    name string
+    ui   *UI
+}
+
+func (a *InteractiveAgent) Render() error {
+    // Render UI components
+    return a.ui.Render()
+}
+
+func (a *InteractiveAgent) HandleInput(input Input) error {
+    // Process user input
+    return nil
+}
+```
+
+### Background Agents
+
+Background agents run tasks without direct user interaction:
+
+```go
+type BackgroundAgent struct {
+    name     string
+    interval time.Duration
+}
+
+func (a *BackgroundAgent) Run(ctx context.Context) error {
+    ticker := time.NewTicker(a.interval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case <-ticker.C:
+            // Perform background task
+            a.doWork()
+        }
+    }
+}
+```
+
+## Creating Custom Agents
+
+### Basic Agent Structure
+
+All agents must implement the `Agent` interface:
+
+```go
+type Agent interface {
+    Name() string
+    Start(ctx context.Context) error
+    Stop() error
+    Status() AgentStatus
+}
+```
+
+### Example: File Watcher Agent
+
+```go
+type FileWatcherAgent struct {
+    name      string
+    watchPath string
+    onChange  func(string)
+}
+
+func NewFileWatcherAgent(path string, onChange func(string)) *FileWatcherAgent {
+    return &FileWatcherAgent{
+        name:      "file-watcher",
+        watchPath: path,
+        onChange:  onChange,
+    }
+}
+
+func (a *FileWatcherAgent) Name() string {
+    return a.name
+}
+
+func (a *FileWatcherAgent) Start(ctx context.Context) error {
+    // Initialize file watcher
+    watcher, err := fsnotify.NewWatcher()
+    if err != nil {
+        return err
+    }
+    defer watcher.Close()
+
+    err = watcher.Add(a.watchPath)
+    if err != nil {
+        return err
+    }
+
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case event := <-watcher.Events:
+            if a.onChange != nil {
+                a.onChange(event.Name)
+            }
+        }
+    }
+}
+```
+
+## Agent Communication
+
+Agents can communicate through the message bus:
+
+```go
+// Send message to another agent
+app.MessageBus().Send("target-agent", Message{
+    Type: "data-update",
+    Data: map[string]interface{}{
+        "value": 42,
+    },
+})
+
+// Subscribe to messages
+app.MessageBus().Subscribe("data-update", func(msg Message) {
+    // Handle incoming message
+})
+```
+
+## Agent Lifecycle
+
+### Registration
+
+```go
+app := agate.New()
+
+// Register agents
+app.RegisterAgent(NewFileWatcherAgent("/tmp", nil))
+app.RegisterAgent(NewInteractiveAgent())
+
+// Start application
+app.Run()
+```
+
+### Lifecycle Hooks
+
+```go
+type LifecycleAgent struct {
+    // ... fields
+}
+
+func (a *LifecycleAgent) OnStart() error {
+    // Called when agent starts
+    return nil
+}
+
+func (a *LifecycleAgent) OnStop() error {
+    // Called when agent stops
+    return nil
+}
+
+func (a *LifecycleAgent) OnPause() error {
+    // Called when agent is paused
+    return nil
+}
+
+func (a *LifecycleAgent) OnResume() error {
+    // Called when agent resumes
+    return nil
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Single Responsibility">
+    Each agent should have a single, well-defined responsibility. This makes
+    them easier to test, maintain, and reuse.
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    Implement robust error handling. Agents should gracefully handle errors
+    and communicate issues through the message bus or logging.
+  </Accordion>
+
+  <Accordion title="Resource Cleanup">
+    Always clean up resources in the Stop() method. This includes closing
+    files, network connections, and stopping goroutines.
+  </Accordion>
+
+  <Accordion title="Configuration">
+    Make agents configurable through constructor parameters or configuration
+    objects rather than hardcoding values.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Shell Management"
+    icon="terminal"
+    href="/guides/shells"
+  >
+    Learn about shell integration
+  </Card>
+  <Card
+    title="UI Components"
+    icon="window"
+    href="/guides/overlays"
+  >
+    Explore UI component system
+  </Card>
+</CardGroup>

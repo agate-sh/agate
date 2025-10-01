@@ -1,0 +1,62 @@
+---
+title: 'Installation'
+description: 'Install Agate on your system'
+---
+
+## Prerequisites
+
+Before installing Agate, ensure you have the following:
+
+- **Go 1.21+** - Agate is built with Go and requires a recent version
+- **Git** - For cloning the repository
+- **tmux** (optional) - For enhanced shell management features
+
+## Installation Methods
+
+### From Source
+
+Clone the repository and build from source:
+
+```bash
+git clone https://github.com/agate-sh/agate.git
+cd agate
+go build -o agate ./cmd/agate
+```
+
+### Binary Releases
+
+Download pre-built binaries from our [GitHub releases page](https://github.com/agate-sh/agate/releases).
+
+```bash
+# Download and install (replace with latest version)
+curl -L https://github.com/agate-sh/agate/releases/latest/download/agate-linux-amd64 -o agate
+chmod +x agate
+sudo mv agate /usr/local/bin/
+```
+
+### Using Go Install
+
+Install directly using Go:
+
+```bash
+go install github.com/agate-sh/agate/cmd/agate@latest
+```
+
+## Verification
+
+Verify your installation by running:
+
+```bash
+agate --version
+```
+
+You should see output similar to:
+```
+agate version v0.1.0
+```
+
+## Next Steps
+
+<Card title="Quickstart Guide" icon="rocket" href="/getting-started/quickstart">
+  Continue with the quickstart guide to build your first application
+</Card>

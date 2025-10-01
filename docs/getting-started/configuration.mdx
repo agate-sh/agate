@@ -1,0 +1,145 @@
+---
+title: 'Configuration'
+description: 'Configure Agate to match your workflow'
+---
+
+## Configuration Overview
+
+Agate uses a flexible configuration system that allows you to customize behavior, appearance, and functionality. Configuration can be done through code, configuration files, or environment variables.
+
+## Configuration File
+
+Create a `.agate.yaml` file in your project root or home directory:
+
+```yaml .agate.yaml
+app:
+  title: "My Agate Application"
+  theme: "dark"
+
+agents:
+  default:
+    enabled: true
+  shell:
+    tmux_enabled: true
+    default_shell: "/bin/zsh"
+
+ui:
+  borders: true
+  overlay_transparency: 0.8
+
+keybindings:
+  quit: "ctrl+c"
+  toggle_overlay: "ctrl+o"
+  switch_agent: "ctrl+tab"
+```
+
+## Environment Variables
+
+Configure Agate using environment variables:
+
+```bash
+export AGATE_THEME=dark
+export AGATE_DEBUG=true
+export AGATE_CONFIG_PATH=/path/to/config
+```
+
+## Programmatic Configuration
+
+Configure Agate directly in your Go code:
+
+```go
+app := agate.New()
+
+// Set application properties
+app.Config().
+  SetTitle("My App").
+  SetTheme("dark").
+  EnableDebug(true)
+
+// Configure agents
+app.AgentConfig().
+  SetDefaultEnabled(true).
+  EnableShellAgent(true)
+
+// Configure UI
+app.UIConfig().
+  EnableBorders(true).
+  SetOverlayTransparency(0.8)
+```
+
+## Configuration Options
+
+### Application Settings
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `title` | string | "Agate" | Application window title |
+| `theme` | string | "dark" | UI theme (dark/light) |
+| `debug` | bool | false | Enable debug mode |
+
+### Agent Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `default_enabled` | bool | true | Enable default agents |
+| `shell_enabled` | bool | true | Enable shell agent |
+| `tmux_enabled` | bool | false | Enable tmux integration |
+
+### UI Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `borders` | bool | true | Show component borders |
+| `overlay_transparency` | float | 0.9 | Overlay transparency level |
+
+## Keybindings
+
+Customize keybindings for your workflow:
+
+```yaml
+keybindings:
+  # Application controls
+  quit: "ctrl+c"
+  help: "?"
+
+  # Agent controls
+  switch_agent: "ctrl+tab"
+  agent_menu: "ctrl+a"
+
+  # UI controls
+  toggle_overlay: "ctrl+o"
+  toggle_borders: "ctrl+b"
+```
+
+## Environment-Specific Configuration
+
+Use different configurations for different environments:
+
+```yaml
+# .agate.dev.yaml
+app:
+  debug: true
+  theme: "light"
+
+# .agate.prod.yaml
+app:
+  debug: false
+  theme: "dark"
+```
+
+Load specific configurations:
+
+```bash
+AGATE_ENV=dev agate run
+AGATE_ENV=prod agate run
+```
+
+## Next Steps
+
+<Card
+  title="Agent System"
+  icon="robot"
+  href="/guides/agents"
+>
+  Learn about Agate's agent architecture
+</Card>
