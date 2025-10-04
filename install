@@ -168,48 +168,85 @@ command_exists() {
 
 # Check and install dependencies
 check_dependencies() {
-    # Check for curl
+    local missing_deps=()
+    local found_deps=()
+
+    # Check for curl (still needed for downloading)
     if ! command_exists curl; then
         die "curl is required but not installed. Please install curl and try again."
     fi
 
-    # Check for tmux (required for agate)
-    if ! command_exists tmux; then
-        print_warn "tmux is not installed. Agate requires tmux to function properly."
-
-        if [[ "$INSTALL_TMUX" == "yes" ]]; then
-            install_tmux
-        else
-            printf "${YELLOW}Would you like to install tmux? [Y/n]: ${NC}"
-            read -r response
-            case "$response" in
-                [nN][oO]|[nN])
-                    print_warn "Proceeding without tmux. You'll need to install it manually before using Agate."
-                    ;;
-                *)
-                    install_tmux
-                    ;;
-            esac
-        fi
-    else
-        # tmux is installed, continue silently
-        :
-    fi
-
     # Check for agent CLI if specified
     if [[ -n "$agent" ]]; then
-        if ! command_exists "$agent"; then
-            print_warn "${AGENT_COLOR}${agent}${NC} not found. You'll need to install it separately."
-            return
+        if command_exists "$agent"; then
+            found_deps+=("$agent")
+        else
+            missing_deps+=("$agent")
         fi
     fi
 
-    # All dependencies found
-    local deps="tmux"
-    if [[ -n "$agent" ]]; then
-        deps="$deps, $agent"
+    # Check for docker
+    if command_exists docker; then
+        found_deps+=("docker")
+    else
+        missing_deps+=("docker")
     fi
-    printf "${GREEN}${BOLD}✓${NC} All dependencies found \033[2m($deps)${NC}\n"
+
+    # Check for gh (GitHub CLI)
+    if command_exists gh; then
+        found_deps+=("gh")
+    else
+        missing_deps+=("gh")
+    fi
+
+    # Check for fzf and install if missing
+    if ! command_exists fzf; then
+        print_info "Installing fzf, a command-line fuzzy finder"
+        install_fzf
+        if command_exists fzf; then
+            found_deps+=("fzf")
+        else
+            missing_deps+=("fzf")
+        fi
+    else
+        found_deps+=("fzf")
+    fi
+
+    # Report missing dependencies
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        for dep in "${missing_deps[@]}"; do
+            if [[ "$dep" == "$agent" ]]; then
+                print_warn "${AGENT_COLOR}${dep}${NC} not found. You'll need to install it separately."
+            else
+                print_warn "${dep} not found. You'll need to install it separately."
+            fi
+        done
+    fi
+
+    # Show found dependencies
+    if [[ ${#found_deps[@]} -gt 0 ]]; then
+        local deps_list
+        deps_list=$(IFS=', '; echo "${found_deps[*]}")
+        printf "${GREEN}${BOLD}✓${NC} Dependencies found \033[2m($deps_list)${NC}\n"
+    fi
+}
+
+# Install fzf using the universal git method
+install_fzf() {
+    # Use the official fzf installation method that works across all platforms
+    if [[ -d ~/.fzf ]]; then
+        # fzf directory already exists, try to update
+        cd ~/.fzf && git pull >/dev/null 2>&1 && ./install --bin >/dev/null 2>&1
+    else
+        # Clone and install fzf
+        git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf >/dev/null 2>&1 && \
+        ~/.fzf/install --bin >/dev/null 2>&1
+    fi
+
+    # Add to PATH for current session if not already there
+    if [[ ":$PATH:" != *":$HOME/.fzf/bin:"* ]]; then
+        export PATH="$HOME/.fzf/bin:$PATH"
+    fi
 }
 
 # Install tmux based on the OS
