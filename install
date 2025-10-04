@@ -93,10 +93,9 @@ warn() {
 
 die() {
     print_error "$1"
-    echo ""
     printf "\n${RED}${BOLD}✗${NC}${BOLD} Installation failed${NC}\n\n"
-    printf "    For help, please open an issue:\n"
-    printf "    \033[2m\033[4mhttps://github.com/agate-sh/agate/issues/new${NC}\n"
+    printf "For help, please open an issue:\n"
+    printf "\033[2m\033[4mhttps://github.com/agate-sh/agate/issues/new${NC}\n\n"
     exit 1
 }
 
@@ -111,7 +110,6 @@ success_box() {
         agent_color="${NC}"  # Default to no color if agent not found
     fi
 
-    echo ""
     printf "\n${GREEN}${BOLD}✓${NC}${BOLD} Installation successful${NC}\n\n"
     printf "${BOLD}1.${NC} Reload shell\n"
     printf "   \033[2msource ${shell_config}${NC}\n\n"
