@@ -1,4 +1,5 @@
 
-agate
+/agate
+agate-*
 .gocache
 dist/
