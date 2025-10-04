@@ -94,14 +94,9 @@ warn() {
 die() {
     print_error "$1"
     echo ""
-    printf "${RED}┌─────────────────────────────────────────────────────────────┐${NC}\n"
-    printf "${RED}│${NC}                                                             ${RED}│${NC}\n"
-    printf "${RED}│${NC}  ${RED}${BOLD}✗${NC}${BOLD} Installation failed${NC}                                      ${RED}│${NC}\n"
-    printf "${RED}│${NC}                                                             ${RED}│${NC}\n"
-    printf "${RED}│${NC}    For help, please open an issue:                          ${RED}│${NC}\n"
-    printf "${RED}│${NC}    \033[2m\033[4mhttps://github.com/agate-sh/agate/issues/new${NC}             ${RED}│${NC}\n"
-    printf "${RED}│${NC}                                                             ${RED}│${NC}\n"
-    printf "${RED}└─────────────────────────────────────────────────────────────┘${NC}\n"
+    printf "\n${RED}${BOLD}✗${NC}${BOLD} Installation failed${NC}\n\n"
+    printf "    For help, please open an issue:\n"
+    printf "    \033[2m\033[4mhttps://github.com/agate-sh/agate/issues/new${NC}\n"
     exit 1
 }
 
@@ -117,17 +112,11 @@ success_box() {
     fi
 
     echo ""
-    printf "${GREEN}┌──────────────────────────────────────────────────────┐${NC}\n"
-    printf "${GREEN}│${NC}                                                      ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC} ${GREEN}${BOLD}✓${NC}${BOLD} Installation successful${NC}                            ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}                                                      ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}  ${BOLD}${NC} Reload shell                                       ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}   \033[2msource ${shell_config##*/}${NC}                                      ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}                                                      ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}  ${BOLD}${NC} Launch a ${agent_color}${BOLD}${agent}${NC} agent                              ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}   \033[2magate ${agent}${NC}                                       ${GREEN}│${NC}\n"
-    printf "${GREEN}│${NC}                                                      ${GREEN}│${NC}\n"
-    printf "${GREEN}└──────────────────────────────────────────────────────┘${NC}\n"
+    printf "\n${GREEN}${BOLD}✓${NC}${BOLD} Installation successful${NC}\n\n"
+    printf "${BOLD}1.${NC} Reload shell\n"
+    printf "   \033[2msource ${shell_config}${NC}\n\n"
+    printf "${BOLD}2.${NC} Launch a ${agent_color}${BOLD}${agent}${NC} agent\n"
+    printf "   \033[2magate ${agent}${NC}\n\n"
 }
 
 # Detect OS and architecture
@@ -255,7 +244,7 @@ check_dependencies() {
         local deps_list
         deps_list=$(printf '%s, ' "${found_deps[@]}")
         deps_list=${deps_list%, }  # Remove trailing comma and space
-        printf "${GREEN}${BOLD}✓${NC} Dependencies found \033[2m($deps_list)${NC}\n"
+        printf "${GREEN}${BOLD}✓${NC} All dependencies found \033[2m($deps_list)${NC}\n"
     fi
 }
 
@@ -335,7 +324,7 @@ install_agate() {
     mv "$binary_file" "$install_path" || die "Failed to install binary"
     chmod +x "$install_path" || die "Failed to make binary executable"
 
-    print_success "Agate installed to: $install_path"
+    printf "${GREEN}${BOLD}✓${NC} Installed \033[3magate\033[0m \033[2m($install_path)${NC}\n"
 }
 
 # Update shell configuration
@@ -367,8 +356,8 @@ update_shell_config() {
             ;;
     esac
 
-    # Check if directory is already in PATH
-    if [[ ":$PATH:" == *":${INSTALL_DIR}:"* ]]; then
+    # Check if directory is already in shell config
+    if [[ -n "$shell_config" ]] && [[ -f "$shell_config" ]] && grep -q "${INSTALL_DIR}" "$shell_config"; then
         print_success "Installation directory already in PATH"
         # Still return the shell config path for success box
         case "${SHELL}" in
@@ -400,15 +389,15 @@ update_shell_config() {
         # Add PATH export
         if [[ "$shell_name" == "fish" ]]; then
             echo "" >> "$shell_config"
-            echo "# Agate" >> "$shell_config"
+            echo "# agate" >> "$shell_config"
             echo "set -gx PATH \$PATH ${INSTALL_DIR}" >> "$shell_config"
         else
             echo "" >> "$shell_config"
-            echo "# Agate" >> "$shell_config"
+            echo "# agate" >> "$shell_config"
             echo "export PATH=\"\$PATH:${INSTALL_DIR}\"" >> "$shell_config"
         fi
 
-        print_success "Added ${INSTALL_DIR} to PATH in ${shell_config}"
+        printf "${GREEN}${BOLD}✓${NC} Added \033[3magate\033[0m to shell \033[2m(${shell_config})${NC}\n" >&2
         echo "$shell_config"  # Return the shell config path
     else
         warn "Could not detect shell configuration file"
@@ -424,7 +413,7 @@ check_existing_installation() {
         current_version=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
         if [[ "$current_version" == "$1" ]]; then
-            print_success "Agate v${current_version} is already installed"
+            printf "${GREEN}${BOLD}✓${NC} Agate already installed \033[2m(v${current_version})${NC}\n"
             return 1  # Return error to skip installation but continue to success box
         else
             warn "Found existing installation (v${current_version})"
@@ -443,6 +432,24 @@ main() {
         agent="$1"
     fi
 
+    # Always show installer header
+    printf "\n${BOLD}🪨 Agate installer${NC}\n\n"
+
+    # Check for existing installation first
+    if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+        local current_version
+        current_version=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+
+        # Get latest version to check if up to date
+        local latest_version
+        latest_version=$(get_latest_version 2>/dev/null || echo "")
+
+        if [[ "$current_version" == "$latest_version" ]]; then
+            printf "${GREEN}${BOLD}✓${NC} Agate already installed \033[2m(v${current_version})${NC}\n"
+            exit 0
+        fi
+    fi
+
     # Set agent color if agent is specified
     if [[ -n "$agent" ]]; then
         AGENT_COLOR=$(get_agent_color "$agent")
@@ -454,20 +461,18 @@ main() {
         fi
     fi
 
-    printf "\n${BOLD}🪨 Agate installer${NC}\n\n"
-
     # Get latest version
     local version
     if ! version=$(get_latest_version); then
         die "Unable to fetch latest version from GitHub API"
     fi
-    print_success "Latest version: v${version}"
+    printf "${GREEN}${BOLD}✓${NC} Downloaded latest version \033[2m(v${version})${NC}\n"
 
     # Detect platform
     local platform
     platform=$(detect_platform)
 
-    # Check existing installation
+    # Check existing installation for upgrade
     local skip_install=false
     if ! check_existing_installation "$version"; then
         skip_install=true
@@ -481,7 +486,7 @@ main() {
         install_agate "$platform" "$version"
     fi
 
-    # Update shell configuration and get shell config path
+    # Always update shell configuration (it will check if already in PATH)
     local shell_config_path
     shell_config_path=$(update_shell_config)
 
