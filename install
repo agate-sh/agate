@@ -249,40 +249,6 @@ install_fzf() {
     fi
 }
 
-# Install tmux based on the OS
-install_tmux() {
-    info "Installing tmux..."
-
-    case "$(uname -s)" in
-        Darwin*)
-            if command_exists brew; then
-                brew install tmux || die "Failed to install tmux via Homebrew"
-            else
-                die "Homebrew is required to install tmux on macOS. Visit https://brew.sh"
-            fi
-            ;;
-        Linux*)
-            if command_exists apt-get; then
-                sudo apt-get update && sudo apt-get install -y tmux || die "Failed to install tmux"
-            elif command_exists dnf; then
-                sudo dnf install -y tmux || die "Failed to install tmux"
-            elif command_exists yum; then
-                sudo yum install -y tmux || die "Failed to install tmux"
-            elif command_exists pacman; then
-                sudo pacman -S --noconfirm tmux || die "Failed to install tmux"
-            elif command_exists apk; then
-                sudo apk add --no-cache tmux || die "Failed to install tmux"
-            else
-                die "Unable to install tmux. Please install it manually."
-            fi
-            ;;
-        *)
-            die "Automatic tmux installation not supported on this OS. Please install manually."
-            ;;
-    esac
-
-    print_success "tmux installed successfully"
-}
 
 # Download and install the binary
 install_agate() {
@@ -425,27 +391,13 @@ check_existing_installation() {
 
 # Main installation flow
 main() {
-    # Parse arguments first to get agent color
-    local install_tmux=""
+    # First argument is the agent name (if provided)
     local agent=""
     local agent_display=""
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --install-tmux|-t)
-                install_tmux="yes"
-                shift
-                ;;
-            --agent|-a)
-                agent="$2"
-                shift 2
-                ;;
-            *)
-                # Ignore unknown options for curl pipe compatibility
-                shift
-                ;;
-        esac
-    done
+    if [[ $# -gt 0 ]]; then
+        agent="$1"
+    fi
 
     # Set agent color if agent is specified
     if [[ -n "$agent" ]]; then
@@ -469,8 +421,6 @@ main() {
         printf "\n${BOLD}Agate installer${NC}\n\n"
     fi
 
-    # Set environment variables
-    INSTALL_TMUX="${install_tmux:-no}"
 
     # Get latest version
     local version
