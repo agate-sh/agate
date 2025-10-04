@@ -312,7 +312,7 @@ install_agate() {
 
 # Update shell configuration
 update_shell_config() {
-    header "Configuring Shell"
+    print_step "Configuring Shell"
 
     local shell_config
     local shell_name
