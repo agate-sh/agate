@@ -258,13 +258,13 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if hint == "" && d.isActive && highlight && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
 		// Use the same logic as the orange bar - workItem.IsSelected indicates active/selected
 		if workItem.IsSelected {
-			// Hovering a row that is already selected (has orange bar) - show "enter to open"
-			hint = " ↵ to open"
+			// Hovering a row that is already selected (has highlight bar) - show "enter to open"
+			hint = " ↵ to attach"
 			if workItem.Type == "linked_session" {
-				hint = " ↵ to open, D to delete"
+				hint = " ↵ to attach, d to delete"
 			}
 		} else {
-			// Hovering a row that is not selected (no orange bar) - show "enter to select"
+			// Hovering a row that is not selected (no highlight bar) - show "enter to select"
 			hint = " ↵ to select"
 			if workItem.Type == "linked_session" {
 				hint = " ↵ to select, D to delete"

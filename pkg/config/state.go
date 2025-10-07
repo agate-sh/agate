@@ -35,7 +35,8 @@ func defaultAppState() AppState {
 	}
 }
 
-func (s *AppState) normalize() {
+// Normalize ensures all fields have valid default values
+func (s *AppState) Normalize() {
 	if s == nil {
 		return
 	}
@@ -101,16 +102,16 @@ func LoadState() (*AppState, error) {
 		return nil, err
 	}
 	if len(data) == 0 {
-		state.normalize()
+		state.Normalize()
 		return &state, nil
 	}
 
 	if err := json.Unmarshal(data, &state); err != nil {
-		state.normalize()
+		state.Normalize()
 		return &state, nil
 	}
 
-	state.normalize()
+	state.Normalize()
 	return &state, nil
 }
 
@@ -124,7 +125,7 @@ func SaveState(state *AppState) error {
 		return err
 	}
 
-	state.normalize()
+	state.Normalize()
 
 	stateFile, err := getStateFilePath()
 	if err != nil {

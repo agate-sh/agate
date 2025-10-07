@@ -8,7 +8,9 @@ import (
 
 	"agate/internal/debug"
 	"agate/pkg/app"
+	"agate/pkg/config"
 	"agate/pkg/git"
+	"agate/pkg/naming"
 	"agate/pkg/tmux"
 )
 
@@ -17,13 +19,29 @@ type Manager struct {
 	sessions      map[string]*Session  // WorktreeKey -> Session
 	activeSession *Session             // Currently active session
 	worktreeMgr   *git.WorktreeManager // Git worktree management
+	stateMgr      StateManager         // Thread-safe state persistence
+}
+
+// StateManager defines the interface for state persistence
+type StateManager interface {
+	SaveSessionMapping(worktreeKey string, session config.PersistedSession) error
+	RemoveSessionMapping(worktreeKey string) error
+	GetSessionMappings() map[string]config.PersistedSession
+	SetActiveSession(sessionKey string) error
+	GetActiveSession() string
+	UpdateSessions(fn func(*config.SessionState) error) error
 }
 
 // NewManager creates a new session manager
-func NewManager(worktreeMgr *git.WorktreeManager) *Manager {
+func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manager {
+	if stateMgr == nil {
+		debug.DebugLog("WARNING: SessionManager created with nil StateManager - persistence will not work")
+	}
+
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		worktreeMgr: worktreeMgr,
+		stateMgr:    stateMgr,
 	}
 }
 
@@ -58,7 +76,9 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 	if shell == "" {
 		shell = "/bin/bash"
 	}
-	shellSessionName := "shell_" + sessionName
+	// Generate shell session name using naming generator
+	nameGen := naming.NewGenerator()
+	shellSessionName := nameGen.GenerateShellSessionName(sessionName)
 	shellTmuxSession := tmux.NewTmuxSession(shellSessionName, shell)
 	err = shellTmuxSession.Start(worktree.Path)
 	if err != nil {

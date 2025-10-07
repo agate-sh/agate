@@ -1,6 +1,9 @@
 package session
 
 import (
+	"fmt"
+	"os/exec"
+
 	"agate/internal/debug"
 	"agate/pkg/app"
 	"agate/pkg/config"
@@ -8,92 +11,160 @@ import (
 	"agate/pkg/tmux"
 )
 
-// PersistSessions saves all sessions to config
+// PersistSessions saves all sessions to config atomically
 func (m *Manager) PersistSessions() error {
-	for worktreeKey, session := range m.sessions {
-		persistedSession := config.PersistedSession{
-			ID:           session.ID,
-			WorktreeKey:  session.WorktreeKey,
-			TmuxName:     session.GetTmuxSessionName(),
-			AgentName:    session.Agent.Name,
-			CreatedAt:    session.CreatedAt,
-			LastAccessed: session.LastAccessed,
-		}
-
-		if session.Worktree != nil {
-			persistedSession.WorktreePath = session.Worktree.Path
-			persistedSession.Branch = session.Worktree.Branch
-			persistedSession.RepoName = session.Worktree.RepoName
-		}
-
-		if err := config.SaveSessionMapping(worktreeKey, persistedSession); err != nil {
-			debug.DebugLog("Failed to persist session %s: %v", session.ID, err)
-			return err
-		}
-
-		debug.DebugLog("Persisted session: %s (tmux: %s, agent: %s)",
-			persistedSession.ID, persistedSession.TmuxName, persistedSession.AgentName)
+	if m.stateMgr == nil {
+		debug.DebugLog("PersistSessions: StateManager is nil, cannot persist sessions")
+		return fmt.Errorf("state manager is nil")
 	}
 
-	// Update active session
-	if m.activeSession != nil {
-		if err := config.SetActiveSession(m.activeSession.WorktreeKey); err != nil {
-			debug.DebugLog("Failed to persist active session: %v", err)
-		}
-	}
+	debug.DebugLog("PersistSessions: Persisting %d sessions", len(m.sessions))
 
-	return nil
+	// Batch all session updates into a single atomic operation
+	return m.stateMgr.UpdateSessions(func(s *config.SessionState) error {
+		// Clear existing mappings and rebuild from current sessions
+		s.SessionMappings = make(map[string]config.PersistedSession)
+
+		for worktreeKey, session := range m.sessions {
+			persistedSession := config.PersistedSession{
+				ID:           session.ID,
+				WorktreeKey:  session.WorktreeKey,
+				TmuxName:     session.GetTmuxSessionName(),
+				AgentName:    session.Agent.Name,
+				CreatedAt:    session.CreatedAt,
+				LastAccessed: session.LastAccessed,
+			}
+
+			if session.Worktree != nil {
+				persistedSession.WorktreePath = session.Worktree.Path
+				persistedSession.Branch = session.Worktree.Branch
+				persistedSession.RepoName = session.Worktree.RepoName
+			}
+
+			s.SessionMappings[worktreeKey] = persistedSession
+
+			debug.DebugLog("PersistSessions: Persisted session: %s (tmux: %s, agent: %s)",
+				persistedSession.ID, persistedSession.TmuxName, persistedSession.AgentName)
+		}
+
+		// Update active session
+		if m.activeSession != nil {
+			s.ActiveSession = m.activeSession.WorktreeKey
+			debug.DebugLog("PersistSessions: Set active session to: %s", m.activeSession.WorktreeKey)
+		} else {
+			s.ActiveSession = ""
+			debug.DebugLog("PersistSessions: No active session to persist")
+		}
+
+		debug.DebugLog("PersistSessions: Successfully persisted %d sessions", len(s.SessionMappings))
+		return nil
+	})
 }
 
 // LoadSessions restores sessions from config
 func (m *Manager) LoadSessions() error {
-	sessionMappings, err := config.GetSessionMappings()
-	if err != nil {
-		debug.DebugLog("Failed to load session mappings: %v", err)
-		return err
+	debug.DebugLog("LoadSessions: Starting session restoration")
+
+	// Check if StateManager is available
+	if m.stateMgr == nil {
+		debug.DebugLog("LoadSessions: StateManager is nil, cannot load sessions")
+		return fmt.Errorf("state manager is nil")
 	}
 
-	debug.DebugLog("Loading %d persisted sessions", len(sessionMappings))
+	sessionMappings := m.stateMgr.GetSessionMappings()
+	debug.DebugLog("LoadSessions: Retrieved %d session mappings from state", len(sessionMappings))
+
+	if len(sessionMappings) == 0 {
+		debug.DebugLog("LoadSessions: No persisted sessions to restore")
+		return nil
+	}
+
+	orphanedKeys := []string{}
+	restoredCount := 0
 
 	for worktreeKey, persistedSession := range sessionMappings {
+		debug.DebugLog("LoadSessions: Attempting to restore session for key: %s", worktreeKey)
+		debug.DebugLog("LoadSessions: Checking if tmux session exists: %s", persistedSession.TmuxName)
+
 		// Check if the tmux session still exists
 		exists, err := m.checkTmuxSessionExists(persistedSession.TmuxName)
-		if err != nil || !exists {
-			debug.DebugLog("Tmux session %s no longer exists, removing mapping", persistedSession.TmuxName)
-			config.RemoveSessionMapping(worktreeKey)
+		if err != nil {
+			debug.DebugLog("LoadSessions: Error checking tmux session %s: %v", persistedSession.TmuxName, err)
+			orphanedKeys = append(orphanedKeys, worktreeKey)
 			continue
 		}
+		if !exists {
+			debug.DebugLog("LoadSessions: Tmux session %s does not exist, marking as orphaned", persistedSession.TmuxName)
+			orphanedKeys = append(orphanedKeys, worktreeKey)
+			continue
+		}
+		debug.DebugLog("LoadSessions: Tmux session %s exists! Proceeding to restore", persistedSession.TmuxName)
 
 		// Recreate the session object (without creating a new tmux session)
 		session, err := m.restoreSessionFromPersisted(persistedSession)
 		if err != nil {
-			debug.DebugLog("Failed to restore session %s: %v", persistedSession.ID, err)
+			debug.DebugLog("LoadSessions: Failed to restore session %s: %v", persistedSession.ID, err)
 			continue
 		}
 
 		// Store in sessions map
 		m.sessions[worktreeKey] = session
-		debug.DebugLog("Restored session: %s (tmux: %s, agent: %s)",
+		restoredCount++
+		debug.DebugLog("LoadSessions: Successfully restored session: %s (tmux: %s, agent: %s)",
 			session.ID, session.GetTmuxSessionName(), session.Agent.Name)
 	}
 
+	debug.DebugLog("LoadSessions: Restored %d sessions, found %d orphaned", restoredCount, len(orphanedKeys))
+
+	// Remove orphaned sessions atomically
+	if len(orphanedKeys) > 0 {
+		debug.DebugLog("LoadSessions: Removing %d orphaned session mappings", len(orphanedKeys))
+		m.stateMgr.UpdateSessions(func(s *config.SessionState) error {
+			for _, key := range orphanedKeys {
+				delete(s.SessionMappings, key)
+			}
+			return nil
+		})
+	}
+
 	// Restore active session
-	activeSessionKey, err := config.GetActiveSession()
-	if err == nil && activeSessionKey != "" {
+	activeSessionKey := m.stateMgr.GetActiveSession()
+	if activeSessionKey != "" {
 		if session, exists := m.sessions[activeSessionKey]; exists {
 			m.activeSession = session
-			debug.DebugLog("Restored active session: %s", session.ID)
+			debug.DebugLog("LoadSessions: Restored active session: %s", session.ID)
+		} else {
+			debug.DebugLog("LoadSessions: Active session key %s not found in restored sessions", activeSessionKey)
 		}
 	}
 
+	debug.DebugLog("LoadSessions: Session restoration complete")
 	return nil
 }
 
 // checkTmuxSessionExists checks if a tmux session with the given name exists
 func (m *Manager) checkTmuxSessionExists(sessionName string) (bool, error) {
-	// Create a temporary tmux session object to check existence
-	tempSession := tmux.NewTmuxSession(sessionName, "dummy")
-	return tempSession.SessionExists()
+	debug.DebugLog("checkTmuxSessionExists: Checking session: %s", sessionName)
+
+	// Run tmux has-session directly with the exact name (don't use NewTmuxSession
+	// which would transform the name)
+	cmd := exec.Command("tmux", "has-session", "-t", sessionName)
+	err := cmd.Run()
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 means session doesn't exist
+			if exitErr.ExitCode() == 1 {
+				debug.DebugLog("checkTmuxSessionExists: Session %s does not exist (exit code 1)", sessionName)
+				return false, nil
+			}
+		}
+		debug.DebugLog("checkTmuxSessionExists: Error checking session %s: %v", sessionName, err)
+		return false, err
+	}
+
+	debug.DebugLog("checkTmuxSessionExists: Session %s exists!", sessionName)
+	return true, nil
 }
 
 // restoreSessionFromPersisted recreates a session object from persisted data

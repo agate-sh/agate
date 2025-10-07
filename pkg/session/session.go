@@ -5,6 +5,7 @@ import (
 
 	"agate/pkg/app"
 	"agate/pkg/git"
+	"agate/pkg/naming"
 	"agate/pkg/tmux"
 )
 
@@ -46,18 +47,18 @@ func (s *Session) GetTmuxSessionName() string {
 	return generateTmuxSessionName(s.Worktree, s.Agent.Name)
 }
 
-// generateTmuxSessionName creates a stable, unique tmux session name
+// generateTmuxSessionName creates a stable, unique tmux session name.
 // Format: agate_<repo>_<branch>_<agent>_<hash>
+//
+// This function uses naming.Generator to ensure consistent name generation.
 func generateTmuxSessionName(worktree *git.WorktreeInfo, agentName string) string {
 	if worktree == nil {
 		return ""
 	}
 
-	// Create a base name combining repo, branch, and agent
-	baseName := worktree.RepoName + "_" + worktree.Branch + "_" + agentName
-
-	// Use tmux's existing sanitization which includes hash for uniqueness
-	return tmux.SanitizeName(baseName)
+	// Use the naming generator for consistent, sanitized names
+	nameGen := naming.NewGenerator()
+	return nameGen.GenerateFromWorktree(worktree.RepoName, worktree.Branch, agentName)
 }
 
 // generateWorktreeKey creates a stable key for identifying this worktree

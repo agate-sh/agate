@@ -20,6 +20,7 @@ import (
 	"agate/pkg/gui/theme"
 	"agate/pkg/overlay"
 	"agate/pkg/session"
+	"agate/pkg/state"
 	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -48,6 +49,7 @@ const (
 type model struct {
 	layout              *layout.Layout   // Layout manager for pane dimensions
 	sessionManager      *session.Manager // Session manager for all worktree/tmux coordination
+	stateManager        *state.Manager   // Thread-safe state manager
 	ready               bool
 	focused             layout.FocusState // Current focused pane
 	err                 error
@@ -82,15 +84,30 @@ type model struct {
 }
 
 func initialModel(subprocess string) model {
-	// Initialize worktree manager first
+	// Initialize debug logger FIRST so all subsequent logs are captured
+	debugLogger := debug.InitDebugLogger()
+	debug.DebugLog("Debug logger initialized successfully")
+
+	// Initialize state manager (thread-safe state persistence)
+	stateManager, err := state.NewManager()
+	if err != nil {
+		fmt.Printf("ERROR: failed to initialize state manager: %v\n", err)
+		fmt.Printf("Agate will run without session persistence. Please check ~/.agate permissions.\n")
+		debug.DebugLog("ERROR: StateManager initialization failed: %v", err)
+		// Continue with nil stateManager - session manager will handle it gracefully
+	} else {
+		debug.DebugLog("StateManager initialized successfully")
+	}
+
+	// Initialize worktree manager
 	worktreeManager, err := git.NewWorktreeManager()
 	if err != nil {
 		// Log error but don't fail - app can still work without worktree features
 		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
 	}
 
-	// Create session manager
-	sessionManager := session.NewManager(worktreeManager)
+	// Create session manager with state manager
+	sessionManager := session.NewManager(worktreeManager, stateManager)
 
 	// Load existing sessions from persistence
 	if err := sessionManager.RestoreSessions(); err != nil {
@@ -107,8 +124,8 @@ func initialModel(subprocess string) model {
 	app.SetCurrentAgent(agentConfig)
 
 	// Save as default agent for new sessions
-	if subprocess != "" {
-		if err := config.SetDefaultAgent(subprocess); err != nil {
+	if subprocess != "" && stateManager != nil {
+		if err := stateManager.SetDefaultAgent(subprocess); err != nil {
 			debug.DebugLog("Failed to save default agent: %v", err)
 			// Continue without saving - not critical
 		}
@@ -132,15 +149,17 @@ func initialModel(subprocess string) model {
 	}
 
 	// Check if welcome overlay should be shown
-	welcomeShown, _ := config.GetWelcomeShownState()
-	showWelcomeOverlay := !welcomeShown
+	var showWelcomeOverlay bool
+	if stateManager != nil {
+		var welcomeShown bool
+		stateManager.ReadUI(func(ui *config.UIState) error {
+			welcomeShown = ui.Welcome.Shown
+			return nil
+		})
+		showWelcomeOverlay = !welcomeShown
+	}
 
-	// Initialize debug logger
-	debugLogger := debug.InitDebugLogger()
-
-	// Test debug logging
-	debug.DebugLog("Debug logger initialized successfully")
-
+	// Debug logger already initialized at the beginning of initialModel
 	// Initialize debug overlay
 	debugOverlay := overlays.NewDebugOverlay(debugLogger)
 
@@ -159,6 +178,7 @@ func initialModel(subprocess string) model {
 	m := model{
 		layout:              layout.NewLayout(0, 0), // Will be updated on first WindowSizeMsg
 		sessionManager:      sessionManager,         // Session manager for coordination
+		stateManager:        stateManager,           // State manager for persistence
 		focused:             layout.FocusTmux,       // Focus on tmux pane initially
 		subprocess:          subprocess,
 		mode:                modePreview, // Start in preview mode
@@ -888,9 +908,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.repoDialog = nil
 
 		// Add to persistent config
-		if err := config.AddRepository(msg.Path); err != nil {
-			m.err = fmt.Errorf("failed to save repository: %v", err)
-		} else {
+		if m.stateManager != nil {
+			if err := m.stateManager.AddRepository(msg.Path); err != nil {
+				m.err = fmt.Errorf("failed to save repository: %v", err)
+			}
+		}
+		if m.err == nil {
 			// Refresh the worktree list to include the new repo
 			if m.worktreeList != nil {
 				if err := m.worktreeList.Refresh(); err != nil {
@@ -948,7 +971,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showWelcomeOverlay {
 			m.showWelcomeOverlay = false
 			// Mark welcome as shown so it doesn't appear again
-			_ = config.SetWelcomeShown(true)
+			if m.stateManager != nil {
+				m.stateManager.UpdateUI(func(ui *config.UIState) error {
+					ui.Welcome.Shown = true
+					return nil
+				})
+			}
 			return m, nil
 		}
 
@@ -1056,23 +1084,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Enter key now handles attachment for tmux and shell panes
 
 		case key.Matches(msg, common.GlobalKeys.Quit):
-			// Quit available from both panes - clean up all sessions
+			// Persist sessions before quitting
 			if m.sessionManager != nil {
-				for _, session := range m.sessionManager.ListSessions() {
-					if session.TmuxSession != nil {
-						if err := session.TmuxSession.Kill(); err != nil {
-							debug.DebugLog("Failed to kill tmux session %s on quit: %v", session.ID, err)
-							// Continue with quit regardless
-						}
-					}
-					if session.ShellTmuxSession != nil {
-						if err := session.ShellTmuxSession.Kill(); err != nil {
-							debug.DebugLog("Failed to kill shell tmux session %s on quit: %v", session.ID, err)
-							// Continue with quit regardless
-						}
-					}
+				debug.DebugLog("Quit: Persisting sessions before exit")
+				if err := m.sessionManager.PersistSessions(); err != nil {
+					debug.DebugLog("Quit: Failed to persist sessions: %v", err)
+				} else {
+					debug.DebugLog("Quit: Successfully persisted sessions before exit")
 				}
 			}
+
 			// Close debug panel and log file
 			if m.debugLogger != nil {
 				m.debugLogger.Close()
@@ -1101,8 +1122,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, common.GlobalKeys.NewWorktree):
 			// Create new worktree (available from both panes)
 			if m.worktreeManager != nil {
-				// Get default agent from config or use current subprocess
-				defaultAgent, _ := config.GetDefaultAgent()
+				// Get default agent from state or use current subprocess
+				var defaultAgent string
+				if m.stateManager != nil {
+					defaultAgent = m.stateManager.GetDefaultAgent()
+				}
 				if defaultAgent == "" {
 					// Fallback to current subprocess if no default set
 					defaultAgent = m.subprocess

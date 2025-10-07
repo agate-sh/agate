@@ -3,7 +3,6 @@ package tmux
 import (
 	"agate/internal/debug"
 	"context"
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
@@ -40,12 +39,14 @@ type TmuxSession struct {
 	height int
 }
 
-// NewTmuxSession creates a new tmux session manager
-func NewTmuxSession(name, program string) *TmuxSession {
-	sanitizedName := SanitizeName(name)
+// NewTmuxSession creates a new tmux session manager.
+//
+// IMPORTANT: The name parameter should already be sanitized using naming.Generator.
+// This function does NOT transform the name - it uses it exactly as provided.
+func NewTmuxSession(sanitizedName, program string) *TmuxSession {
 	return &TmuxSession{
-		name:          name,
-		sanitizedName: sanitizedName,
+		name:          sanitizedName, // Store the sanitized name as-is
+		sanitizedName: sanitizedName, // No transformation!
 		program:       program,
 		ptyFactory:    NewPtyFactory(),
 		monitor:       newStatusMonitor(program),
@@ -57,44 +58,6 @@ func (t *TmuxSession) SetPtyFactory(factory PtyFactory) {
 	t.ptyFactory = factory
 }
 
-// SanitizeName creates a valid tmux session name
-func SanitizeName(name string) string {
-	original := strings.TrimSpace(name)
-	if original == "" {
-		original = "default"
-	}
-
-	// Replace unsupported characters with underscores to keep tmux happy.
-	sanitized := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r
-		case r >= '0' && r <= '9':
-			return r
-		case r == '_' || r == '-' || r == '.':
-			return r
-		default:
-			return '_'
-		}
-	}, original)
-
-	sanitized = strings.Trim(sanitized, "_-.")
-	if sanitized == "" {
-		sanitized = "session"
-	}
-
-	const maxSanitizedLen = 80
-	if len(sanitized) > maxSanitizedLen {
-		sanitized = sanitized[:maxSanitizedLen]
-	}
-
-	hash := sha1.Sum([]byte(original))
-	hashSuffix := fmt.Sprintf("%x", hash[:4])
-
-	return fmt.Sprintf("agate_%s_%s", sanitized, hashSuffix)
-}
 
 // Start creates and starts a new tmux session
 func (t *TmuxSession) Start(workDir string) error {
