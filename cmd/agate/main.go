@@ -249,8 +249,8 @@ func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 			}
 		}
 
-		// Update GitPane with selected worktree/repo
-		m.updateGitPane()
+		// Update GitPane with selected worktree/repo and get refresh command
+		return m, m.updateGitPane()
 	}
 
 	return m, nil
@@ -281,20 +281,27 @@ func (m *model) getCurrentShellTmuxSession() *tmux.TmuxSession {
 }
 
 // switchToSessionForWorktree switches to the session associated with the given worktree
-func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) {
+// and returns a command to immediately refresh the tmux content
+func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
+	debug.DebugLog("switchToSessionForWorktree called for worktree: %s (branch: %s)", worktree.Path, worktree.Branch)
+
 	if m.sessionManager == nil || worktree == nil {
-		return
+		debug.DebugLog("switchToSessionForWorktree: sessionManager or worktree is nil")
+		return nil
 	}
 
 	// Get or create session for this worktree
 	sess, err := m.sessionManager.GetOrCreateSession(worktree, m.subprocess)
 	if err != nil {
 		debug.DebugLog("Failed to get/create session for worktree %s: %v", worktree.Path, err)
-		return
+		return nil
 	}
+
+	debug.DebugLog("Got session: ID=%s, WorktreeKey=%s, TmuxName=%s", sess.ID, sess.WorktreeKey, sess.TmuxSession.GetSessionName())
 
 	// Switch to this session
 	m.sessionManager.SwitchToSession(sess.WorktreeKey)
+	debug.DebugLog("Switched to session %s", sess.WorktreeKey)
 
 	// Update global agent state
 	app.SetCurrentAgent(sess.Agent)
@@ -303,6 +310,7 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) {
 	if m.tmuxPane != nil {
 		if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
 			tmuxPane.SetSession(sess.TmuxSession)
+			debug.DebugLog("Updated tmux pane with session %s", sess.TmuxSession.GetSessionName())
 		}
 	}
 
@@ -310,43 +318,72 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) {
 	if m.shellPane != nil {
 		if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
 			shellPane.SetSession(sess.ShellTmuxSession)
+			debug.DebugLog("Updated shell pane with session")
 		}
 	}
 
 	debug.DebugLog("Switched to session %s with agent %s", sess.ID, sess.Agent.Name)
+
+	// Return command to immediately refresh the tmux content for the new session
+	// We need to force a refresh even if the content hasn't "changed" since we're switching sessions
+	if sess.TmuxSession != nil {
+		debug.DebugLog("Forcing immediate tmux content refresh for session %s", sess.TmuxSession.GetSessionName())
+		return func() tea.Msg {
+			// Force capture the content without checking HasUpdated
+			content, err := sess.TmuxSession.CapturePaneContent()
+			if err != nil {
+				debug.DebugLog("ERROR capturing pane content: %v", err)
+				return tmuxOutputMsg{content: ""}
+			}
+			debug.DebugLog("Captured %d bytes of content for session %s", len(content), sess.TmuxSession.GetSessionName())
+			// Always return the content, even if it hasn't "changed"
+			return tmuxOutputMsg{content: content, hasPrompt: true}
+		}
+	}
+	debug.DebugLog("WARNING: No tmux session to refresh!")
+	return nil
 }
 
 // updateGitPane updates the Git pane based on the currently selected worktree/repo
-func (m *model) updateGitPane() {
+// and returns a command to refresh the tmux content
+func (m *model) updateGitPane() tea.Cmd {
+	debug.DebugLog("===== updateGitPane called =====")
+
 	if m.gitPane == nil || m.repoPane == nil {
 		debug.DebugLog("updateGitPane: gitPane or repoPane is nil")
-		return
+		return nil
 	}
 
 	// Cast to AgentsPane to access GetSelectedWorktree method
 	repoPane, ok := m.repoPane.(*panes.AgentsPane)
 	if !ok {
 		debug.DebugLog("updateGitPane: repoPane is not a AgentsPane")
-		return
+		return nil
 	}
 
 	// Get the selected worktree from the repo pane
 	selectedWorktree := repoPane.GetSelectedWorktree()
 	if selectedWorktree == nil {
 		debug.DebugLog("updateGitPane: no selected worktree")
-		return
+		return nil
 	}
 
 	repoPath := selectedWorktree.Path
-	debug.DebugLog("updateGitPane: setting repository to: %s", repoPath)
+	debug.DebugLog("updateGitPane: selected worktree path=%s, branch=%s, repo=%s", repoPath, selectedWorktree.Branch, selectedWorktree.RepoName)
 
 	// Switch to session for this worktree (this updates the agent and tmux session)
-	m.switchToSessionForWorktree(selectedWorktree)
+	// and get the command to refresh content
+	refreshCmd := m.switchToSessionForWorktree(selectedWorktree)
+	debug.DebugLog("updateGitPane: switchToSessionForWorktree returned cmd=%v", refreshCmd != nil)
 
 	// Cast to GitPane to access SetRepository method
 	if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
 		gitPane.SetRepository(repoPath)
+		debug.DebugLog("updateGitPane: set git pane repository to %s", repoPath)
 	}
+
+	debug.DebugLog("===== updateGitPane returning cmd=%v =====", refreshCmd != nil)
+	return refreshCmd
 }
 
 func (m model) Init() tea.Cmd {
@@ -1034,10 +1071,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case layout.FocusAgents:
 				// Let the repo pane handle enter key for toggling expansion
 				if m.repoPane != nil {
+					debug.DebugLog("Enter key pressed in Agents pane")
 					handled, cmd := m.repoPane.HandleKey("enter")
+					debug.DebugLog("Agents pane HandleKey returned: handled=%v, cmd=%v", handled, cmd != nil)
 					if handled {
-						m.updateGitPane() // Update Git pane when selection/expansion changes
-						return m, cmd
+						// Update Git pane and get refresh command for tmux content
+						refreshCmd := m.updateGitPane()
+						debug.DebugLog("After updateGitPane: refreshCmd=%v", refreshCmd != nil)
+						// Combine the pane's command with the refresh command
+						combinedCmd := combineCmds(cmd, refreshCmd)
+						debug.DebugLog("Returning combined command: %v", combinedCmd != nil)
+						return m, combinedCmd
 					}
 				}
 			case layout.FocusGit:
