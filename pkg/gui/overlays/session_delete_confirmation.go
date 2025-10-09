@@ -173,6 +173,7 @@ func (d *SessionDeleteConfirmDialog) View() string {
 		Foreground(lipgloss.Color(theme.TextPrimary))
 	appendLine(subtitleStyle.Render("This will delete the worktree, along with all uncommitted changes"))
 	content = append(content, "")
+	content = append(content, "")
 
 	// Button placeholder
 	content = append(content, "BUTTON_PLACEHOLDER")

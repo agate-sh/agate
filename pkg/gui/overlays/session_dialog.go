@@ -384,6 +384,7 @@ func (d *SessionDialog) View() string {
 		appendLine(labelStyle.Render("Agent command"))
 		appendLine(d.agentInput.View())
 		content = append(content, "")
+		content = append(content, "")
 
 		// Add button placeholder - will be replaced later with proper width
 		content = append(content, "BUTTON_PLACEHOLDER")
