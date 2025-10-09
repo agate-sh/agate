@@ -677,6 +677,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.footer.SetMode("preview")
 		m.shortcutOverlay.SetMode("preview")
 
+		// Return focus to the agents pane (which will automatically jump to the active agent's row)
+		m, _ = m.switchToPane(layout.FocusAgents)
+
 		// Immediately resize the tmux session to current window dimensions
 		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.ready {
 			if contentWidth, contentHeight := m.layout.GetTmuxDimensions(); contentWidth > 0 && contentHeight > 0 {
