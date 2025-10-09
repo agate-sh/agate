@@ -780,19 +780,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			agentsPane.Refresh()
 		}
 
-		// Auto-attach to the tmux session
-		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focused == layout.FocusTmux {
-			// Clear screen first
-			fmt.Print("\033[2J\033[H")
-			// Block directly in Update like Claude Squad
-			detachCh, err := currentTmux.Attach()
-			if err != nil {
-				return m, func() tea.Msg { return errMsg{err} }
+		// Auto-attach to the newly created session's tmux
+		if msg.Worktree != nil {
+			newSession := m.sessionManager.GetSessionForWorktree(msg.Worktree)
+			if newSession != nil && newSession.TmuxSession != nil && m.focused == layout.FocusTmux {
+				// Clear screen first
+				fmt.Print("\033[2J\033[H")
+				// Block directly in Update like Claude Squad
+				detachCh, err := newSession.TmuxSession.Attach()
+				if err != nil {
+					return m, func() tea.Msg { return errMsg{err} }
+				}
+				// Block until detachment
+				<-detachCh
+				// Process detached message immediately
+				return m.Update(tmuxDetachedMsg{})
 			}
-			// Block until detachment
-			<-detachCh
-			// Process detached message immediately
-			return m.Update(tmuxDetachedMsg{})
 		}
 		return m, tea.ClearScreen
 
