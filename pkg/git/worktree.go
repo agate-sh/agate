@@ -336,35 +336,110 @@ func (wm *WorktreeManager) checkBranchExists(branchName string) error {
 	return nil
 }
 
-// copyFilesWithCOW copies files using copy-on-write
-func (wm *WorktreeManager) copyFilesWithCOW(worktreePath string) error {
-	switch wm.systemCaps.COWMethod {
-	case "apfs":
-		// Read directory contents to copy everything except .git
-		entries, err := os.ReadDir(wm.repoPath)
-		if err != nil {
-			return fmt.Errorf("failed to read repository directory: %w", err)
-		}
+// getUntrackedPaths returns a list of untracked files and directories in the repository.
+// This includes files that are ignored by .gitignore (like node_modules, .env, dist/, etc.)
+// but excludes files that are tracked by git.
+func (wm *WorktreeManager) getUntrackedPaths() ([]string, error) {
+	// Use git ls-files to get untracked paths
+	// --others: show untracked files
+	// --directory: show directory names (not contents) for untracked directories
+	cmd := exec.Command("git", "ls-files", "--others", "--directory")
+	cmd.Dir = wm.repoPath
 
-		// Copy each entry except .git using APFS copy-on-write
-		for _, entry := range entries {
-			if entry.Name() == ".git" {
-				continue // Skip .git directory to avoid conflicts with worktree's .git file
-			}
-
-			srcPath := filepath.Join(wm.repoPath, entry.Name())
-			dstPath := filepath.Join(worktreePath, entry.Name())
-
-			// Use cp -Rc for APFS copy-on-write on each item
-			cmd := exec.Command("cp", "-Rc", srcPath, dstPath)
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("failed to copy %s: %w", entry.Name(), err)
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("COW method '%s' not implemented", wm.systemCaps.COWMethod)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list untracked files: %w", err)
 	}
+
+	// Parse output - each line is a path
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var paths []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			paths = append(paths, line)
+		}
+	}
+
+	return paths, nil
+}
+
+// copyUntrackedFilesWithCOW copies untracked files from source to destination using copy-on-write.
+// This is designed to copy files like node_modules, .env, dist/, etc. that are not tracked by git.
+// The function creates parent directories as needed and uses APFS COW on macOS.
+func (wm *WorktreeManager) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePath string, untrackedPaths []string) error {
+	for _, relPath := range untrackedPaths {
+		// Skip if it's the .git directory (shouldn't happen with --others flag, but be safe)
+		if strings.HasPrefix(relPath, ".git/") || relPath == ".git" {
+			continue
+		}
+
+		srcPath := filepath.Join(srcRepoPath, relPath)
+		dstPath := filepath.Join(dstWorktreePath, relPath)
+
+		// Check if source exists
+		srcInfo, err := os.Stat(srcPath)
+		if err != nil {
+			// Source doesn't exist or can't be accessed - skip
+			DebugLog("Skipping %s: %v", relPath, err)
+			continue
+		}
+
+		// Ensure parent directory exists
+		parentDir := filepath.Dir(dstPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", parentDir, err)
+		}
+
+		// Copy based on COW method
+		switch wm.systemCaps.COWMethod {
+		case "apfs":
+			var cmd *exec.Cmd
+			if srcInfo.IsDir() {
+				// For directories, use -Rc to recursively copy with COW
+				cmd = exec.Command("cp", "-Rc", srcPath, dstPath)
+			} else {
+				// For files, use -c for COW
+				cmd = exec.Command("cp", "-c", srcPath, dstPath)
+			}
+
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to copy %s: %w", relPath, err)
+			}
+
+			DebugLog("Copied untracked: %s", relPath)
+		default:
+			return fmt.Errorf("COW method '%s' not implemented", wm.systemCaps.COWMethod)
+		}
+	}
+
+	return nil
+}
+
+// copyFilesWithCOW copies untracked files using copy-on-write.
+// This function only copies files that are not tracked by git (e.g., node_modules, .env, dist/).
+// Git worktree has already copied all tracked files, so we only need to handle untracked ones.
+func (wm *WorktreeManager) copyFilesWithCOW(worktreePath string) error {
+	// Get list of untracked files/directories
+	untrackedPaths, err := wm.getUntrackedPaths()
+	if err != nil {
+		return fmt.Errorf("failed to get untracked paths: %w", err)
+	}
+
+	// If no untracked files, nothing to copy
+	if len(untrackedPaths) == 0 {
+		DebugLog("No untracked files to copy")
+		return nil
+	}
+
+	DebugLog("Found %d untracked paths to copy", len(untrackedPaths))
+
+	// Copy untracked files with COW
+	if err := wm.copyUntrackedFilesWithCOW(wm.repoPath, worktreePath, untrackedPaths); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ListWorktrees returns all worktrees grouped by repository

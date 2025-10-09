@@ -33,10 +33,8 @@ type GlobalKeyMap struct {
 
 	// Repository and worktree management - conceptually belong to repos pane
 	// but are globally accessible for convenience
-	AddRepo        key.Binding // r - add repository (repos pane action, but global)
-	NewWorktree    key.Binding // w - create worktree (repos pane action, but global)
-	DeleteWorktree key.Binding // d - delete worktree (repos pane action, context-sensitive)
-	DeleteSession  key.Binding // D - delete entire session (worktree + tmux, destructive)
+	AddRepo     key.Binding // r - add repository (repos pane action, but global)
+	NewWorktree key.Binding // w - create worktree (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
 	AttachTmux  key.Binding // a - attach to agent session (tmux)
@@ -109,14 +107,6 @@ var GlobalKeys = &GlobalKeyMap{
 	NewWorktree: key.NewBinding(
 		key.WithKeys("n"),
 		key.WithHelp("n", "new agent"),
-	),
-	DeleteWorktree: key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", "delete worktree"),
-	),
-	DeleteSession: key.NewBinding(
-		key.WithKeys("D"),
-		key.WithHelp("D", "delete session"),
 	),
 
 	// Session interaction
@@ -202,7 +192,7 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Keybindings}, // Global
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down}, // Navigation
-		{k.AddRepo, k.NewWorktree, k.DeleteWorktree, k.DeleteSession}, // Repository & Worktree
+		{k.AddRepo, k.NewWorktree}, // Repository & Worktree
 		{k.AttachTmux, k.AttachShell, k.DetachTmux},                   // Session
 		{k.Filter, k.ClearFilter},                                     // Filtering
 		{k.Confirm, k.Cancel},                                         // Dialogs
@@ -229,8 +219,6 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 		"Repository & Worktree Management": {
 			k.AddRepo,
 			k.NewWorktree,
-			k.DeleteWorktree,
-			k.DeleteSession,
 		},
 		"Session Interaction": {
 			k.AttachTmux,
@@ -254,16 +242,6 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 // SetEnabled allows enabling/disabling specific keybindings based on context
 func (k *GlobalKeyMap) SetEnabled(binding *key.Binding, enabled bool) {
 	binding.SetEnabled(enabled)
-}
-
-// DisableWorktreeKeys disables worktree-specific keybindings
-func (k *GlobalKeyMap) DisableWorktreeKeys() {
-	k.DeleteWorktree.SetEnabled(false)
-}
-
-// EnableWorktreeKeys enables worktree-specific keybindings
-func (k *GlobalKeyMap) EnableWorktreeKeys() {
-	k.DeleteWorktree.SetEnabled(true)
 }
 
 // DisableDialogKeys disables dialog-specific keybindings

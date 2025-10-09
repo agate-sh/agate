@@ -267,7 +267,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			// Hovering a row that is not selected (no highlight bar) - show "enter to select"
 			hint = " ↵ to select"
 			if workItem.Type == "linked_session" {
-				hint = " ↵ to select, D to delete"
+				hint = " ↵ to select, d to delete"
 			}
 		}
 	}
@@ -573,7 +573,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 			}
 		}
 		return true, nil
-	case "D":
+	case "d":
 		// Delete selected session
 		if len(r.items) > 0 {
 			selectedItem := r.list.SelectedItem()
@@ -1126,7 +1126,6 @@ func (r *AgentsPane) GetPaneSpecificKeybindings() []key.Binding {
 	return []key.Binding{
 		common.GlobalKeys.AddRepo,
 		common.GlobalKeys.NewWorktree,
-		common.GlobalKeys.DeleteWorktree,
 	}
 }
 

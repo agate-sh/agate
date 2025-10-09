@@ -1121,6 +1121,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Enter key now handles attachment for tmux and shell panes
 
+		case msg.String() == "d":
+			// 'd' key handling - delegate to the agents pane for session deletion
+			if m.focused == layout.FocusAgents && m.repoPane != nil {
+				handled, cmd := m.repoPane.HandleKey("d")
+				if handled {
+					return m, cmd
+				}
+			}
+
 		case key.Matches(msg, common.GlobalKeys.Quit):
 			// Persist sessions before quitting
 			if m.sessionManager != nil {
@@ -1172,51 +1181,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.worktreeDialog = overlays.NewSessionDialog(m.worktreeManager, defaultAgent)
 				m.showSessionDialog = true
 				return m, nil
-			}
-
-		case key.Matches(msg, common.GlobalKeys.DeleteWorktree):
-			// Delete worktree (when left pane focused)
-			if m.focused == layout.FocusAgents && m.worktreeList != nil {
-				selected := m.worktreeList.GetSelected()
-				if selected != nil {
-					m.worktreeConfirm = overlays.NewWorktreeConfirmDialog(selected, m.worktreeManager)
-					m.showWorktreeConfirm = true
-					return m, nil
-				}
-			}
-
-		case key.Matches(msg, common.GlobalKeys.DeleteSession):
-			// Delete entire session (when repos pane focused and session active)
-			if m.focused == layout.FocusAgents && m.sessionManager != nil {
-				if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-					selected := repoPane.GetSelectedWorktree()
-					if selected != nil {
-						// Check if this is the main worktree (can't be deleted)
-						isMainWorktree := false
-						if m.worktreeManager != nil {
-							if mainWorktree, err := m.worktreeManager.GetMainWorktreeInfo(); err == nil {
-								isMainWorktree = selected.Path == mainWorktree.Path
-							}
-						}
-
-						if isMainWorktree {
-							// Don't allow deletion of main worktree
-							return m, nil
-						}
-
-						// Get the session for this worktree (may be nil)
-						sess := m.sessionManager.GetSessionForWorktree(selected)
-
-						// Show delete confirmation dialog (can handle both session+worktree or just worktree)
-						m.sessionConfirm = overlays.NewSessionDeleteConfirmDialog(sess, m.sessionManager)
-						if sess == nil {
-							// Pass the worktree info for worktree-only deletion
-							m.sessionConfirm.SetWorktreeInfo(selected, m.worktreeManager)
-						}
-						m.showSessionConfirm = true
-						return m, nil
-					}
-				}
 			}
 
 		case key.Matches(msg, common.GlobalKeys.Up):
