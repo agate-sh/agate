@@ -898,29 +898,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case overlays.SessionDeletedMsg:
-		// Session deleted successfully
+		// Session deleted successfully (already deleted by overlay)
 		m.showSessionConfirm = false
 		m.sessionConfirm = nil
 
-		// Remove session from session manager
-		if m.sessionManager != nil && msg.Session != nil {
-			err := m.sessionManager.DeleteSession(msg.Session.WorktreeKey)
-			if err != nil {
-				debug.DebugLog("Failed to delete session: %v", err)
-				m.err = fmt.Errorf("failed to delete session: %v", err)
-			} else {
-				// Refresh worktree list
-				if m.repoPane != nil {
-					if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-						if err := repoPane.Refresh(); err != nil {
-							debug.DebugLog("Failed to refresh repo pane after session deletion: %v", err)
-						}
-					}
+		// Refresh UI to reflect deletion
+		if m.repoPane != nil {
+			if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+				if err := repoPane.Refresh(); err != nil {
+					debug.DebugLog("Failed to refresh repo pane after session deletion: %v", err)
 				}
-				// Update Git pane
-				m.updateGitPane()
 			}
 		}
+		// Update Git pane
+		m.updateGitPane()
 		return m, nil
 
 	case overlays.SessionDeletionErrorMsg:
