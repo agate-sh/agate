@@ -877,15 +877,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeDialog = nil
 		return m, nil
 
-	case panes.GitRefreshMsg:
-		// Git pane needs to refresh after discard or other operations
-		if m.gitPane != nil {
-			var cmd tea.Cmd
-			m.gitPane, cmd = m.gitPane.Update(msg)
-			return m, cmd
-		}
-		return m, nil
-
 	case overlays.WorktreeDeletedMsg:
 		// Worktree deleted successfully
 		m.showWorktreeConfirm = false
@@ -1039,18 +1030,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showCommitOverlay = false
 		m.commitOverlay = nil
 
-		// Show success toast with green checkmark
-		checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
-		checkmark := checkmarkStyle.Render("✓")
-		message := fmt.Sprintf("%s Created commit %s", checkmark, msg.SHA)
-		toastCmd := m.toast.Show(message, 0)
+		// Show success toast with checkmark
+		toastCmd := m.toast.Show(fmt.Sprintf("✓ Created commit %s", msg.SHA), 0)
 
 		// Refresh git pane to show updated status
-		if m.gitPane != nil {
-			if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
-				gitPane.Refresh()
-			}
-		}
+		m.updateGitPane()
 
 		return m, toastCmd
 
@@ -1216,6 +1200,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case msg.String() == "c":
+			// 'c' key handling - show commit overlay when git pane is focused
+			if m.focused == layout.FocusGit && m.gitPane != nil {
+				// Get current repository path from git pane
+				gitPane, ok := m.gitPane.(*panes.GitPane)
+				if ok {
+					repoPath := gitPane.GetRepoPath()
+					if repoPath != "" {
+						// Create and show commit overlay
+						m.commitOverlay = overlays.NewCommitOverlay(repoPath)
+						m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+						m.showCommitOverlay = true
+						return m, nil
+					}
+				}
+			}
 
 		case key.Matches(msg, common.GlobalKeys.Quit):
 			// Persist sessions before quitting
@@ -1286,21 +1286,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.Commit):
 		// Show commit overlay (global shortcut)
-		activeSession := m.sessionManager.GetActiveSession()
-		if activeSession != nil && activeSession.Worktree != nil {
-			// Check if there are any changes to commit
-			fileStatus := git.GetFileStatuses(activeSession.Worktree.Path)
-			if fileStatus == nil || fileStatus.IsClean {
-				// No changes to commit - show toast
-				toastCmd := m.toast.Show("No changes to commit", 0)
-				return m, toastCmd
+		if m.gitPane != nil {
+			gitPane, ok := m.gitPane.(*panes.GitPane)
+			if ok {
+				repoPath := gitPane.GetRepoPath()
+				if repoPath != "" {
+					m.commitOverlay = overlays.NewCommitOverlay(repoPath)
+					m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+					m.showCommitOverlay = true
+					return m, nil
+				}
 			}
-
-			// There are changes - show commit overlay
-			m.commitOverlay = overlays.NewCommitOverlay(activeSession)
-			m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-			m.showCommitOverlay = true
-			return m, nil
 		}
 		return m, nil
 

@@ -17,7 +17,7 @@ type Icon struct {
 var (
 	// Repository/branch icon (main one we need)
 	GitRepo = Icon{
-		NerdFont: "\ue0a0", // Nerd Font git branch icon
+		NerdFont: "\ue725", // Nerd Font git branch icon
 		Fallback: "Ꮧ",      // Claude Squad's branch icon
 	}
 
@@ -48,6 +48,12 @@ var (
 	Folder = Icon{
 		NerdFont: "\uf07b", // Nerd Font folder icon
 		Fallback: "📁",      // Unicode folder emoji
+	}
+
+	// Link icon for linked worktrees
+	Link = Icon{
+		NerdFont: "\uf0c1", // Nerd Font link icon
+		Fallback: "🔗",      // Unicode link emoji
 	}
 
 	// Git status icons for individual files
@@ -147,21 +153,29 @@ func GetFolder() string {
 }
 
 // GetGitStatusIcon returns the appropriate Git status icon for a file status
+// Status format is XY where X=staged status, Y=unstaged status, space=no change
 func GetGitStatusIcon(status string) string {
 	switch status {
-	case "M", "MM", "AM": // Modified (index, working tree, or both)
+	// Modified - covers all modification cases (staged, unstaged, or both)
+	case " M", "M ", "MM", "AM":
 		return GitModified.Get()
-	case "A", "AD": // Added
+	// Added - new files in index
+	case "A ", "AD":
 		return GitAdded.Get()
-	case "D", "DM": // Deleted
+	// Deleted - removed files
+	case " D", "D ", "DD", "DM":
 		return GitDeleted.Get()
-	case "R", "RM": // Renamed
+	// Renamed (includes renamed + modified)
+	case "R ", "RM":
 		return GitRenamed.Get()
-	case "??": // Untracked
+	// Untracked - new files not in index
+	case "??":
 		return GitUntracked.Get()
-	case "T": // Type changed
+	// Type changed
+	case "T ", " T", "TT":
 		return GitTypeChanged.Get()
-	case "UU", "AA", "DD": // Conflicted
+	// Conflicted
+	case "UU", "AA":
 		return GitConflicted.Get()
 	default:
 		return GitModified.Get() // Default fallback

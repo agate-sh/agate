@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	paneContentHorizontalPadding = 2
+	paneContentHorizontalPadding = 1
 	paneContentVerticalPadding   = 1
 )
 

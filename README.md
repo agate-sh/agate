@@ -1,4 +1,4 @@
-# Agate
+ # Agate
 
 A terminal multiplexer built for managing CLI agents with an information-dense, intuitive interface.
 

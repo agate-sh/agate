@@ -12,15 +12,14 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // SessionDialog represents the dialog for creating new agent sessions
 type SessionDialog struct {
-	branchInput     textinput.Model
-	agentInput      textinput.Model
+	branchInput     *components.LabeledInput
+	agentInput      *components.LabeledInput
 	focusedField    int // 0 = branch, 1 = agent
 	err             string
 	repoName        string
@@ -95,21 +94,11 @@ var (
 // NewSessionDialog creates a new agent creation dialog
 func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string) *SessionDialog {
 	// Branch input - show random name as placeholder
-	branchInput := textinput.New()
-	branchInput.Placeholder = git.GenerateRandomBranchName()
-	branchInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+	branchInput := components.NewLabeledInput("Branch name", git.GenerateRandomBranchName())
 	branchInput.Focus()
-	branchInput.CharLimit = 100
-	branchInput.Width = 40
-	branchInput.Prompt = ""
 
-	// Agent input (normal text input, no autocomplete)
-	agentInput := textinput.New()
-	agentInput.Placeholder = "claude, codex, etc"
-	agentInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
-	agentInput.CharLimit = 50
-	agentInput.Width = 40
-	agentInput.Prompt = ""
+	// Agent input
+	agentInput := components.NewLabeledInput("Agent command", "claude, codex, etc")
 
 	// Set default value
 	if defaultAgent != "" {
@@ -164,7 +153,7 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string)
 
 // Init implements tea.Model
 func (d *SessionDialog) Init() tea.Cmd {
-	return textinput.Blink
+	return nil
 }
 
 // Update implements tea.Model
@@ -247,9 +236,9 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the focused input
 		var inputCmd tea.Cmd
 		if d.focusedField == 0 {
-			d.branchInput, inputCmd = d.branchInput.Update(msg)
+			inputCmd = d.branchInput.Update(msg)
 		} else {
-			d.agentInput, inputCmd = d.agentInput.Update(msg)
+			inputCmd = d.agentInput.Update(msg)
 			// Update selected agent when agent input changes
 			if app.IsValidAgent(d.agentInput.Value()) {
 				d.selectedAgent = app.GetAgentConfig(d.agentInput.Value())
@@ -371,18 +360,19 @@ func (d *SessionDialog) View() string {
 		}
 	} else {
 		// Form state - credit card style
-		labelStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true)
 
-		// Branch name field
-		appendLine(labelStyle.Render("Branch name"))
-		appendLine(d.branchInput.View())
+		// Branch name field (includes label)
+		branchInputLines := strings.Split(d.branchInput.View(), "\n")
+		for _, line := range branchInputLines {
+			appendLine(line)
+		}
 		content = append(content, "")
 
-		// Agent command field
-		appendLine(labelStyle.Render("Agent command"))
-		appendLine(d.agentInput.View())
+		// Agent command field (includes label)
+		agentInputLines := strings.Split(d.agentInput.View(), "\n")
+		for _, line := range agentInputLines {
+			appendLine(line)
+		}
 		content = append(content, "")
 		content = append(content, "")
 
@@ -450,23 +440,11 @@ func (d *SessionDialog) View() string {
 	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
 
 	// Create button - disabled or enabled based on validation
-	var button string
-	if d.isValid() {
-		// Enabled button with agent color
-		buttonStyle := primaryDialogButtonStyle.Copy().
-			Background(lipgloss.Color(d.selectedAgent.BorderColor)).
-			Width(actualContentWidth).
-			Align(lipgloss.Center)
-		button = buttonStyle.Render("Create and attach (↵)")
-	} else {
-		// Disabled button
-		disabledButtonStyle := primaryDialogButtonStyle.Copy().
-			Background(lipgloss.Color(theme.TextDescription)).
-			Foreground(lipgloss.Color(theme.TextMuted)).
-			Width(actualContentWidth).
-			Align(lipgloss.Center)
-		button = disabledButtonStyle.Render("Create and attach (↵)")
-	}
+	createButton := components.NewButton("Create and attach", "↵", components.ButtonVariantAgent)
+	createButton.SetWidth(actualContentWidth)
+	createButton.SetAgentColor(d.selectedAgent.BorderColor)
+	createButton.SetDisabled(!d.isValid())
+	button := createButton.Render()
 
 	// Create centered error message
 	errorMsg := ""

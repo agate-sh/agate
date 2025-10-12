@@ -266,7 +266,7 @@ func TestCommitAll(t *testing.T) {
 			countBefore := repo.getCommitCount()
 
 			// Call CommitAll
-			err := CommitAll(repo.path, tt.message)
+			sha, err := CommitAll(repo.path, tt.message)
 
 			// Check error
 			if tt.wantErr {
@@ -281,6 +281,14 @@ func TestCommitAll(t *testing.T) {
 			if err != nil {
 				t.Errorf("CommitAll() unexpected error: %v", err)
 				return
+			}
+
+			// Verify SHA was returned
+			if sha == "" {
+				t.Error("CommitAll() returned empty SHA")
+			}
+			if len(sha) != 40 { // Git SHA is 40 characters
+				t.Errorf("CommitAll() returned invalid SHA length: %d, want 40", len(sha))
 			}
 
 			// Verify commit was created
@@ -652,5 +660,163 @@ func TestMergeBranch(t *testing.T) {
 					targetBranch, repo.getCurrentBranch())
 			}
 		})
+	}
+}
+
+func TestStageFile(t *testing.T) {
+	repo := createTestRepo(t)
+	defer repo.cleanup()
+
+	// Create initial commit
+	repo.writeFile("file1.txt", "initial")
+	repo.commit("Initial commit")
+
+	// Modify file and create new file
+	repo.writeFile("file1.txt", "modified")
+	repo.writeFile("file2.txt", "new content")
+
+	// Stage only file1.txt
+	err := StageFile(repo.path, "file1.txt")
+	if err != nil {
+		t.Fatalf("StageFile() failed: %v", err)
+	}
+
+	// Check git status
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = repo.path
+	output, _ := cmd.Output()
+	status := string(output)
+
+	// file1.txt should be staged (M  or A )
+	// file2.txt should be unstaged (??)
+	if !strings.Contains(status, "M  file1.txt") {
+		t.Errorf("Expected file1.txt to be staged, got status:\n%s", status)
+	}
+	if !strings.Contains(status, "?? file2.txt") {
+		t.Errorf("Expected file2.txt to be untracked, got status:\n%s", status)
+	}
+}
+
+func TestUnstageFile(t *testing.T) {
+	repo := createTestRepo(t)
+	defer repo.cleanup()
+
+	// Create initial commit
+	repo.writeFile("file1.txt", "initial")
+	repo.commit("Initial commit")
+
+	// Modify and stage file
+	repo.writeFile("file1.txt", "modified")
+	cmd := exec.Command("git", "add", "file1.txt")
+	cmd.Dir = repo.path
+	cmd.Run()
+
+	// Verify it's staged
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = repo.path
+	output, _ := cmd.Output()
+	if !strings.Contains(string(output), "M  file1.txt") {
+		t.Fatal("Setup failed: file should be staged")
+	}
+
+	// Unstage the file
+	err := UnstageFile(repo.path, "file1.txt")
+	if err != nil {
+		t.Fatalf("UnstageFile() failed: %v", err)
+	}
+
+	// Verify it's unstaged
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = repo.path
+	output, _ = cmd.Output()
+	if !strings.Contains(string(output), " M file1.txt") {
+		t.Errorf("Expected file1.txt to be unstaged, got status:\n%s", string(output))
+	}
+}
+
+func TestDiscardFile(t *testing.T) {
+	repo := createTestRepo(t)
+	defer repo.cleanup()
+
+	// Create initial commit
+	repo.writeFile("file1.txt", "initial content")
+	repo.commit("Initial commit")
+
+	// Modify file
+	repo.writeFile("file1.txt", "modified content")
+
+	// Verify file is modified
+	content, _ := os.ReadFile(filepath.Join(repo.path, "file1.txt"))
+	if string(content) != "modified content" {
+		t.Fatal("Setup failed: file should be modified")
+	}
+
+	// Discard changes
+	err := DiscardFile(repo.path, "file1.txt")
+	if err != nil {
+		t.Fatalf("DiscardFile() failed: %v", err)
+	}
+
+	// Verify file is restored to original content
+	content, _ = os.ReadFile(filepath.Join(repo.path, "file1.txt"))
+	if string(content) != "initial content" {
+		t.Errorf("Expected file to be restored to 'initial content', got: %s", string(content))
+	}
+
+	// Verify no changes in status
+	if repo.hasChanges() {
+		t.Error("Expected no changes after DiscardFile()")
+	}
+}
+
+func TestStageAll(t *testing.T) {
+	repo := createTestRepo(t)
+	defer repo.cleanup()
+
+	// Create initial commit
+	repo.writeFile("file1.txt", "initial")
+	repo.commit("Initial commit")
+
+	// Modify existing file and create new files
+	repo.writeFile("file1.txt", "modified")
+	repo.writeFile("file2.txt", "new file 2")
+	repo.writeFile("dir/file3.txt", "new file 3")
+
+	// Verify we have changes
+	if !repo.hasChanges() {
+		t.Fatal("Setup failed: should have changes")
+	}
+
+	// Stage all changes
+	err := StageAll(repo.path)
+	if err != nil {
+		t.Fatalf("StageAll() failed: %v", err)
+	}
+
+	// Check git status - all files should be staged
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = repo.path
+	output, _ := cmd.Output()
+	status := string(output)
+
+	// All files should have staged status (first character not space or ?)
+	lines := strings.Split(strings.TrimSpace(status), "\n")
+	for _, line := range lines {
+		if len(line) < 2 {
+			continue
+		}
+		firstChar := line[0]
+		if firstChar == ' ' || firstChar == '?' {
+			t.Errorf("Expected all files to be staged, but found unstaged file in: %s", line)
+		}
+	}
+
+	// Verify we can commit (all changes are staged)
+	sha, err := CommitAll(repo.path, "Commit all staged files")
+	if err != nil {
+		t.Errorf("Failed to commit after StageAll(): %v", err)
+	}
+	if sha == "" {
+		t.Error("Expected commit SHA after staging all files")
 	}
 }

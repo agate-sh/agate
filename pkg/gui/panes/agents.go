@@ -5,6 +5,7 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"fmt"
 	"io"
@@ -189,9 +190,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		// Section headers with Nerd Font icons
 		var icon string
 		if workItem.SectionTitle == "Main worktree" {
-			icon = "\uf07b" // Nerd Font folder icon
+			icon = icons.Home.NerdFont
 		} else if workItem.SectionTitle == "Linked worktrees" {
-			icon = "\uf0c1" // Nerd Font link icon
+			icon = icons.Link.NerdFont
 		}
 		iconStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(icon)
 		sectionStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Render(workItem.SectionTitle)
@@ -226,7 +227,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := "\ue0a0" // Nerd Font git branch icon
+		branchIcon := icons.GitRepo.NerdFont
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -282,20 +283,17 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 		if hint != "" {
-			hintStyle := lipgloss.NewStyle().
-				Background(lipgloss.Color(theme.RowHighlight)).
-				Foreground(lipgloss.Color(theme.TextMuted))
-			hintRendered := hintStyle.Render(hint)
-			hintWidth := lipgloss.Width(hintRendered)
-			available := contentWidth - hintWidth
-			if available < 0 {
-				available = 0
-			}
-			bodySegment := bodyStyle.Width(available).Render(linePlain)
-			body = bodySegment + hintRendered
-			if lipgloss.Width(body) < contentWidth {
-				body += bodyStyle.Width(contentWidth - lipgloss.Width(body)).Render("")
-			}
+			// Use shared utility for hint rendering
+			// Note: We pass paddingCount=0 because we handle padding separately in agents pane
+			body = components.RenderRowWithHint(
+				linePlain,
+				hint,
+				contentWidth,
+				0, // No padding - we handle borders/padding separately
+				theme.RowHighlight,
+				theme.TextPrimary,
+				theme.TextMuted,
+			)
 		} else {
 			body = bodyStyle.Width(contentWidth).Render(linePlain)
 		}
@@ -449,7 +447,7 @@ func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 	if r.IsActive() {
 		// When active, format shortcuts like the footer (without brackets)
 		repoHelp := common.GlobalKeys.AddRepo.Help()
-		sessionHelp := common.GlobalKeys.NewWorktree.Help()
+		sessionHelp := common.GlobalKeys.NewSession.Help()
 		shortcuts = fmt.Sprintf("%s %s • %s %s", repoHelp.Key, repoHelp.Desc, sessionHelp.Key, sessionHelp.Desc)
 	} else {
 		// When not active, show pane number
@@ -1125,7 +1123,7 @@ func (r *AgentsPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Use the global keybindings to ensure consistency
 	return []key.Binding{
 		common.GlobalKeys.AddRepo,
-		common.GlobalKeys.NewWorktree,
+		common.GlobalKeys.NewSession,
 	}
 }
 

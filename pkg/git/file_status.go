@@ -17,6 +17,7 @@ type FileStatus struct {
 	Additions   int    // Number of added lines
 	Deletions   int    // Number of deleted lines
 	IsUntracked bool   // Whether the file is untracked
+	IsStaged    bool   // Whether the file is staged (changes in index)
 }
 
 // RepoFileStatus represents the Git status for an entire repository or worktree
@@ -42,7 +43,9 @@ func GetFileStatuses(repoPath string) *RepoFileStatus {
 		return result
 	}
 
-	statusLines := strings.Split(strings.TrimSpace(string(statusOutput)), "\n")
+	// Don't use TrimSpace here as it removes leading spaces from lines
+	// which are significant in git status --porcelain format
+	statusLines := strings.Split(strings.TrimSuffix(string(statusOutput), "\n"), "\n")
 	if len(statusLines) == 1 && statusLines[0] == "" {
 		// No changes
 		result.IsClean = true
@@ -56,7 +59,11 @@ func GetFileStatuses(repoPath string) *RepoFileStatus {
 			continue
 		}
 
-		status := strings.TrimSpace(line[:2])
+		// Git status --porcelain format: XY filename
+		// X = staged status, Y = unstaged status
+		// Space means no change in that area
+		stagedStatus := line[0]
+		status := line[:2] // Keep the status as-is, don't trim
 		filePath := strings.TrimSpace(line[3:])
 
 		// Handle renamed files (format: "old -> new")
@@ -73,12 +80,17 @@ func GetFileStatuses(repoPath string) *RepoFileStatus {
 			dirPath = ""
 		}
 
+		// File is staged if the first character (X) is not a space and not '?'
+		// Untracked files (??) are never staged
+		isStaged := stagedStatus != ' ' && stagedStatus != '?'
+
 		file := FileStatus{
 			FilePath:    filePath,
 			FileName:    fileName,
 			DirPath:     dirPath,
 			Status:      status,
 			IsUntracked: status == "??",
+			IsStaged:    isStaged,
 		}
 
 		files = append(files, file)
