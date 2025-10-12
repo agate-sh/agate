@@ -729,18 +729,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateGitPane()
 		}
 
-		// Show success toast
-		if msg.Worktree != nil && m.toast != nil {
-			// Create styled message with green checkmark
-			checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
-			checkmark := checkmarkStyle.Render("✓")
-			message := checkmark + " Created " + msg.Worktree.Branch
-			toastCmd := m.toast.Show(message, 0)
-			if toastCmd != nil {
-				cmds = append(cmds, toastCmd)
-			}
-		}
-
 		// Create and switch to new session for the worktree
 		if msg.Worktree != nil {
 			// Use the agent name from the message (selected by user in dialog)
