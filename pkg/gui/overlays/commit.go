@@ -338,8 +338,12 @@ func (c *CommitOverlay) View() string {
 	fileListView := c.fileList.View()
 
 	// Create commit button
-	commitButton := components.NewButton("Commit", "↵", components.ButtonVariantDefault)
+	commitButton := components.NewButton("Commit", "↵", components.ButtonVariantAgent)
 	commitButton.SetWidth(actualContentWidth)
+	// Use the agent color from the session
+	if c.session != nil && c.session.Agent.BorderColor != "" {
+		commitButton.SetAgentColor(c.session.Agent.BorderColor)
+	}
 	commitButton.SetDisabled(!c.isValid())
 	button := commitButton.Render()
 
@@ -348,7 +352,7 @@ func (c *CommitOverlay) View() string {
 		Foreground(lipgloss.Color(theme.TextMuted)).
 		Width(actualContentWidth).
 		Align(lipgloss.Center)
-	helpText := helpStyle.Render("tab to navigate • esc to cancel")
+	helpText := helpStyle.Render("tab navigate fields • esc cancel")
 
 	// Replace placeholders
 	for i, line := range content {

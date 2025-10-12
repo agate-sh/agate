@@ -11,9 +11,8 @@ import (
 type ButtonVariant string
 
 const (
-	ButtonVariantDefault ButtonVariant = "default" // Default gray button
-	ButtonVariantAgent   ButtonVariant = "agent"   // Agent color button (requires agentColor)
-	ButtonVariantDanger  ButtonVariant = "danger"  // Red/error button for destructive actions
+	ButtonVariantAgent  ButtonVariant = "agent"  // Agent color button (requires agentColor)
+	ButtonVariantDanger ButtonVariant = "danger" // Red/error button for destructive actions
 )
 
 // Button represents a styled button component
@@ -85,10 +84,8 @@ func (b *Button) Render() string {
 		case ButtonVariantDanger:
 			// Red/error color for destructive actions
 			style = style.Background(lipgloss.Color(theme.ErrorStatus))
-		case ButtonVariantDefault:
-			fallthrough
 		default:
-			// Default gray button
+			// Agent color fallback
 			style = style.Background(lipgloss.Color(theme.BorderMuted))
 		}
 	}

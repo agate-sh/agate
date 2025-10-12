@@ -21,6 +21,7 @@ type GitFileList struct {
 	active        bool   // Whether this list is currently active/focused
 	showSummary   bool   // Whether to show the summary line at top
 	padding       int    // Horizontal padding for rows (0 for dialogs, 1 for panes)
+	summaryGap    bool   // Whether to add a gap after the summary line (true for panes, false for dialogs)
 }
 
 // NewGitFileList creates a new Git file list component
@@ -30,6 +31,7 @@ func NewGitFileList(repoPath string, showSummary bool) *GitFileList {
 		selectedIndex: 0,
 		showSummary:   showSummary,
 		padding:       PaneContentHorizontalPadding(), // Default to pane padding
+		summaryGap:    showSummary,                    // Default: gap if showing summary (pane), no gap if not (dialog)
 	}
 }
 
@@ -139,6 +141,10 @@ func (g *GitFileList) View() string {
 		summaryLine := summaryStyle.Render(summary)
 		output.WriteString(ApplyPaneContentPadding(summaryLine, g.width))
 		output.WriteString("\n")
+		// Add extra gap after summary if enabled (for panes)
+		if g.summaryGap {
+			output.WriteString("\n")
+		}
 	}
 
 	// Render all files in a single flat list (no sections)
