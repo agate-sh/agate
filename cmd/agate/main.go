@@ -731,7 +731,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Show success toast
 		if msg.Worktree != nil && m.toast != nil {
-			toastCmd := m.toast.Show("Worktree created: "+msg.Worktree.Branch, 0)
+			// Create styled message with green checkmark
+			checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
+			checkmark := checkmarkStyle.Render("✓")
+			message := checkmark + " Created " + msg.Worktree.Branch
+			toastCmd := m.toast.Show(message, 0)
 			if toastCmd != nil {
 				cmds = append(cmds, toastCmd)
 			}
@@ -932,7 +936,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Session.Worktree != nil {
 				branchName = msg.Session.Worktree.Branch
 			}
-			toastCmd := m.toast.Show("Deleted: "+branchName, 0)
+			// Create styled message with green checkmark
+			checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
+			checkmark := checkmarkStyle.Render("✓")
+			message := checkmark + " Deleted " + branchName
+			toastCmd := m.toast.Show(message, 0)
 			return m, toastCmd
 		}
 		return m, nil
