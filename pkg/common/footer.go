@@ -2,6 +2,7 @@ package common
 
 import (
 	"agate/pkg/app"
+	"agate/pkg/gui/components"
 	"strings"
 
 	"agate/pkg/gui/theme"
@@ -106,17 +107,13 @@ func (f *Footer) View() string {
 
 	var parts []string
 
-	// Render core global shortcuts (n, a, c) with agent colors
+	// Render core global shortcuts (n, a, c) with agent colors using ShortcutAgent variant
 	agentColor := app.GetCurrentAgentColor()
 	for i, shortcut := range coreShortcuts {
 		if i > 0 {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
-
-		keyStyle := footerKeyStyle.Bold(true).Foreground(lipgloss.Color(agentColor))
-		descStyle := footerDescStyle.Foreground(lipgloss.Color(agentColor))
-
-		part := keyStyle.Render(shortcut.Key) + " " + descStyle.Render(shortcut.Description)
+		part := components.RenderShortcut(shortcut.Key, shortcut.Description, components.ShortcutAgent, agentColor)
 		parts = append(parts, part)
 	}
 
@@ -125,11 +122,9 @@ func (f *Footer) View() string {
 		parts = append(parts, footerSeparatorStyle.Render(" │ "))
 	}
 
-	// Render quit shortcut
+	// Render quit shortcut using ShortcutDefault variant (bubbles style)
 	if quitShortcut != nil {
-		keyStyle := footerKeyStyle.Bold(true)
-		descStyle := footerDescStyle
-		part := keyStyle.Render(quitShortcut.Key) + " " + descStyle.Render(quitShortcut.Description)
+		part := components.RenderShortcut(quitShortcut.Key, quitShortcut.Description, components.ShortcutDefault, "")
 		parts = append(parts, part)
 	}
 
@@ -138,9 +133,7 @@ func (f *Footer) View() string {
 		if len(parts) > 0 {
 			parts = append(parts, footerSeparatorStyle.Render(" • "))
 		}
-		keyStyle := footerKeyStyle.Bold(true)
-		descStyle := footerDescStyle
-		part := keyStyle.Render(helpShortcut.Key) + " " + descStyle.Render(helpShortcut.Description)
+		part := components.RenderShortcut(helpShortcut.Key, helpShortcut.Description, components.ShortcutDefault, "")
 		parts = append(parts, part)
 	}
 

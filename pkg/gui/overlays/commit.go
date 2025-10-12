@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -30,6 +32,26 @@ type CommitOverlay struct {
 	loader       *components.LaunchAgentLoader
 	executor     git.CommandExecutor
 	startTime    *time.Time
+	help         help.Model
+	keys         commitKeyMap
+}
+
+// commitKeyMap defines the keybindings for the commit overlay
+type commitKeyMap struct {
+	Tab    key.Binding
+	Escape key.Binding
+}
+
+// ShortHelp returns keybindings to show in the mini help view
+func (k commitKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Tab, k.Escape}
+}
+
+// FullHelp returns keybindings to show in the full help view
+func (k commitKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Tab, k.Escape},
+	}
 }
 
 // CommitSuccessMsg is sent when a commit is successfully created
@@ -59,7 +81,7 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	}
 
 	// Create labeled input for commit message
-	commitInput := components.NewLabeledInput("Commit message", "Generating...")
+	commitInput := components.NewLabeledInput("Commit message", "Summary (required)")
 	commitInput.Focus()
 
 	// Create file list (same component as git pane!)
@@ -70,6 +92,22 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	// Create loader
 	loader := components.NewLaunchAgentLoader("")
 
+	// Initialize help
+	h := help.New()
+	h.ShowAll = false // Only show short help
+
+	// Initialize keybindings
+	keys := commitKeyMap{
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "navigate fields"),
+		),
+		Escape: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel"),
+		),
+	}
+
 	return &CommitOverlay{
 		commitInput:  commitInput,
 		fileList:     fileList,
@@ -79,6 +117,8 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 		generating:   true,
 		loader:       loader,
 		executor:     &git.DefaultCommandExecutor{},
+		help:         h,
+		keys:         keys,
 	}
 }
 
@@ -387,27 +427,7 @@ func (c *CommitOverlay) View() string {
 
 		// Show elapsed time and quit option after 3 seconds
 		if c.startTime != nil && time.Since(*c.startTime) >= 3*time.Second {
-			elapsed := time.Since(*c.startTime)
-			seconds := int(elapsed.Seconds())
-			minutes := seconds / 60
-			seconds = seconds % 60
-
-			var timeStr string
-			if minutes > 0 {
-				timeStr = fmt.Sprintf("%d:%02d", minutes, seconds)
-			} else {
-				timeStr = fmt.Sprintf("%ds", seconds)
-			}
-
-			elapsedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
-			dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
-			quitKeyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Bold(true)
-			quitDescStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
-
-			stopwatch := elapsedStyle.Render("Elapsed: "+timeStr) + " " +
-				dotStyle.Render("•") + " " +
-				quitKeyStyle.Render("c") + " " +
-				quitDescStyle.Render("cancel")
+			stopwatch := components.FormatElapsedTime(*c.startTime, "c", "cancel")
 			appendLine(stopwatch)
 		}
 	} else {
@@ -431,6 +451,7 @@ func (c *CommitOverlay) View() string {
 			Render(fmt.Sprintf("Files to commit (%d)", fileCount))
 		appendLine(fileListLabel)
 		content = append(content, "FILELIST_PLACEHOLDER")
+		content = append(content, "")
 		content = append(content, "")
 
 		// Button and help
@@ -493,23 +514,12 @@ func (c *CommitOverlay) View() string {
 	commitButton.SetDisabled(!c.isValid())
 	button := commitButton.Render()
 
-	// Create help text with styled keybindings
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
-
-	helpParts := []string{
-		keyStyle.Render("tab"),
-		descStyle.Render(" navigate fields"),
-		descStyle.Render(" • "),
-		keyStyle.Render("esc"),
-		descStyle.Render(" cancel"),
-	}
-	helpLine := lipgloss.JoinHorizontal(lipgloss.Left, helpParts...)
-
+	// Create help text using shortcut component - using default variant (bubbles style)
+	helpContent := components.RenderShortcutsFromBindings([]key.Binding{c.keys.Tab, c.keys.Escape}, components.ShortcutDefault, "")
 	helpStyle := lipgloss.NewStyle().
 		Width(actualContentWidth).
 		Align(lipgloss.Center)
-	helpText := helpStyle.Render(helpLine)
+	helpText := helpStyle.Render(helpContent)
 
 	// Replace placeholders
 	for i, line := range content {

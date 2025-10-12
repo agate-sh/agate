@@ -4,7 +4,6 @@ package tmux
 
 import (
 	"agate/pkg/gui/components"
-	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,8 +85,8 @@ func (ls *LoadingState) RenderLoadingView(agentName, agentColor string, width, h
 
 	// Always reserve space for stopwatch to prevent jank
 	var stopwatchText string
-	if ls.ShouldShowStopwatch() {
-		stopwatchText = ls.formatStopwatch(textMuted, textDescription)
+	if ls.ShouldShowStopwatch() && ls.startTime != nil {
+		stopwatchText = components.FormatElapsedTime(*ls.startTime, "q", "quit")
 	} else {
 		// Reserve empty space to prevent movement
 		stopwatchText = " " // Empty line placeholder
@@ -97,36 +96,4 @@ func (ls *LoadingState) RenderLoadingView(agentName, agentColor string, width, h
 
 	// Center the loading content in the pane
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, finalContent)
-}
-
-// formatStopwatch creates the "Elapsed: <time> • q quit" display
-func (ls *LoadingState) formatStopwatch(textMuted, textDescription string) string {
-	if ls.startTime == nil {
-		return ""
-	}
-
-	elapsed := ls.GetElapsed()
-
-	// Format elapsed time
-	seconds := int(elapsed.Seconds())
-	minutes := seconds / 60
-	seconds = seconds % 60
-
-	var timeStr string
-	if minutes > 0 {
-		timeStr = fmt.Sprintf("%d:%02d", minutes, seconds)
-	} else {
-		timeStr = fmt.Sprintf("%ds", seconds)
-	}
-
-	// Style components to match footer
-	elapsedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textMuted))
-	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textMuted))
-	quitKeyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textDescription)).Bold(true)
-	quitDescStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(textMuted))
-
-	return elapsedStyle.Render("Elapsed: "+timeStr) + " " +
-		dotStyle.Render("•") + " " +
-		quitKeyStyle.Render("q") + " " +
-		quitDescStyle.Render("quit")
 }

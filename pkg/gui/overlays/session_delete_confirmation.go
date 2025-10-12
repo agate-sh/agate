@@ -221,9 +221,16 @@ func (d *SessionDeleteConfirmDialog) View() string {
 		Align(lipgloss.Center)
 	helpText := helpStyle.Render(d.help.View(d.keys))
 
+	// Create divider
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextDescription))
+	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
+
 	// Replace placeholders
 	for i, line := range content {
-		if line == "BUTTON_PLACEHOLDER" {
+		if line == "DIVIDER_PLACEHOLDER" {
+			content[i] = divider
+		} else if line == "BUTTON_PLACEHOLDER" {
 			content[i] = button
 		} else if line == "HELP_PLACEHOLDER" {
 			content[i] = helpText

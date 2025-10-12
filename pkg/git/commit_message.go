@@ -52,18 +52,20 @@ func GenerateCommitMessage(agent HeadlessCommandRunner, workingDir string, execu
 	}
 
 	// Get the git diff summary (--stat for overview + limited diff)
+	// Note: We use diff without --cached to see all changes (staged + unstaged)
+	// since the commit overlay will stage everything before committing
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Use --stat to get file summary + limit diff context
-	diff, err := executor.ExecuteCommand(ctx, "git", []string{"diff", "--cached", "--stat", "--compact-summary"}, workingDir)
+	diff, err := executor.ExecuteCommand(ctx, "git", []string{"diff", "HEAD", "--stat", "--compact-summary"}, workingDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to get git diff: %w", err)
 	}
 
-	// Check if there are any staged changes
+	// Check if there are any changes
 	if strings.TrimSpace(diff) == "" {
-		return "", fmt.Errorf("no staged changes to commit")
+		return "", fmt.Errorf("no changes to commit")
 	}
 
 	// Build prompt with diff embedded

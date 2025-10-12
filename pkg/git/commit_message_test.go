@@ -7,13 +7,16 @@ import (
 	"testing"
 )
 
-// mockAgent implements FastHeadlessCommandRunner for testing
+// mockAgent implements HeadlessCommandRunner for testing
 type mockAgent struct {
-	cmdArgs []string
+	executableName string
 }
 
-func (m *mockAgent) FastHeadlessCommand(diff string, customFastModel string) []string {
-	return m.cmdArgs
+func (m *mockAgent) HeadlessCommand(prompt string) []string {
+	if m.executableName == "" {
+		return nil // Agent doesn't support headless mode
+	}
+	return []string{m.executableName, "-p", prompt}
 }
 
 // mockCommandExecutor implements CommandExecutor for testing
@@ -65,14 +68,18 @@ func (m *mockCommandExecutor) ExecuteCommand(ctx context.Context, name string, a
 
 func TestGenerateCommitMessage_Success(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	executor.setResponse("claude -p test prompt", "feat: add new feature", nil)
+	diffOutput := " file.go | 5 +++--\n 1 file changed, 3 insertions(+), 2 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
 
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	// The agent command will be built with the full prompt
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "feat: add new feature", nil)
+
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -87,12 +94,13 @@ func TestGenerateCommitMessage_Success(t *testing.T) {
 		t.Fatalf("expected 2 commands executed, got %d", len(executor.commands))
 	}
 
-	// Check git diff was called
+	// Check git diff was called with HEAD (not --cached)
 	if executor.commands[0].name != "git" {
 		t.Errorf("expected first command to be 'git', got %q", executor.commands[0].name)
 	}
-	if len(executor.commands[0].args) != 2 || executor.commands[0].args[0] != "diff" || executor.commands[0].args[1] != "--cached" {
-		t.Errorf("expected 'diff --cached' args, got %v", executor.commands[0].args)
+	expectedArgs := []string{"diff", "HEAD", "--stat", "--compact-summary"}
+	if !sliceEqual(executor.commands[0].args, expectedArgs) {
+		t.Errorf("expected args %v, got %v", expectedArgs, executor.commands[0].args)
 	}
 
 	// Check agent command was called
@@ -103,19 +111,19 @@ func TestGenerateCommitMessage_Success(t *testing.T) {
 
 func TestGenerateCommitMessage_NoHeadlessSupport(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: nil, // Agent doesn't support headless mode
+		executableName: "", // Agent doesn't support headless mode
 	}
 
 	executor := newMockCommandExecutor()
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err == nil {
 		t.Fatal("expected error for agent without headless support")
 	}
 
-	if !strings.Contains(err.Error(), "does not support fast commit message generation") {
-		t.Errorf("expected 'does not support fast commit message generation' error, got: %v", err)
+	if !strings.Contains(err.Error(), "does not support commit message generation") {
+		t.Errorf("expected 'does not support commit message generation' error, got: %v", err)
 	}
 
 	// No commands should have been executed
@@ -124,22 +132,22 @@ func TestGenerateCommitMessage_NoHeadlessSupport(t *testing.T) {
 	}
 }
 
-func TestGenerateCommitMessage_NoStagedChanges(t *testing.T) {
+func TestGenerateCommitMessage_NoChanges(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "", nil) // Empty diff
+	executor.setResponse("git diff HEAD --stat --compact-summary", "", nil) // Empty diff
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err == nil {
-		t.Fatal("expected error for no staged changes")
+		t.Fatal("expected error for no changes")
 	}
 
-	if !strings.Contains(err.Error(), "no staged changes") {
-		t.Errorf("expected 'no staged changes' error, got: %v", err)
+	if !strings.Contains(err.Error(), "no changes to commit") {
+		t.Errorf("expected 'no changes to commit' error, got: %v", err)
 	}
 
 	// Only git diff should have been called
@@ -148,15 +156,61 @@ func TestGenerateCommitMessage_NoStagedChanges(t *testing.T) {
 	}
 }
 
-func TestGenerateCommitMessage_GitDiffFails(t *testing.T) {
+func TestGenerateCommitMessage_UnstagedChanges(t *testing.T) {
+	// This test verifies that unstaged changes work correctly
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "", errors.New("git command failed"))
+	// Simulate unstaged changes (git diff HEAD shows them)
+	diffOutput := " CLAUDE.md                              | 12 ++++++++++++\n pkg/gui/overlays/commit.go             |  6 ++++--\n pkg/gui/overlays/session_delete_conf.go|  8 +++-----\n 3 files changed, 19 insertions(+), 7 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "docs: add debugging section to CLAUDE.md", nil)
+
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if message != "docs: add debugging section to CLAUDE.md" {
+		t.Errorf("expected commit message, got: %q", message)
+	}
+
+	// Verify git diff HEAD was called (not git diff --cached)
+	if len(executor.commands) != 2 {
+		t.Fatalf("expected 2 commands executed, got %d", len(executor.commands))
+	}
+	expectedArgs := []string{"diff", "HEAD", "--stat", "--compact-summary"}
+	if !sliceEqual(executor.commands[0].args, expectedArgs) {
+		t.Errorf("expected git args %v, got %v", expectedArgs, executor.commands[0].args)
+	}
+}
+
+func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestGenerateCommitMessage_GitDiffFails(t *testing.T) {
+	agent := &mockAgent{
+		executableName: "claude",
+	}
+
+	executor := newMockCommandExecutor()
+	executor.setResponse("git diff HEAD --stat --compact-summary", "", errors.New("git command failed"))
+
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err == nil {
 		t.Fatal("expected error when git diff fails")
@@ -169,14 +223,17 @@ func TestGenerateCommitMessage_GitDiffFails(t *testing.T) {
 
 func TestGenerateCommitMessage_AgentCommandFails(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	executor.setResponse("claude -p test prompt", "", errors.New("agent timeout"))
+	diffOutput := " file.go | 5 +++--\n 1 file changed, 3 insertions(+), 2 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "", errors.New("agent timeout"))
+
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err == nil {
 		t.Fatal("expected error when agent command fails")
@@ -189,14 +246,17 @@ func TestGenerateCommitMessage_AgentCommandFails(t *testing.T) {
 
 func TestGenerateCommitMessage_EmptyAgentResponse(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	executor.setResponse("claude -p test prompt", "   \n\t  ", nil) // Whitespace only
+	diffOutput := " file.go | 5 +++--\n 1 file changed, 3 insertions(+), 2 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "   \n\t  ", nil) // Whitespace only
+
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err == nil {
 		t.Fatal("expected error for empty agent response")
@@ -209,14 +269,17 @@ func TestGenerateCommitMessage_EmptyAgentResponse(t *testing.T) {
 
 func TestGenerateCommitMessage_TrimsWhitespace(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	executor.setResponse("claude -p test prompt", "\n\n  fix: bug  \n\t", nil)
+	diffOutput := " file.go | 5 +++--\n 1 file changed, 3 insertions(+), 2 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
 
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "\n\n  fix: bug  \n\t", nil)
+
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -229,15 +292,18 @@ func TestGenerateCommitMessage_TrimsWhitespace(t *testing.T) {
 
 func TestGenerateCommitMessage_WorkingDirPassedThrough(t *testing.T) {
 	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
+		executableName: "claude",
 	}
 
 	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	executor.setResponse("claude -p test prompt", "feat: new feature", nil)
+	diffOutput := " file.go | 5 +++--\n 1 file changed, 3 insertions(+), 2 deletions(-)"
+	executor.setResponse("git diff HEAD --stat --compact-summary", diffOutput, nil)
+
+	prompt := "Generate a concise commit message for this diff. Use conventional commit syntax (type: description). Output ONLY the commit message, no preamble, no explanation, no extra text:\n\n" + diffOutput
+	executor.setResponse("claude -p "+prompt, "feat: new feature", nil)
 
 	workingDir := "/custom/working/dir"
-	_, err := GenerateCommitMessage(agent, workingDir, executor, "")
+	_, err := GenerateCommitMessage(agent, workingDir, executor)
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -248,31 +314,5 @@ func TestGenerateCommitMessage_WorkingDirPassedThrough(t *testing.T) {
 		if cmd.workingDir != workingDir {
 			t.Errorf("command %d: expected workingDir %q, got %q", i, workingDir, cmd.workingDir)
 		}
-	}
-}
-
-func TestGenerateCommitMessage_TruncatesTo50Chars(t *testing.T) {
-	agent := &mockAgent{
-		cmdArgs: []string{"claude", "-p", "test prompt"},
-	}
-
-	executor := newMockCommandExecutor()
-	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
-	// Response is longer than 50 characters
-	executor.setResponse("claude -p test prompt", "feat: add a very long commit message that exceeds the fifty character limit", nil)
-
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
-
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if len(message) != 50 {
-		t.Errorf("expected message length 50, got %d", len(message))
-	}
-
-	expected := "feat: add a very long commit message that exceeds "
-	if message != expected {
-		t.Errorf("expected %q, got %q", expected, message)
 	}
 }

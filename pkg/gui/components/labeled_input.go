@@ -41,11 +41,11 @@ func (l *LabeledInput) Blur() {
 	l.textInput.Blur()
 }
 
-// SetValue sets the input value and positions cursor at the start
+// SetValue sets the input value and positions cursor at the end
 func (l *LabeledInput) SetValue(value string) {
 	l.textInput.SetValue(value)
-	// Move cursor to the start so the beginning of the text is visible
-	l.textInput.SetCursor(0)
+	// Move cursor to the end so user can immediately continue typing
+	l.textInput.SetCursor(len(value))
 }
 
 // Value returns the current input value

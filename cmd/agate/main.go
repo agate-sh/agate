@@ -1472,39 +1472,10 @@ func (m model) renderPaneTitle(pane components.Pane) string {
 	return styledText
 }
 
-// parseAndStyleShortcuts parses shortcut strings and applies footer-like styling
+// parseAndStyleShortcuts parses shortcut strings and applies default bubbles styling
 func (m model) parseAndStyleShortcuts(shortcuts string) string {
-	// Split shortcuts by bullet separator
-	parts := strings.Split(shortcuts, " • ")
-	var styledParts []string
-
-	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		Bold(true)
-	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextDescription))
-	separatorStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.SeparatorColor))
-
-	for i, part := range parts {
-		if i > 0 {
-			styledParts = append(styledParts, separatorStyle.Render(" • "))
-		}
-
-		// Split each part into key and description (by first space)
-		tokens := strings.SplitN(strings.TrimSpace(part), " ", 2)
-		if len(tokens) >= 2 {
-			key := tokens[0]
-			desc := tokens[1]
-			styledPart := keyStyle.Render(key) + " " + descStyle.Render(desc)
-			styledParts = append(styledParts, styledPart)
-		} else {
-			// If we can't parse properly, just style the whole thing as a key
-			styledParts = append(styledParts, keyStyle.Render(part))
-		}
-	}
-
-	return strings.Join(styledParts, "")
+	// Use the shortcut component's ParseAndRenderShortcuts function with default variant
+	return components.ParseAndRenderShortcuts(shortcuts, components.ShortcutDefault, "")
 }
 
 func (m model) View() string {
