@@ -1,0 +1,58 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Run unit tests
+        run: go test -v ./...
+
+      - name: Install Claude CLI
+        run: |
+          # Install Claude CLI (anthropic-cli)
+          npm install -g @anthropic-ai/cli
+
+      - name: Install Gemini CLI
+        run: |
+          # Install Google Gemini CLI
+          pip install google-generativeai
+          # Assuming gemini CLI is available via pip or similar
+
+      - name: Install Codex CLI
+        run: |
+          # Install OpenAI Codex CLI
+          npm install -g openai-cli
+          # Assuming codex CLI is available
+
+      - name: Run integration tests with Claude
+        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: go test -v -tags=integration ./pkg/git -run TestGenerateCommitMessage_RealCLI_Claude
+
+      - name: Run integration tests with Gemini
+        if: ${{ secrets.GOOGLE_API_KEY != '' }}
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: go test -v -tags=integration ./pkg/git -run TestGenerateCommitMessage_RealCLI_Gemini
+
+      - name: Run integration tests with Codex
+        if: ${{ secrets.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: go test -v -tags=integration ./pkg/git -run TestGenerateCommitMessage_RealCLI_Codex

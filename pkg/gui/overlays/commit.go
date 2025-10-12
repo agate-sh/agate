@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -25,6 +26,10 @@ type CommitOverlay struct {
 	session      *session.Session
 	width        int
 	height       int
+	generating   bool
+	loader       *components.LaunchAgentLoader
+	executor     git.CommandExecutor
+	startTime    *time.Time
 }
 
 // CommitSuccessMsg is sent when a commit is successfully created
@@ -40,6 +45,11 @@ type CommitErrorMsg struct {
 // FileDiscardedMsg is sent when a file is successfully discarded
 type FileDiscardedMsg struct{}
 
+// CommitMessageGeneratedMsg is sent when the commit message generation completes
+type CommitMessageGeneratedMsg struct {
+	Message string
+}
+
 
 // NewCommitOverlay creates a new commit overlay
 func NewCommitOverlay(sess *session.Session) *CommitOverlay {
@@ -49,7 +59,7 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	}
 
 	// Create labeled input for commit message
-	commitInput := components.NewLabeledInput("Commit message", "Summary (required)")
+	commitInput := components.NewLabeledInput("Commit message", "Generating...")
 	commitInput.Focus()
 
 	// Create file list (same component as git pane!)
@@ -57,12 +67,18 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	fileList.SetPadding(0)                                 // No padding for dialog - full width rows
 	fileList.Refresh()                                     // Load files once at creation
 
+	// Create loader
+	loader := components.NewLaunchAgentLoader("")
+
 	return &CommitOverlay{
 		commitInput:  commitInput,
 		fileList:     fileList,
 		focusedField: 0, // Start with input focused
 		repoPath:     repoPath,
 		session:      sess,
+		generating:   true,
+		loader:       loader,
+		executor:     &git.DefaultCommandExecutor{},
 	}
 }
 
@@ -71,18 +87,64 @@ func (c *CommitOverlay) SetSize(width, height int) {
 	c.width = width
 	c.height = height
 	// File list width will be set dynamically in View()
+
+	// Set input width to use most of the available dialog width
+	// Dialog max width is 100, minus borders and padding
+	if c.commitInput != nil {
+		c.commitInput.SetWidth(90)
+	}
 }
 
-// Init initializes the commit overlay (required for tea.Model)
+// Init initializes the commit overlay and starts AI generation if supported
 func (c *CommitOverlay) Init() tea.Cmd {
-	return nil
+	// Check if agent has fast headless support
+	if c.session == nil {
+		c.generating = false
+		c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
+		c.commitInput.Focus()
+		return nil
+	}
+
+	testCmd := c.session.Agent.HeadlessCommand("")
+
+	if testCmd == nil {
+		// No fast headless support - skip generation, recreate input with proper placeholder
+		c.generating = false
+		c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
+		c.commitInput.Focus()
+		return nil
+	}
+
+	// Start generation with loading animation and 30 second timeout
+	var cmds []tea.Cmd
+
+	// Track start time for elapsed display
+	now := time.Now()
+	c.startTime = &now
+
+	c.loader.SetLabel(fmt.Sprintf("%s is generating a commit message", c.session.Agent.CompanyName))
+	cmds = append(cmds, c.loader.TickCmd())
+	cmds = append(cmds, c.generateCommitMessage())
+
+	// Tick every second to update elapsed time
+	cmds = append(cmds, c.tickEverySecond())
+
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages for the commit overlay
 func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case CommitMessageGeneratedMsg:
+		// Generation complete (or timed out) - set value and stop generating
+		c.generating = false
+		c.startTime = nil
+		c.commitInput.SetValue(msg.Message)
+		c.commitInput.Focus()
+		return c, nil
+
 	case FileDiscardedMsg:
 		// Refresh file list after discard
 		c.fileList.Refresh()
@@ -102,9 +164,25 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return c, nil
 
 	case tea.KeyMsg:
+		// Handle 'c' to cancel generation
+		if c.generating && msg.String() == "c" {
+			c.generating = false
+			c.startTime = nil
+			c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
+			c.commitInput.Focus()
+			return c, nil
+		}
+
+		// Don't process other keyboard input if we're generating
+		if c.generating {
+			return c, nil
+		}
+
 		switch msg.String() {
 		case "esc":
-			// Cancel - handled by main model
+			// Close overlay - handled by returning tea.Quit-like message
+			// Actually, let main model handle it by not consuming the message
+			// But we need to pass it through - return without handling
 			return c, nil
 
 		case "tab":
@@ -131,8 +209,8 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Delegate to focused component
 			if c.focusedField == 0 {
 				// Input focused - update text input
-				cmd = c.commitInput.Update(msg)
-				return c, cmd
+				cmd := c.commitInput.Update(msg)
+				cmds = append(cmds, cmd)
 			} else {
 				// File list focused - handle navigation and actions manually
 				switch msg.String() {
@@ -147,12 +225,34 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Open selected file in editor
 					return c, c.openSelectedFile()
 				}
-				return c, nil
 			}
+		}
+
+	case time.Time:
+		// Tick every second for elapsed time updates
+		if c.generating {
+			cmds = append(cmds, c.tickEverySecond())
 		}
 	}
 
-	return c, nil
+	// Update loader if generating
+	if c.generating && c.loader != nil {
+		if cmd := c.loader.Update(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return c, tea.Batch(cmds...)
+}
+
+// tickEverySecond returns a command that ticks every second while generating
+func (c *CommitOverlay) tickEverySecond() tea.Cmd {
+	if !c.generating {
+		return nil
+	}
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return t // Return the time to trigger re-render
+	})
 }
 
 // discardFile discards changes to the selected file
@@ -202,6 +302,18 @@ func (c *CommitOverlay) openSelectedFile() tea.Cmd {
 	return func() tea.Msg {
 		_ = cmd.Start()
 		return nil
+	}
+}
+
+// generateCommitMessage starts the commit message generation
+func (c *CommitOverlay) generateCommitMessage() tea.Cmd {
+	return func() tea.Msg {
+		message, err := git.GenerateCommitMessage(&c.session.Agent, c.repoPath, c.executor)
+		if err != nil {
+			// On error, return empty message (will show empty input)
+			return CommitMessageGeneratedMsg{Message: ""}
+		}
+		return CommitMessageGeneratedMsg{Message: message}
 	}
 }
 
@@ -264,34 +376,68 @@ func (c *CommitOverlay) View() string {
 	content = append(content, "DIVIDER_PLACEHOLDER")
 	content = append(content, "")
 
-	// Render commit input (includes label)
-	commitInputLines := strings.Split(c.commitInput.View(), "\n")
-	for _, line := range commitInputLines {
-		appendLine(line)
+	if c.generating {
+		// Only show loader when generating
+		loaderView := c.loader.View()
+		loaderStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(c.session.Agent.BorderColor)).
+			Bold(true)
+		appendLine(loaderStyle.Render(loaderView))
+		content = append(content, "")
+
+		// Show elapsed time and quit option after 3 seconds
+		if c.startTime != nil && time.Since(*c.startTime) >= 3*time.Second {
+			elapsed := time.Since(*c.startTime)
+			seconds := int(elapsed.Seconds())
+			minutes := seconds / 60
+			seconds = seconds % 60
+
+			var timeStr string
+			if minutes > 0 {
+				timeStr = fmt.Sprintf("%d:%02d", minutes, seconds)
+			} else {
+				timeStr = fmt.Sprintf("%ds", seconds)
+			}
+
+			elapsedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+			dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+			quitKeyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Bold(true)
+			quitDescStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+
+			stopwatch := elapsedStyle.Render("Elapsed: "+timeStr) + " " +
+				dotStyle.Render("•") + " " +
+				quitKeyStyle.Render("c") + " " +
+				quitDescStyle.Render("cancel")
+			appendLine(stopwatch)
+		}
+	} else {
+		// Show normal commit UI
+		// Commit message input
+		commitInputLines := strings.Split(c.commitInput.View(), "\n")
+		for _, line := range commitInputLines {
+			appendLine(line)
+		}
+		content = append(content, "")
+
+		// File list
+		fileStatus := c.fileList.GetFileStatus()
+		fileCount := 0
+		if fileStatus != nil {
+			fileCount = fileStatus.TotalFiles
+		}
+		fileListLabel := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Render(fmt.Sprintf("Files to commit (%d)", fileCount))
+		appendLine(fileListLabel)
+		content = append(content, "FILELIST_PLACEHOLDER")
+		content = append(content, "")
+
+		// Button and help
+		content = append(content, "BUTTON_PLACEHOLDER")
+		content = append(content, "")
+		content = append(content, "HELP_PLACEHOLDER")
 	}
-	content = append(content, "")
-
-	// File list header - bold white like other labels
-	fileStatus := c.fileList.GetFileStatus()
-	fileCount := 0
-	if fileStatus != nil {
-		fileCount = fileStatus.TotalFiles
-	}
-	fileListLabel := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Bold(true).
-		Render(fmt.Sprintf("Files to commit (%d)", fileCount))
-	appendLine(fileListLabel)
-	// File list placeholder - will be rendered after width calculation
-	content = append(content, "FILELIST_PLACEHOLDER")
-	content = append(content, "")
-
-	// Button placeholder
-	content = append(content, "BUTTON_PLACEHOLDER")
-	content = append(content, "")
-
-	// Help text placeholder
-	content = append(content, "HELP_PLACEHOLDER")
 
 	// Calculate widths
 	frameWidth := dialogStyle.GetHorizontalFrameSize()
@@ -347,12 +493,23 @@ func (c *CommitOverlay) View() string {
 	commitButton.SetDisabled(!c.isValid())
 	button := commitButton.Render()
 
-	// Create help text
+	// Create help text with styled keybindings
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+
+	helpParts := []string{
+		keyStyle.Render("tab"),
+		descStyle.Render(" navigate fields"),
+		descStyle.Render(" • "),
+		keyStyle.Render("esc"),
+		descStyle.Render(" cancel"),
+	}
+	helpLine := lipgloss.JoinHorizontal(lipgloss.Left, helpParts...)
+
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextMuted)).
 		Width(actualContentWidth).
 		Align(lipgloss.Center)
-	helpText := helpStyle.Render("tab navigate fields • esc cancel")
+	helpText := helpStyle.Render(helpLine)
 
 	// Replace placeholders
 	for i, line := range content {

@@ -138,10 +138,46 @@ Configuration is stored in `.golangci.yml` and tuned specifically for CLI applic
 **Auto-fix capabilities**: 6 out of 11 enabled linters support automatic fixes, including whitespace formatting, deprecated API updates, and code style improvements.
 
 ### Testing
+
 ```bash
-# Run tests
+# Run unit tests
 make test
+# Or directly:
+go test ./...
+
+# Run integration tests (requires API keys)
+go test -v -tags=integration ./pkg/git
 ```
+
+#### Integration Tests
+
+Integration tests use real CLI agents (Claude, Gemini, Codex) to verify commit message generation. These tests:
+- Create a temporary git repository
+- Stage test files
+- Call the actual agent CLI with the fast model
+- Verify the generated commit message
+
+**Requirements:**
+- Install the agent CLIs you want to test (`claude`, `gemini`, `codex`)
+- Set the appropriate API keys as environment variables:
+  - `ANTHROPIC_API_KEY` for Claude
+  - `GOOGLE_API_KEY` for Gemini
+  - `OPENAI_API_KEY` for Codex
+
+**Example:**
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_API_KEY="..."
+export OPENAI_API_KEY="sk-..."
+
+# Run all integration tests
+go test -v -tags=integration ./pkg/git
+
+# Run specific agent test
+go test -v -tags=integration ./pkg/git -run TestGenerateCommitMessage_RealCLI_Claude
+```
+
+Tests will be skipped automatically if the CLI or API key is not available.
 
 All available commands can be viewed with:
 ```bash

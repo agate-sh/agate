@@ -247,7 +247,8 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, inputCmd)
 	}
 
-	if d.initializing && d.loader != nil {
+	// Update loader if creating or initializing
+	if (d.creating || d.initializing) && d.loader != nil {
 		if cmd := d.loader.Update(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

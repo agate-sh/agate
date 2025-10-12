@@ -21,7 +21,7 @@ func NewLabeledInput(label, placeholder string) *LabeledInput {
 	ti.Placeholder = placeholder
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
 	ti.CharLimit = 200
-	ti.Width = 40
+	ti.Width = 80 // Default width, can be updated with SetWidth
 	ti.Prompt = "" // No prompt, label is above
 
 	return &LabeledInput{
@@ -41,14 +41,21 @@ func (l *LabeledInput) Blur() {
 	l.textInput.Blur()
 }
 
-// SetValue sets the input value
+// SetValue sets the input value and positions cursor at the start
 func (l *LabeledInput) SetValue(value string) {
 	l.textInput.SetValue(value)
+	// Move cursor to the start so the beginning of the text is visible
+	l.textInput.SetCursor(0)
 }
 
 // Value returns the current input value
 func (l *LabeledInput) Value() string {
 	return l.textInput.Value()
+}
+
+// SetWidth sets the width of the text input
+func (l *LabeledInput) SetWidth(width int) {
+	l.textInput.Width = width
 }
 
 // Update handles tea.Msg updates

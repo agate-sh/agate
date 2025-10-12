@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-// mockAgent implements HeadlessCommandRunner for testing
+// mockAgent implements FastHeadlessCommandRunner for testing
 type mockAgent struct {
 	cmdArgs []string
 }
 
-func (m *mockAgent) HeadlessCommand(prompt string) []string {
+func (m *mockAgent) FastHeadlessCommand(diff string, customFastModel string) []string {
 	return m.cmdArgs
 }
 
@@ -72,7 +72,7 @@ func TestGenerateCommitMessage_Success(t *testing.T) {
 	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
 	executor.setResponse("claude -p test prompt", "feat: add new feature", nil)
 
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -108,14 +108,14 @@ func TestGenerateCommitMessage_NoHeadlessSupport(t *testing.T) {
 
 	executor := newMockCommandExecutor()
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err == nil {
 		t.Fatal("expected error for agent without headless support")
 	}
 
-	if !strings.Contains(err.Error(), "does not support headless mode") {
-		t.Errorf("expected 'does not support headless mode' error, got: %v", err)
+	if !strings.Contains(err.Error(), "does not support fast commit message generation") {
+		t.Errorf("expected 'does not support fast commit message generation' error, got: %v", err)
 	}
 
 	// No commands should have been executed
@@ -132,7 +132,7 @@ func TestGenerateCommitMessage_NoStagedChanges(t *testing.T) {
 	executor := newMockCommandExecutor()
 	executor.setResponse("git diff --cached", "", nil) // Empty diff
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err == nil {
 		t.Fatal("expected error for no staged changes")
@@ -156,7 +156,7 @@ func TestGenerateCommitMessage_GitDiffFails(t *testing.T) {
 	executor := newMockCommandExecutor()
 	executor.setResponse("git diff --cached", "", errors.New("git command failed"))
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err == nil {
 		t.Fatal("expected error when git diff fails")
@@ -176,7 +176,7 @@ func TestGenerateCommitMessage_AgentCommandFails(t *testing.T) {
 	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
 	executor.setResponse("claude -p test prompt", "", errors.New("agent timeout"))
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err == nil {
 		t.Fatal("expected error when agent command fails")
@@ -196,7 +196,7 @@ func TestGenerateCommitMessage_EmptyAgentResponse(t *testing.T) {
 	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
 	executor.setResponse("claude -p test prompt", "   \n\t  ", nil) // Whitespace only
 
-	_, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	_, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err == nil {
 		t.Fatal("expected error for empty agent response")
@@ -216,7 +216,7 @@ func TestGenerateCommitMessage_TrimsWhitespace(t *testing.T) {
 	executor.setResponse("git diff --cached", "diff --git a/file.go b/file.go\n+added line", nil)
 	executor.setResponse("claude -p test prompt", "\n\n  fix: bug  \n\t", nil)
 
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -237,7 +237,7 @@ func TestGenerateCommitMessage_WorkingDirPassedThrough(t *testing.T) {
 	executor.setResponse("claude -p test prompt", "feat: new feature", nil)
 
 	workingDir := "/custom/working/dir"
-	_, err := GenerateCommitMessage(agent, workingDir, executor)
+	_, err := GenerateCommitMessage(agent, workingDir, executor, "")
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -261,7 +261,7 @@ func TestGenerateCommitMessage_TruncatesTo50Chars(t *testing.T) {
 	// Response is longer than 50 characters
 	executor.setResponse("claude -p test prompt", "feat: add a very long commit message that exceeds the fifty character limit", nil)
 
-	message, err := GenerateCommitMessage(agent, "/test/dir", executor)
+	message, err := GenerateCommitMessage(agent, "/test/dir", executor, "")
 
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)

@@ -1015,6 +1015,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Update commit overlay's spinner
+		if m.showCommitOverlay && m.commitOverlay != nil {
+			model, cmd := m.commitOverlay.Update(msg)
+			m.commitOverlay = model.(*overlays.CommitOverlay)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		if m.showSessionDialog && m.worktreeDialog != nil {
 			var dialogCmd tea.Cmd
 			var dialogModel tea.Model
@@ -1031,6 +1040,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle toast timer updates
 		if m.toast != nil {
 			return m, m.toast.Update(msg)
+		}
+		return m, nil
+
+	case time.Time:
+		// Pass time ticks to commit overlay for elapsed time updates
+		if m.showCommitOverlay && m.commitOverlay != nil {
+			model, cmd := m.commitOverlay.Update(msg)
+			m.commitOverlay = model.(*overlays.CommitOverlay)
+			return m, cmd
 		}
 		return m, nil
 
@@ -1053,6 +1071,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, toastCmd
+
+	case overlays.CommitMessageGeneratedMsg, overlays.FileDiscardedMsg:
+		// Pass overlay-specific messages to commit overlay
+		if m.showCommitOverlay && m.commitOverlay != nil {
+			model, cmd := m.commitOverlay.Update(msg)
+			m.commitOverlay = model.(*overlays.CommitOverlay)
+			return m, cmd
+		}
+		return m, nil
 
 	case overlays.CommitErrorMsg:
 		// Commit failed - show error toast and keep overlay open
@@ -1300,7 +1327,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commitOverlay = overlays.NewCommitOverlay(activeSession)
 			m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 			m.showCommitOverlay = true
-			return m, nil
+			initCmd := m.commitOverlay.Init()
+			return m, initCmd
 		}
 		return m, nil
 
