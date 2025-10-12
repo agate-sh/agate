@@ -22,7 +22,8 @@ type GitPane struct {
 }
 
 // gitRefreshMsg is sent when the git pane needs to refresh
-type gitRefreshMsg struct{}
+// GitRefreshMsg triggers a refresh of the git file status
+type GitRefreshMsg struct{}
 
 // NewGitPane creates a new GitPane instance
 func NewGitPane() *GitPane {
@@ -130,7 +131,7 @@ func (g *GitPane) discardFile() tea.Cmd {
 	return func() tea.Msg {
 		err := git.DiscardFile(g.repoPath, file.FilePath)
 		if err == nil {
-			return gitRefreshMsg{}
+			return GitRefreshMsg{}
 		}
 		return nil
 	}
@@ -193,7 +194,7 @@ func (g *GitPane) GetTitleStyle() components.TitleStyle {
 // Update handles tea.Msg updates for the git pane
 func (g *GitPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 	switch msg.(type) {
-	case gitRefreshMsg:
+	case GitRefreshMsg:
 		g.Refresh()
 		return g, nil
 	}

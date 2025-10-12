@@ -89,7 +89,7 @@ func (f *Footer) View() string {
 	}
 
 	// Find the core global shortcuts and help/quit shortcuts
-	var coreShortcuts []Shortcut // n, a, s shortcuts with agent color
+	var coreShortcuts []Shortcut // n, a, c shortcuts with agent color
 	var quitShortcut *Shortcut
 	var helpShortcut *Shortcut
 
@@ -98,7 +98,7 @@ func (f *Footer) View() string {
 			quitShortcut = &shortcut
 		} else if shortcut.Key == "?" && shortcut.IsGlobal {
 			helpShortcut = &shortcut
-		} else if shortcut.Key == "n" || shortcut.Key == "a" || shortcut.Key == "s" {
+		} else if shortcut.Key == "n" || shortcut.Key == "a" || shortcut.Key == "c" {
 			// Core global shortcuts that should be styled with agent colors
 			coreShortcuts = append(coreShortcuts, shortcut)
 		}
@@ -106,7 +106,7 @@ func (f *Footer) View() string {
 
 	var parts []string
 
-	// Render core global shortcuts (n, a, s) with agent colors
+	// Render core global shortcuts (n, a, c) with agent colors
 	agentColor := app.GetCurrentAgentColor()
 	for i, shortcut := range coreShortcuts {
 		if i > 0 {

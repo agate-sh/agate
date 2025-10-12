@@ -19,6 +19,7 @@ type GitFileList struct {
 	fullWidth     int    // Full width including padding
 	active        bool   // Whether this list is currently active/focused
 	showSummary   bool   // Whether to show the summary line at top
+	padding       int    // Horizontal padding for rows (0 for dialogs, 1 for panes)
 }
 
 // NewGitFileList creates a new Git file list component
@@ -27,7 +28,13 @@ func NewGitFileList(repoPath string, showSummary bool) *GitFileList {
 		repoPath:      repoPath,
 		selectedIndex: 0,
 		showSummary:   showSummary,
+		padding:       PaneContentHorizontalPadding(), // Default to pane padding
 	}
+}
+
+// SetPadding sets the horizontal padding for rows (0 for dialogs, 1 for panes)
+func (g *GitFileList) SetPadding(padding int) {
+	g.padding = padding
 }
 
 // SetSize sets the dimensions for rendering
@@ -68,16 +75,17 @@ func (g *GitFileList) MoveUp() bool {
 	return false
 }
 
-// MoveDown moves selection down
+// MoveDown moves selection down (wraps to top)
 func (g *GitFileList) MoveDown() bool {
 	if g.fileStatus == nil || len(g.fileStatus.Files) == 0 {
 		return false
 	}
 	if g.selectedIndex < len(g.fileStatus.Files)-1 {
 		g.selectedIndex++
-		return true
+	} else {
+		g.selectedIndex = 0 // Wrap to top
 	}
-	return false
+	return true
 }
 
 // GetSelectedFile returns the currently selected file
@@ -130,7 +138,9 @@ func (g *GitFileList) View() string {
 	// Render all files in a single flat list (no sections)
 	// This matches GitHub Desktop's approach where all changes are shown together
 	for i, file := range g.fileStatus.Files {
-		output.WriteString("\n")
+		if i > 0 {
+			output.WriteString("\n")
+		}
 		row := g.renderFileRow(file, i)
 		output.WriteString(row)
 	}
@@ -154,31 +164,24 @@ func (g *GitFileList) renderFileRow(file git.FileStatus, index int) string {
 		return g.renderRowWithBackgroundAndHint(file, icon, hint)
 	}
 
-	// Regular rendering (no selection)
+	// Regular rendering (no selection) - use RenderRowWithHint for consistent right-aligned additions/deletions
 	iconStyle := g.getIconStyle(file.Status)
 	styledIcon := iconStyle.Render(icon)
 
 	nameStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextPrimary))
-	styledName := nameStyle.Render(file.FileName)
+	styledName := nameStyle.Render(" " + file.FileName)
 
 	pathStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted))
 
-	// Calculate available width for path
-	usedWidth := 2 + 1 + len(file.FileName) + 2 + 10 + 4
-	availableForPath := g.width - usedWidth
-	if availableForPath < 0 {
-		availableForPath = 0
-	}
-
 	dirPath := ""
 	if file.DirPath != "" && file.DirPath != "." {
-		dirPath = " " + truncatePath(file.DirPath, availableForPath)
+		dirPath = " " + file.DirPath
 		dirPath = pathStyle.Render(dirPath)
 	}
 
-	// Format additions/deletions
+	// Format additions/deletions as "hint" to right-align them
 	changesStr := ""
 	if file.Additions > 0 || file.Deletions > 0 {
 		addStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
@@ -197,23 +200,19 @@ func (g *GitFileList) renderFileRow(file git.FileStatus, index int) string {
 		}
 	}
 
-	// Build row
-	leftSide := fmt.Sprintf("%s %s%s", styledIcon, styledName, dirPath)
+	// Build content (icon + name + path)
+	content := styledIcon + styledName + dirPath
 
-	var fullRow string
-	if changesStr != "" {
-		leftLen := lipgloss.Width(leftSide)
-		rightLen := lipgloss.Width(changesStr)
-		padding := g.width - leftLen - rightLen - 2
-		if padding < 1 {
-			padding = 1
-		}
-		fullRow = leftSide + strings.Repeat(" ", padding) + changesStr
-	} else {
-		fullRow = leftSide
-	}
-
-	return ApplyPaneContentPadding(fullRow, g.width)
+	// Use RenderRowWithHint to right-align the additions/deletions
+	return RenderRowWithHint(
+		content,
+		changesStr, // Additions/deletions as "hint" to right-align them
+		g.width,
+		g.padding,
+		"", // No background color for non-selected rows
+		theme.TextPrimary,
+		theme.TextMuted,
+	)
 }
 
 // renderRowWithBackgroundAndHint renders a row with background highlighting and hint text
@@ -237,7 +236,7 @@ func (g *GitFileList) renderRowWithBackgroundAndHint(file git.FileStatus, icon s
 		content,
 		hint,
 		g.width,
-		PaneContentHorizontalPadding(),
+		g.padding,
 		theme.RowHighlight,
 		theme.TextPrimary,
 		theme.TextMuted,

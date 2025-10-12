@@ -4,23 +4,24 @@ import (
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
+	"agate/pkg/session"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // CommitOverlay represents the commit dialog
 type CommitOverlay struct {
-	textInput    textinput.Model
+	commitInput  *components.LabeledInput
 	fileList     *components.GitFileList
 	focusedField int // 0 = input, 1 = list
 	repoPath     string
+	session      *session.Session
 	width        int
 	height       int
 }
@@ -35,24 +36,32 @@ type CommitErrorMsg struct {
 	Err error
 }
 
+// FileDiscardedMsg is sent when a file is successfully discarded
+type FileDiscardedMsg struct{}
+
+
 // NewCommitOverlay creates a new commit overlay
-func NewCommitOverlay(repoPath string) *CommitOverlay {
-	// Create text input for commit message
-	ti := textinput.New()
-	ti.Placeholder = "Enter commit message"
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
-	ti.Focus()
-	ti.CharLimit = 200
-	ti.Width = 50
+func NewCommitOverlay(sess *session.Session) *CommitOverlay {
+	repoPath := ""
+	if sess != nil && sess.Worktree != nil {
+		repoPath = sess.Worktree.Path
+	}
+
+	// Create labeled input for commit message
+	commitInput := components.NewLabeledInput("Commit message", "Summary (required)")
+	commitInput.Focus()
 
 	// Create file list (same component as git pane!)
 	fileList := components.NewGitFileList(repoPath, false) // Don't show summary line
+	fileList.SetPadding(0)                                 // No padding for dialog - full width rows
+	fileList.Refresh()                                     // Load files once at creation
 
 	return &CommitOverlay{
-		textInput:    ti,
+		commitInput:  commitInput,
 		fileList:     fileList,
 		focusedField: 0, // Start with input focused
 		repoPath:     repoPath,
+		session:      sess,
 	}
 }
 
@@ -60,9 +69,7 @@ func NewCommitOverlay(repoPath string) *CommitOverlay {
 func (c *CommitOverlay) SetSize(width, height int) {
 	c.width = width
 	c.height = height
-
-	// Set file list width (will be constrained by dialog width)
-	c.fileList.SetSize(50)
+	// File list width will be set dynamically in View()
 }
 
 // Init initializes the commit overlay (required for tea.Model)
@@ -75,6 +82,17 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case FileDiscardedMsg:
+		// Refresh file list after discard
+		c.fileList.Refresh()
+		return c, nil
+
+	case CommitErrorMsg:
+		// Handle discard errors (and commit errors)
+		// For now, just refresh to show current state
+		c.fileList.Refresh()
+		return c, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
@@ -85,24 +103,27 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Switch focus between input and file list
 			if c.focusedField == 0 {
 				c.focusedField = 1
-				c.textInput.Blur()
+				c.commitInput.Blur()
 				c.fileList.SetActive(true)
 			} else {
 				c.focusedField = 0
-				c.textInput.Focus()
+				c.commitInput.Focus()
 				c.fileList.SetActive(false)
 			}
 			return c, nil
 
 		case "c":
-			// Commit!
-			return c, c.commit()
+			// Commit! Only if valid
+			if c.isValid() {
+				return c, c.commit()
+			}
+			return c, nil
 
 		default:
 			// Delegate to focused component
 			if c.focusedField == 0 {
 				// Input focused - update text input
-				c.textInput, cmd = c.textInput.Update(msg)
+				cmd = c.commitInput.Update(msg)
 				return c, cmd
 			} else {
 				// File list focused - handle navigation and actions manually
@@ -133,11 +154,12 @@ func (c *CommitOverlay) discardFile() tea.Cmd {
 		return nil
 	}
 
+	filePath := file.FilePath
+
 	return func() tea.Msg {
-		err := git.DiscardFile(c.repoPath, file.FilePath)
+		err := git.DiscardFile(c.repoPath, filePath)
 		if err == nil {
-			// Refresh file list after discard
-			return nil
+			return FileDiscardedMsg{}
 		}
 		return CommitErrorMsg{Err: err}
 	}
@@ -177,7 +199,7 @@ func (c *CommitOverlay) openSelectedFile() tea.Cmd {
 
 // commit performs the commit operation
 func (c *CommitOverlay) commit() tea.Cmd {
-	message := c.textInput.Value()
+	message := c.commitInput.Value()
 
 	return func() tea.Msg {
 		sha, err := git.CommitAll(c.repoPath, message)
@@ -197,59 +219,150 @@ func (c *CommitOverlay) commit() tea.Cmd {
 
 // View renders the commit overlay
 func (c *CommitOverlay) View() string {
-	// Refresh file list
-	c.fileList.Refresh()
+	// Don't refresh here - it resets selection! Refresh when overlay is created instead
 
-	// Title
-	title := dialogTitleStyle.Render("Commit Changes")
+	var content []string
+	maxContentWidth := 0
 
-	// Input label and field
-	inputLabel := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		Render("Message:")
+	appendLine := func(line string) {
+		content = append(content, line)
+		if w := lipgloss.Width(line); w > maxContentWidth {
+			maxContentWidth = w
+		}
+	}
 
-	inputField := c.textInput.View()
-	inputLine := lipgloss.JoinHorizontal(lipgloss.Left, inputLabel, " ", inputField)
+	// Header: Repo > Branch > Commit changes (same style as session dialog)
+	repoName := "unknown"
+	branchName := "unknown"
+	if c.session != nil && c.session.Worktree != nil {
+		repoName = c.session.Worktree.RepoName
+		branchName = c.session.Worktree.Branch
+	}
 
-	// File list header
+	repoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextDescription))
+	titleStyle := dialogTitleStyle.Copy()
+
+	repoText := repoStyle.Render(repoName)
+	arrow1Text := titleStyle.Render(" > ")
+	branchText := repoStyle.Render(branchName)
+	arrow2Text := titleStyle.Render(" > ")
+	actionText := titleStyle.Render("Commit changes")
+
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrow1Text, branchText, arrow2Text, actionText)
+	appendLine(headerLine)
+
+	// Horizontal divider - will be sized later
+	content = append(content, "DIVIDER_PLACEHOLDER")
+	content = append(content, "")
+
+	// Render commit input (includes label)
+	commitInputLines := strings.Split(c.commitInput.View(), "\n")
+	for _, line := range commitInputLines {
+		appendLine(line)
+	}
+	content = append(content, "")
+
+	// File list header - bold white like other labels
 	fileStatus := c.fileList.GetFileStatus()
 	fileCount := 0
 	if fileStatus != nil {
 		fileCount = fileStatus.TotalFiles
 	}
-	filesHeader := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		MarginTop(1).
-		Render(fmt.Sprintf("Files to commit (%d):", fileCount))
+	fileListLabel := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Bold(true).
+		Render(fmt.Sprintf("Files to commit (%d)", fileCount))
+	appendLine(fileListLabel)
+	// File list placeholder - will be rendered after width calculation
+	content = append(content, "FILELIST_PLACEHOLDER")
+	content = append(content, "")
 
-	// File list content
-	filesContent := c.fileList.View()
+	// Button placeholder
+	content = append(content, "BUTTON_PLACEHOLDER")
+	content = append(content, "")
 
-	// Hints at bottom
-	var hints string
-	if c.focusedField == 0 {
-		hints = "c commit • tab switch • esc cancel"
-	} else {
-		hints = "c commit • tab switch • esc cancel"
+	// Help text placeholder
+	content = append(content, "HELP_PLACEHOLDER")
+
+	// Calculate widths
+	frameWidth := dialogStyle.GetHorizontalFrameSize()
+	maxAllowedContentWidth := 0
+	if c.width > 0 {
+		maxAllowedContentWidth = c.width - frameWidth
+		if maxAllowedContentWidth < 0 {
+			maxAllowedContentWidth = 0
+		}
 	}
-	hintsLine := lipgloss.NewStyle().
+
+	minContentWidth := 60
+	if maxAllowedContentWidth > 0 && maxAllowedContentWidth < minContentWidth {
+		minContentWidth = maxAllowedContentWidth
+	}
+
+	if maxContentWidth < minContentWidth {
+		maxContentWidth = minContentWidth
+	}
+
+	actualContentWidth := maxContentWidth
+	if actualContentWidth < minContentWidth {
+		actualContentWidth = minContentWidth
+	}
+	if maxAllowedContentWidth > 0 && actualContentWidth > maxAllowedContentWidth {
+		actualContentWidth = maxAllowedContentWidth
+	}
+
+	// Account for dialog padding
+	if actualContentWidth > 4 {
+		actualContentWidth -= 4
+	}
+
+	// Set file list width to match dialog content width
+	// File list has padding=0 for dialogs, so it renders to full actualContentWidth
+	c.fileList.SetSize(actualContentWidth)
+
+	// Replace divider placeholder (full width to match file list with padding)
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextDescription))
+	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
+
+	// Render file list now that width is set
+	fileListView := c.fileList.View()
+
+	// Create commit button
+	commitButton := components.NewButton("Commit", "c", components.ButtonVariantDefault)
+	commitButton.SetWidth(actualContentWidth)
+	commitButton.SetDisabled(!c.isValid())
+	button := commitButton.Render()
+
+	// Create help text
+	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted)).
-		MarginTop(1).
-		Render(hints)
+		Width(actualContentWidth).
+		Align(lipgloss.Center)
+	helpText := helpStyle.Render("tab to navigate • esc to cancel")
 
-	// Combine all parts
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		"",
-		inputLine,
-		filesHeader,
-		filesContent,
-		hintsLine,
-	)
+	// Replace placeholders
+	for i, line := range content {
+		if line == "DIVIDER_PLACEHOLDER" {
+			content[i] = divider
+		} else if line == "FILELIST_PLACEHOLDER" {
+			content[i] = fileListView
+		} else if line == "BUTTON_PLACEHOLDER" {
+			content[i] = button
+		} else if line == "HELP_PLACEHOLDER" {
+			content[i] = helpText
+		}
+	}
 
-	// Apply dialog style (border, padding)
-	dialog := dialogStyle.Render(content)
+	// Join and apply dialog style
+	dialog := dialogStyle.Render(strings.Join(content, "\n"))
 
 	return dialog
+}
+
+// isValid checks if the commit message is valid (at least 1 character)
+func (c *CommitOverlay) isValid() bool {
+	message := strings.TrimSpace(c.commitInput.Value())
+	return len(message) > 0
 }

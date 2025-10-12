@@ -877,15 +877,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeDialog = nil
 		return m, nil
 
-	case panes.GitRefreshMsg:
-		// Git pane needs to refresh after discard or other operations
-		if m.gitPane != nil {
-			var cmd tea.Cmd
-			m.gitPane, cmd = m.gitPane.Update(msg)
-			return m, cmd
-		}
-		return m, nil
-
 	case overlays.WorktreeDeletedMsg:
 		// Worktree deleted successfully
 		m.showWorktreeConfirm = false
@@ -1209,6 +1200,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case msg.String() == "c":
+			// 'c' key handling - show commit overlay when git pane is focused
+			if m.focused == layout.FocusGit && m.gitPane != nil {
+				// Get current repository path from git pane
+				gitPane, ok := m.gitPane.(*panes.GitPane)
+				if ok {
+					repoPath := gitPane.GetRepoPath()
+					if repoPath != "" {
+						// Create and show commit overlay
+						m.commitOverlay = overlays.NewCommitOverlay(repoPath)
+						m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+						m.showCommitOverlay = true
+						return m, nil
+					}
+				}
+			}
 
 		case key.Matches(msg, common.GlobalKeys.Quit):
 			// Persist sessions before quitting
@@ -1279,12 +1286,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.Commit):
 		// Show commit overlay (global shortcut)
-		activeSession := m.sessionManager.GetActiveSession()
-		if activeSession != nil {
-			m.commitOverlay = overlays.NewCommitOverlay(activeSession)
-			m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-			m.showCommitOverlay = true
-			return m, nil
+		if m.gitPane != nil {
+			gitPane, ok := m.gitPane.(*panes.GitPane)
+			if ok {
+				repoPath := gitPane.GetRepoPath()
+				if repoPath != "" {
+					m.commitOverlay = overlays.NewCommitOverlay(repoPath)
+					m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+					m.showCommitOverlay = true
+					return m, nil
+				}
+			}
 		}
 		return m, nil
 

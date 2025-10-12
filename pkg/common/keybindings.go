@@ -31,13 +31,15 @@ type GlobalKeyMap struct {
 	FocusPaneGit   key.Binding // 2 - focus git pane
 	FocusPaneShell key.Binding // 3 - focus shell pane
 
-	// Repository and worktree management - conceptually belong to repos pane
+	// Repository and session management - conceptually belong to repos pane
 	// but are globally accessible for convenience
-	AddRepo     key.Binding // r - add repository (repos pane action, but global)
-	NewWorktree key.Binding // w - create worktree (repos pane action, but global)
+	AddRepo    key.Binding // r - add repository (repos pane action, but global)
+	NewSession key.Binding // n - create new session (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
-	DetachTmux key.Binding // Ctrl+Q - detach from tmux session
+	AttachAgent key.Binding // a - attach to agent tmux session
+	Commit      key.Binding // c - create commit (git pane action, but global)
+	DetachTmux  key.Binding // Ctrl+Q - detach from tmux session
 
 	// Dialog actions - global because dialogs overlay all content
 	Confirm key.Binding // Enter, y - confirm dialog action
@@ -97,17 +99,25 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("3", "focus shell"),
 	),
 
-	// Repository and Worktree management
+	// Repository and Session management
 	AddRepo: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "add repo"),
 	),
-	NewWorktree: key.NewBinding(
+	NewSession: key.NewBinding(
 		key.WithKeys("n"),
 		key.WithHelp("n", "new agent"),
 	),
 
 	// Session interaction
+	AttachAgent: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "attach to agent"),
+	),
+	Commit: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "commit"),
+	),
 	DetachTmux: key.NewBinding(
 		key.WithKeys("ctrl+q"),
 		key.WithHelp("ctrl+q", "detach from tmux"),
@@ -179,13 +189,14 @@ func (k *GlobalKeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Keybindings}, // Global
+		{k.Quit, k.Keybindings},                                       // Global
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
-		{k.Up, k.Down}, // Navigation
-		{k.AddRepo, k.NewWorktree}, // Repository & Worktree
-		{k.DetachTmux},             // Session
-		{k.Filter, k.ClearFilter},  // Filtering
-		{k.Confirm, k.Cancel},      // Dialogs
+		{k.Up, k.Down},                                                // Navigation
+		{k.NewSession, k.AttachAgent, k.Commit},                       // Quick actions (n, a, c)
+		{k.AddRepo},                                                   // Repository
+		{k.DetachTmux},                                                // Session
+		{k.Filter, k.ClearFilter},                                     // Filtering
+		{k.Confirm, k.Cancel},                                         // Dialogs
 	}
 }
 
@@ -206,9 +217,13 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.FocusPaneGit,
 			k.FocusPaneShell,
 		},
-		"Repository & Worktree Management": {
+		"Quick Actions": {
+			k.NewSession,
+			k.AttachAgent,
+			k.Commit,
+		},
+		"Repository Management": {
 			k.AddRepo,
-			k.NewWorktree,
 		},
 		"Session Interaction": {
 			k.DetachTmux,

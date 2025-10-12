@@ -36,7 +36,9 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 
 	// Always show core global shortcuts
 	shortcuts = append(shortcuts,
-		s.keyMap.NewWorktree, // n - new agent
+		s.keyMap.NewSession,  // n - new agent
+		s.keyMap.AttachAgent, // a - attach to agent
+		s.keyMap.Commit,      // c - commit
 		s.keyMap.Quit,        // q - quit
 		s.keyMap.Keybindings, // ? - keybindings
 	)

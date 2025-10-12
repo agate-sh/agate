@@ -1,10 +1,10 @@
 package overlays
 
 import (
-	"fmt"
 	"strings"
 
 	"agate/pkg/git"
+	"agate/pkg/gui/components"
 	"agate/pkg/gui/theme"
 	"agate/pkg/session"
 
@@ -155,17 +155,32 @@ func (d *SessionDeleteConfirmDialog) View() string {
 		}
 	}
 
-	// Get branch name for title
-	branchName := "session"
-	if d.session.Worktree != nil {
+	// Header: Repo > Branch > Delete session (same style as session dialog)
+	repoName := "unknown"
+	branchName := "unknown"
+	if d.session != nil && d.session.Worktree != nil {
+		repoName = d.session.Worktree.RepoName
 		branchName = d.session.Worktree.Branch
 	}
 
-	// Title - larger and bold
+	repoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextDescription))
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextPrimary)).
 		Bold(true)
-	appendLine(titleStyle.Render(fmt.Sprintf("Delete %s", branchName)))
+
+	repoText := repoStyle.Render(repoName)
+	arrow1Text := titleStyle.Render(" > ")
+	branchText := repoStyle.Render(branchName)
+	arrow2Text := titleStyle.Render(" > ")
+	actionText := titleStyle.Render("Delete session")
+
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrow1Text, branchText, arrow2Text, actionText)
+	appendLine(headerLine)
+	content = append(content, "")
+
+	// Horizontal divider
+	content = append(content, "DIVIDER_PLACEHOLDER")
 	content = append(content, "")
 
 	// Subtitle - don't constrain width to avoid early wrapping
@@ -195,14 +210,9 @@ func (d *SessionDeleteConfirmDialog) View() string {
 	}
 
 	// Create delete button
-	buttonStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.ErrorStatus)).
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		Width(actualContentWidth).
-		Align(lipgloss.Center).
-		Padding(0, 2).
-		Bold(true)
-	button := buttonStyle.Render("Delete (d)")
+	deleteButton := components.NewButton("Delete", "d", components.ButtonVariantDanger)
+	deleteButton.SetWidth(actualContentWidth)
+	button := deleteButton.Render()
 
 	// Create help text - using TextMuted like session dialog
 	helpStyle := lipgloss.NewStyle().

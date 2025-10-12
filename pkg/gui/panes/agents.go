@@ -446,7 +446,7 @@ func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 	if r.IsActive() {
 		// When active, format shortcuts like the footer (without brackets)
 		repoHelp := common.GlobalKeys.AddRepo.Help()
-		sessionHelp := common.GlobalKeys.NewWorktree.Help()
+		sessionHelp := common.GlobalKeys.NewSession.Help()
 		shortcuts = fmt.Sprintf("%s %s • %s %s", repoHelp.Key, repoHelp.Desc, sessionHelp.Key, sessionHelp.Desc)
 	} else {
 		// When not active, show pane number
@@ -1122,7 +1122,7 @@ func (r *AgentsPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Use the global keybindings to ensure consistency
 	return []key.Binding{
 		common.GlobalKeys.AddRepo,
-		common.GlobalKeys.NewWorktree,
+		common.GlobalKeys.NewSession,
 	}
 }
 
