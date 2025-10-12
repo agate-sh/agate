@@ -75,6 +75,7 @@ type model struct {
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
+	toast               *components.Toast                    // Toast notification manager
 
 	// Panes using the new Pane interface
 	repoPane  components.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
@@ -198,6 +199,7 @@ func initialModel(subprocess string) model {
 		debugOverlay:        debugOverlay,
 		showDebugOverlay:    false,
 		loadingState:        loadingState,
+		toast:               components.NewToast(), // Toast notification manager
 
 		// Initialize panes
 		repoPane:  repoPane,
@@ -727,6 +729,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateGitPane()
 		}
 
+		// Show success toast
+		if msg.Worktree != nil && m.toast != nil {
+			toastCmd := m.toast.Show("Worktree created: "+msg.Worktree.Branch, 0)
+			if toastCmd != nil {
+				cmds = append(cmds, toastCmd)
+			}
+		}
+
 		// Create and switch to new session for the worktree
 		if msg.Worktree != nil {
 			// Use the agent name from the message (selected by user in dialog)
@@ -915,6 +925,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Update Git pane
 		m.updateGitPane()
+
+		// Show success toast
+		if msg.Session != nil && m.toast != nil {
+			branchName := "session"
+			if msg.Session.Worktree != nil {
+				branchName = msg.Session.Worktree.Branch
+			}
+			toastCmd := m.toast.Show("Deleted: "+branchName, 0)
+			return m, toastCmd
+		}
 		return m, nil
 
 	case overlays.SessionDeletionErrorMsg:
@@ -999,6 +1019,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, combineCmds(cmds...)
+
+	case components.ToastTickMsg:
+		// Handle toast timer updates
+		if m.toast != nil {
+			return m, m.toast.Update(msg)
+		}
+		return m, nil
 
 	case tea.KeyMsg:
 		// If welcome overlay is visible, any key closes it
@@ -1511,6 +1538,12 @@ func (m model) View() string {
 
 		// Use Claude Squad's overlay implementation
 		return overlay.PlaceOverlay(0, 0, m.sessionConfirm.View(), mainView, true, true)
+	}
+
+	// Render toast notifications (always rendered last, on top of everything)
+	// Toasts do NOT dim the background and do NOT block interaction
+	if m.toast != nil && m.toast.IsVisible() {
+		return m.toast.PlaceOverlay(mainView, m.layout.GetWidth(), m.layout.GetHeight())
 	}
 
 	return mainView
