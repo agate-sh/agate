@@ -1043,7 +1043,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		toastCmd := m.toast.Show(fmt.Sprintf("✓ Created commit %s", msg.SHA), 0)
 
 		// Refresh git pane to show updated status
-		m.updateGitPane()
+		if m.gitPane != nil {
+			if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
+				gitPane.Refresh()
+			}
+		}
 
 		return m, toastCmd
 
