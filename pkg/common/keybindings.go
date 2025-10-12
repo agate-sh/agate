@@ -37,9 +37,7 @@ type GlobalKeyMap struct {
 	NewWorktree key.Binding // w - create worktree (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
-	AttachTmux  key.Binding // a - attach to agent session (tmux)
-	AttachShell key.Binding // s - attach to shell session
-	DetachTmux  key.Binding // Ctrl+Q - detach from tmux session
+	DetachTmux key.Binding // Ctrl+Q - detach from tmux session
 
 	// Dialog actions - global because dialogs overlay all content
 	Confirm key.Binding // Enter, y - confirm dialog action
@@ -110,14 +108,6 @@ var GlobalKeys = &GlobalKeyMap{
 	),
 
 	// Session interaction
-	AttachTmux: key.NewBinding(
-		key.WithKeys("a"),
-		key.WithHelp("a", "attach to agent"),
-	),
-	AttachShell: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", "attach to shell"),
-	),
 	DetachTmux: key.NewBinding(
 		key.WithKeys("ctrl+q"),
 		key.WithHelp("ctrl+q", "detach from tmux"),
@@ -193,9 +183,9 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
 		{k.Up, k.Down}, // Navigation
 		{k.AddRepo, k.NewWorktree}, // Repository & Worktree
-		{k.AttachTmux, k.AttachShell, k.DetachTmux},                   // Session
-		{k.Filter, k.ClearFilter},                                     // Filtering
-		{k.Confirm, k.Cancel},                                         // Dialogs
+		{k.DetachTmux},             // Session
+		{k.Filter, k.ClearFilter},  // Filtering
+		{k.Confirm, k.Cancel},      // Dialogs
 	}
 }
 
@@ -221,8 +211,6 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.NewWorktree,
 		},
 		"Session Interaction": {
-			k.AttachTmux,
-			k.AttachShell,
 			k.DetachTmux,
 		},
 		"List Controls": {

@@ -36,11 +36,9 @@ func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 
 	// Always show core global shortcuts
 	shortcuts = append(shortcuts,
-		s.keyMap.NewWorktree,  // n - new agent
-		s.keyMap.AttachTmux,   // a - attach to agent
-		s.keyMap.AttachShell,  // s - attach to shell
-		s.keyMap.Quit,         // q - quit
-		s.keyMap.Keybindings,  // ? - keybindings
+		s.keyMap.NewWorktree, // n - new agent
+		s.keyMap.Quit,        // q - quit
+		s.keyMap.Keybindings, // ? - keybindings
 	)
 
 	return shortcuts

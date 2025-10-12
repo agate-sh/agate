@@ -646,16 +646,17 @@ func isDirEmpty(dirname string) (bool, error) {
 }
 
 // CommitAll stages all changes (tracked and untracked) and commits with the provided message
-func CommitAll(repoPath, message string) error {
+// Returns the commit SHA on success
+func CommitAll(repoPath, message string) (string, error) {
 	if message == "" {
-		return fmt.Errorf("commit message cannot be empty")
+		return "", fmt.Errorf("commit message cannot be empty")
 	}
 
 	// Stage all changes
 	cmd := exec.Command("git", "add", "-A")
 	cmd.Dir = repoPath
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to stage changes: %w", err)
+		return "", fmt.Errorf("failed to stage changes: %w", err)
 	}
 
 	// Commit changes
@@ -665,11 +666,60 @@ func CommitAll(repoPath, message string) error {
 	if err != nil {
 		// Check if it's a "nothing to commit" error
 		if strings.Contains(string(output), "nothing to commit") {
-			return fmt.Errorf("no changes to commit")
+			return "", fmt.Errorf("no changes to commit")
 		}
-		return fmt.Errorf("failed to commit: %w", err)
+		return "", fmt.Errorf("failed to commit: %w", err)
 	}
 
+	// Get the commit SHA
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoPath
+	shaOutput, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit SHA: %w", err)
+	}
+
+	sha := strings.TrimSpace(string(shaOutput))
+	return sha, nil
+}
+
+// StageFile stages a specific file
+func StageFile(repoPath, filePath string) error {
+	cmd := exec.Command("git", "add", filePath)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stage file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// UnstageFile unstages a specific file
+func UnstageFile(repoPath, filePath string) error {
+	cmd := exec.Command("git", "restore", "--staged", filePath)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to unstage file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// DiscardFile discards changes to a specific file
+func DiscardFile(repoPath, filePath string) error {
+	cmd := exec.Command("git", "restore", filePath)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to discard changes for file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// StageAll stages all changes in the repository
+func StageAll(repoPath string) error {
+	cmd := exec.Command("git", "add", "-A")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stage all changes: %w", err)
+	}
 	return nil
 }
 

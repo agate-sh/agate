@@ -116,7 +116,6 @@ func (t *AgentTmuxPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 func (t *AgentTmuxPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Use the global keybindings to ensure consistency
 	return []key.Binding{
-		common.GlobalKeys.AttachTmux,
 		common.GlobalKeys.DetachTmux,
 	}
 }

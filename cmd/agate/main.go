@@ -76,6 +76,8 @@ type model struct {
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
 	toast               *components.Toast                    // Toast notification manager
+	commitOverlay       *overlays.CommitOverlay              // Commit overlay for creating commits
+	showCommitOverlay   bool                                 // Whether showing commit overlay
 
 	// Panes using the new Pane interface
 	repoPane  components.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
@@ -1023,6 +1025,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case overlays.CommitSuccessMsg:
+		// Commit succeeded - show success toast and close overlay
+		m.showCommitOverlay = false
+		m.commitOverlay = nil
+
+		// Show success toast with checkmark
+		toastCmd := m.toast.Show(fmt.Sprintf("✓ Created commit %s", msg.SHA), 0)
+
+		// Refresh git pane to show updated status
+		m.updateGitPane()
+
+		return m, toastCmd
+
+	case overlays.CommitErrorMsg:
+		// Commit failed - show error toast and keep overlay open
+		toastCmd := m.toast.Show(fmt.Sprintf("✗ Failed to create commit: %s", msg.Err.Error()), 0)
+		return m, toastCmd
+
 	case tea.KeyMsg:
 		// If welcome overlay is visible, any key closes it
 		if m.showWelcomeOverlay {
@@ -1080,6 +1100,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			model, cmd := m.repoDialog.Update(msg)
 			m.repoDialog = model.(*overlays.RepoDialog)
+			return m, cmd
+		}
+
+		// Handle commit overlay input
+		if m.showCommitOverlay && m.commitOverlay != nil {
+			// Check for esc to close overlay
+			if msg.String() == "esc" {
+				m.showCommitOverlay = false
+				m.commitOverlay = nil
+				return m, nil
+			}
+
+			var cmd tea.Cmd
+			model, cmd := m.commitOverlay.Update(msg)
+			m.commitOverlay = model.(*overlays.CommitOverlay)
 			return m, cmd
 		}
 
@@ -1153,6 +1188,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				handled, cmd := m.repoPane.HandleKey("d")
 				if handled {
 					return m, cmd
+				}
+			}
+			// Also handle 'd' in git pane for discarding files
+			if m.focused == layout.FocusGit && m.gitPane != nil {
+				handled, cmd := m.gitPane.HandleKey("d")
+				if handled {
+					// Refresh git pane after discard
+					m.updateGitPane()
+					return m, cmd
+				}
+			}
+
+		case msg.String() == "c":
+			// 'c' key handling - show commit overlay when git pane is focused
+			if m.focused == layout.FocusGit && m.gitPane != nil {
+				// Get current repository path from git pane
+				gitPane, ok := m.gitPane.(*panes.GitPane)
+				if ok {
+					repoPath := gitPane.GetRepoPath()
+					if repoPath != "" {
+						// Create and show commit overlay
+						m.commitOverlay = overlays.NewCommitOverlay(repoPath)
+						m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+						m.showCommitOverlay = true
+						return m, nil
+					}
 				}
 			}
 
@@ -1257,40 +1318,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, common.GlobalKeys.FocusPaneShell):
 			// Switch to shell pane (3)
 			return m.switchToPane(layout.FocusShell)
-
-		case key.Matches(msg, common.GlobalKeys.AttachTmux):
-			// Attach to agent tmux session (global shortcut 'a')
-			if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
-				// Update UI to show attached mode
-				m.footer.SetMode("attached")
-				m.shortcutOverlay.SetMode("attached")
-				// Block directly in Update like Claude Squad - don't return to event loop during attachment
-				detachCh, err := currentTmux.Attach()
-				if err != nil {
-					return m, func() tea.Msg { return errMsg{err} }
-				}
-				// Block until detachment like Claude Squad does
-				<-detachCh
-				// Process detached message immediately
-				return m.Update(tmuxDetachedMsg{})
-			}
-
-		case key.Matches(msg, common.GlobalKeys.AttachShell):
-			// Attach to shell tmux session (global shortcut 's')
-			if currentShellTmux := m.getCurrentShellTmuxSession(); currentShellTmux != nil {
-				// Update UI to show attached mode
-				m.footer.SetMode("attached")
-				m.shortcutOverlay.SetMode("attached")
-				// Block directly in Update like Claude Squad - don't return to event loop during attachment
-				detachCh, err := currentShellTmux.Attach()
-				if err != nil {
-					return m, func() tea.Msg { return errMsg{err} }
-				}
-				// Block until detachment like Claude Squad does
-				<-detachCh
-				// Process detached message immediately
-				return m.Update(tmuxDetachedMsg{})
-			}
 
 		default:
 			// Handle other key combinations if needed
@@ -1534,6 +1561,15 @@ func (m model) View() string {
 
 		// Use Claude Squad's overlay implementation
 		return overlay.PlaceOverlay(0, 0, m.sessionConfirm.View(), mainView, true, true)
+	}
+
+	// If commit overlay is visible, overlay it
+	if m.showCommitOverlay && m.commitOverlay != nil {
+		// Update dialog size
+		m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+
+		// Use Claude Squad's overlay implementation
+		return overlay.PlaceOverlay(0, 0, m.commitOverlay.View(), mainView, true, true)
 	}
 
 	// Render toast notifications (always rendered last, on top of everything)

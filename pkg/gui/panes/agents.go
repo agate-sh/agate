@@ -282,20 +282,17 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 		if hint != "" {
-			hintStyle := lipgloss.NewStyle().
-				Background(lipgloss.Color(theme.RowHighlight)).
-				Foreground(lipgloss.Color(theme.TextMuted))
-			hintRendered := hintStyle.Render(hint)
-			hintWidth := lipgloss.Width(hintRendered)
-			available := contentWidth - hintWidth
-			if available < 0 {
-				available = 0
-			}
-			bodySegment := bodyStyle.Width(available).Render(linePlain)
-			body = bodySegment + hintRendered
-			if lipgloss.Width(body) < contentWidth {
-				body += bodyStyle.Width(contentWidth - lipgloss.Width(body)).Render("")
-			}
+			// Use shared utility for hint rendering
+			// Note: We pass paddingCount=0 because we handle padding separately in agents pane
+			body = components.RenderRowWithHint(
+				linePlain,
+				hint,
+				contentWidth,
+				0, // No padding - we handle borders/padding separately
+				theme.RowHighlight,
+				theme.TextPrimary,
+				theme.TextMuted,
+			)
 		} else {
 			body = bodyStyle.Width(contentWidth).Render(linePlain)
 		}
