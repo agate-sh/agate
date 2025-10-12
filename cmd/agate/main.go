@@ -1039,8 +1039,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showCommitOverlay = false
 		m.commitOverlay = nil
 
-		// Show success toast with checkmark
-		toastCmd := m.toast.Show(fmt.Sprintf("✓ Created commit %s", msg.SHA), 0)
+		// Show success toast with green checkmark
+		checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
+		checkmark := checkmarkStyle.Render("✓")
+		message := fmt.Sprintf("%s Created commit %s", checkmark, msg.SHA)
+		toastCmd := m.toast.Show(message, 0)
 
 		// Refresh git pane to show updated status
 		if m.gitPane != nil {
