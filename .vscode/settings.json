@@ -1,0 +1,7 @@
+{
+  "go.goroot": "",
+  "go.gopath": "/Users/patrickerichsen/go",
+  "gopls": {
+    "build.directoryFilters": ["-node_modules"]
+  }
+}
