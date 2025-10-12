@@ -168,7 +168,7 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "n":
+		case "enter":
 			// Only create if both fields are valid
 			if d.isValid() {
 				return d, d.createAndAttachWorktree()
@@ -440,7 +440,7 @@ func (d *SessionDialog) View() string {
 	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
 
 	// Create button - disabled or enabled based on validation
-	createButton := components.NewButton("Create and attach", "n", components.ButtonVariantAgent)
+	createButton := components.NewButton("Create and attach", "↵", components.ButtonVariantAgent)
 	createButton.SetWidth(actualContentWidth)
 	createButton.SetAgentColor(d.selectedAgent.BorderColor)
 	createButton.SetDisabled(!d.isValid())

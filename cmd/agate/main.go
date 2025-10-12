@@ -1284,7 +1284,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, common.GlobalKeys.Commit):
 		// Show commit overlay (global shortcut)
 		activeSession := m.sessionManager.GetActiveSession()
-		if activeSession != nil {
+		if activeSession != nil && activeSession.Worktree != nil {
+			// Check if there are any changes to commit
+			fileStatus := git.GetFileStatuses(activeSession.Worktree.Path)
+			if fileStatus == nil || fileStatus.IsClean {
+				// No changes to commit - show toast
+				toastCmd := m.toast.Show("No changes to commit", 0)
+				return m, toastCmd
+			}
+
+			// There are changes - show commit overlay
 			m.commitOverlay = overlays.NewCommitOverlay(activeSession)
 			m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 			m.showCommitOverlay = true

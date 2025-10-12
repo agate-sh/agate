@@ -120,9 +120,9 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return c, nil
 
-		case "c":
-			// Commit! Only if valid
-			if c.isValid() {
+		case "enter":
+			// Commit! Only if valid (and only when input is focused)
+			if c.focusedField == 0 && c.isValid() {
 				return c, c.commit()
 			}
 			return c, nil
@@ -338,7 +338,7 @@ func (c *CommitOverlay) View() string {
 	fileListView := c.fileList.View()
 
 	// Create commit button
-	commitButton := components.NewButton("Commit", "c", components.ButtonVariantDefault)
+	commitButton := components.NewButton("Commit", "↵", components.ButtonVariantDefault)
 	commitButton.SetWidth(actualContentWidth)
 	commitButton.SetDisabled(!c.isValid())
 	button := commitButton.Render()

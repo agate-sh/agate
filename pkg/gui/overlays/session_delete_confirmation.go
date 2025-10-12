@@ -68,8 +68,8 @@ func NewSessionDeleteConfirmDialog(sess *session.Session, sessionManager *sessio
 	// Initialize keybindings
 	keys := deleteKeyMap{
 		Delete: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "delete"),
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "delete"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -210,7 +210,7 @@ func (d *SessionDeleteConfirmDialog) View() string {
 	}
 
 	// Create delete button
-	deleteButton := components.NewButton("Delete", "d", components.ButtonVariantDanger)
+	deleteButton := components.NewButton("Delete", "↵", components.ButtonVariantDanger)
 	deleteButton.SetWidth(actualContentWidth)
 	button := deleteButton.Render()
 
