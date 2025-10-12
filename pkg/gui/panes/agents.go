@@ -5,6 +5,7 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"fmt"
 	"io"
@@ -189,9 +190,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		// Section headers with Nerd Font icons
 		var icon string
 		if workItem.SectionTitle == "Main worktree" {
-			icon = "\uf07b" // Nerd Font folder icon
+			icon = icons.Home.NerdFont
 		} else if workItem.SectionTitle == "Linked worktrees" {
-			icon = "\uf0c1" // Nerd Font link icon
+			icon = icons.Link.NerdFont
 		}
 		iconStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(icon)
 		sectionStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Render(workItem.SectionTitle)
@@ -226,7 +227,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := "\ue0a0" // Nerd Font git branch icon
+		branchIcon := icons.GitRepo.NerdFont
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain

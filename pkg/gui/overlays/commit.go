@@ -3,6 +3,7 @@ package overlays
 import (
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/panes"
 	"agate/pkg/gui/theme"
 	"agate/pkg/session"
 	"fmt"
@@ -86,6 +87,13 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh file list after discard
 		c.fileList.Refresh()
 		return c, nil
+
+	case CommitSuccessMsg:
+		// Refresh file list after successful commit and send message to refresh git pane
+		c.fileList.Refresh()
+		return c, func() tea.Msg {
+			return panes.GitRefreshMsg{}
+		}
 
 	case CommitErrorMsg:
 		// Handle discard errors (and commit errors)

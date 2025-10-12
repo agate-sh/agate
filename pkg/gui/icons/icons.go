@@ -50,6 +50,12 @@ var (
 		Fallback: "📁",      // Unicode folder emoji
 	}
 
+	// Link icon for linked worktrees
+	Link = Icon{
+		NerdFont: "\uf0c1", // Nerd Font link icon
+		Fallback: "🔗",      // Unicode link emoji
+	}
+
 	// Git status icons for individual files
 	GitModified = Icon{
 		NerdFont: "\U000f1500", // Nerd Font square with dot icon (exact GitHub Desktop style)
