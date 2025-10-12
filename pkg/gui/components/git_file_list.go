@@ -16,6 +16,7 @@ type GitFileList struct {
 	repoPath      string
 	selectedIndex int    // Currently selected file index (across all files)
 	width         int    // Available width for rendering
+	height        int    // Available height for rendering
 	fullWidth     int    // Full width including padding
 	active        bool   // Whether this list is currently active/focused
 	showSummary   bool   // Whether to show the summary line at top
@@ -41,6 +42,11 @@ func (g *GitFileList) SetPadding(padding int) {
 func (g *GitFileList) SetSize(width int) {
 	g.width = width
 	g.fullWidth = PaneFullWidth(width)
+}
+
+// SetHeight sets the height for rendering (used for centering empty state)
+func (g *GitFileList) SetHeight(height int) {
+	g.height = height
 }
 
 // SetActive sets whether this list is currently focused
@@ -268,11 +274,40 @@ func (g *GitFileList) getIconStyle(status string) lipgloss.Style {
 	}
 }
 
-// renderEmptyState renders a message for empty/error states
+// renderEmptyState renders a centered message with icon for empty/error states
 func (g *GitFileList) renderEmptyState(message string) string {
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextMuted))
-	return style.Render(message)
+	// Icon style - larger and centered
+	iconStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextMuted)).
+		Width(g.width).
+		Align(lipgloss.Center)
+
+	// Text style - muted and centered
+	textStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextMuted)).
+		Width(g.width).
+		Align(lipgloss.Center)
+
+	// Only show icon for "No changes" message
+	var content string
+	if message == "No changes" {
+		icon := iconStyle.Render(icons.GitRepo.NerdFont)
+		text := textStyle.Render(message)
+		content = icon + "\n" + text
+	} else {
+		content = textStyle.Render(message)
+	}
+
+	// Center vertically if we have height
+	if g.height > 0 {
+		contentHeight := lipgloss.Height(content)
+		topPadding := (g.height - contentHeight) / 2
+		if topPadding > 0 {
+			content = strings.Repeat("\n", topPadding) + content
+		}
+	}
+
+	return content
 }
 
 // truncatePath truncates a path from the left if it's longer than maxWidth

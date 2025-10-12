@@ -39,6 +39,7 @@ func (g *GitPane) SetSize(width, height int) {
 	g.BasePane.SetSize(width, height)
 	if g.fileList != nil {
 		g.fileList.SetSize(g.GetWidth())
+		g.fileList.SetHeight(g.GetHeight())
 	}
 }
 
