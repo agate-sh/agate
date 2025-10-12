@@ -148,3 +148,28 @@ func (a AgentConfig) IsInstalled() bool {
 	_, err := exec.LookPath(a.ExecutableName)
 	return err == nil
 }
+
+// HeadlessCommand returns the command and arguments to run the agent in headless mode
+// with the given prompt. Returns nil if the agent does not support headless mode.
+func (a AgentConfig) HeadlessCommand(prompt string) []string {
+	switch a.ExecutableName {
+	case "claude":
+		return []string{"claude", "-p", prompt}
+	case "opencode":
+		return []string{"opencode", "-p", prompt}
+	case "cursor-agent":
+		return []string{"cursor-agent", "-p", prompt}
+	case "gemini":
+		return []string{"gemini", "-p", prompt}
+	case "codex":
+		return []string{"codex", "exec", prompt}
+	case "copilot":
+		return []string{"copilot", "-p", prompt}
+	case "cn":
+		return []string{"cn", "-p", prompt}
+	case "amp":
+		return []string{"amp", "-x", prompt}
+	default:
+		return nil
+	}
+}
