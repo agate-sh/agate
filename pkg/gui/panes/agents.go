@@ -211,7 +211,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := icons.GitRepo.NerdFont
+		var branchIcon string
+		if workItem.IsSelected {
+			branchIcon = icons.Ready.NerdFont
+		} else {
+			branchIcon = icons.GitRepo.NerdFont
+		}
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -227,7 +232,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := icons.GitRepo.NerdFont
+		var branchIcon string
+		if workItem.IsSelected {
+			branchIcon = icons.Ready.NerdFont
+		} else {
+			branchIcon = icons.GitRepo.NerdFont
+		}
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -283,19 +293,101 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 		if hint != "" {
-			// Use shared utility for hint rendering
-			// Note: We pass paddingCount=0 because we handle padding separately in agents pane
-			body = components.RenderRowWithHint(
-				linePlain,
-				hint,
-				contentWidth,
-				0, // No padding - we handle borders/padding separately
-				theme.RowHighlight,
-				theme.TextPrimary,
-				theme.TextMuted,
-			)
+			// For selected session items with hints, we need custom rendering for agent color
+			if workItem.IsSelected && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+				// Render hint
+				hintStyle := lipgloss.NewStyle().
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Foreground(lipgloss.Color(theme.TextMuted))
+				hintRendered := hintStyle.Render(hint)
+				hintWidth := lipgloss.Width(hintRendered)
+
+				// Calculate available width for content (excluding hint)
+				available := contentWidth - hintWidth
+				if available < 0 {
+					available = 0
+				}
+
+				// Extract label from linePlain: "   <icon>  <label>"
+				label := workItem.Worktree.Branch
+				if strings.TrimSpace(label) == "" {
+					label = workItem.Worktree.Name
+				}
+				branchIcon := icons.Ready.NerdFont
+
+				// Render parts with proper styling
+				agentColor := app.GetCurrentAgentColor()
+				iconStyled := lipgloss.NewStyle().
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Foreground(lipgloss.Color(agentColor)).
+					Render("   " + branchIcon + "  ")
+				labelStyled := lipgloss.NewStyle().
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Foreground(lipgloss.Color(theme.TextPrimary)).
+					Render(label)
+
+				contentRendered := iconStyled + labelStyled
+				renderedWidth := lipgloss.Width(contentRendered)
+
+				// Pad content to available width
+				if renderedWidth < available {
+					padding := lipgloss.NewStyle().
+						Background(lipgloss.Color(theme.RowHighlight)).
+						Render(strings.Repeat(" ", available-renderedWidth))
+					contentRendered += padding
+				}
+
+				// Combine content + hint
+				body = contentRendered + hintRendered
+			} else {
+				// Use shared utility for hint rendering
+				// Note: We pass paddingCount=0 because we handle padding separately in agents pane
+				body = components.RenderRowWithHint(
+					linePlain,
+					hint,
+					contentWidth,
+					0, // No padding - we handle borders/padding separately
+					theme.RowHighlight,
+					theme.TextPrimary,
+					theme.TextMuted,
+				)
+			}
 		} else {
-			body = bodyStyle.Width(contentWidth).Render(linePlain)
+			// If this is a selected session item, render with agent color
+			if workItem.IsSelected && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+				// Extract label
+				label := workItem.Worktree.Branch
+				if strings.TrimSpace(label) == "" {
+					label = workItem.Worktree.Name
+				}
+				branchIcon := icons.Ready.NerdFont
+
+				// Render parts with proper styling
+				agentColor := app.GetCurrentAgentColor()
+				iconStyled := lipgloss.NewStyle().
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Foreground(lipgloss.Color(agentColor)).
+					Render("   " + branchIcon + "  ")
+				labelStyled := lipgloss.NewStyle().
+					Background(lipgloss.Color(theme.RowHighlight)).
+					Foreground(lipgloss.Color(theme.TextPrimary)).
+					Render(label)
+
+				contentRendered := iconStyled + labelStyled
+				renderedWidth := lipgloss.Width(contentRendered)
+
+				// Pad to full width
+				if renderedWidth < contentWidth {
+					padding := lipgloss.NewStyle().
+						Background(lipgloss.Color(theme.RowHighlight)).
+						Render(strings.Repeat(" ", contentWidth-renderedWidth))
+					contentRendered += padding
+				}
+
+				body = contentRendered
+			} else {
+				body = bodyStyle.Width(contentWidth).Render(linePlain)
+			}
 		}
 	} else {
 		body = lipgloss.NewStyle().Width(contentWidth).Render(lineStyled)
@@ -307,27 +399,8 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		baseHighlightStyle = baseHighlightStyle.Background(lipgloss.Color(theme.RowHighlight))
 	}
 
-	if workItem.IsSelected && paddingLeft > 0 {
-		cursorRune := components.BlinkingCursor.Frames[0]
-		if len(cursorRune) == 0 {
-			cursorRune = "█"
-		}
-		agentColor := app.GetCurrentAgentColor()
-		cursorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(agentColor)).
-			Background(lipgloss.Color(theme.RowHighlight)).
-			Render(cursorRune)
-		remaining := paddingLeft - 1
-		if remaining < 0 {
-			remaining = 0
-		}
-		leftBorder = cursorStyle
-		if remaining > 0 {
-			leftBorder += baseHighlightStyle.Render(strings.Repeat(" ", remaining))
-		}
-	} else {
-		leftBorder = baseHighlightStyle.Render(leftPad)
-	}
+	// Just render padding - no cursor rune
+	leftBorder = baseHighlightStyle.Render(leftPad)
 
 	rightPadStyle := lipgloss.NewStyle()
 	if activeHighlight {
