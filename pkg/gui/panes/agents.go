@@ -211,7 +211,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		branchIcon := "\ue0a0" // Nerd Font git branch icon
+		branchIcon := icons.GitRepo.NerdFont
 		linePlain = "   " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
