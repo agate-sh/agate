@@ -17,7 +17,7 @@ type Icon struct {
 var (
 	// Repository/branch icon (main one we need)
 	GitRepo = Icon{
-		NerdFont: "\ue0a0", // Nerd Font git branch icon
+		NerdFont: "\ue725", // Nerd Font git branch icon
 		Fallback: "Ꮧ",      // Claude Squad's branch icon
 	}
 

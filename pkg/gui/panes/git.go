@@ -50,6 +50,7 @@ func (g *GitPane) SetRepository(repoPath string) {
 		if g.fileList != nil {
 			g.fileList = components.NewGitFileList(repoPath, true)
 			g.fileList.SetSize(g.GetWidth())
+			g.fileList.SetHeight(g.GetHeight())
 		}
 		g.Refresh()
 	}
