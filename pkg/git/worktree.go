@@ -38,6 +38,14 @@ type GitStatus struct {
 	RemoteName string
 }
 
+// CommitInfo represents information about a Git commit
+type CommitInfo struct {
+	Hash    string
+	Message string
+	Author  string
+	Date    string
+}
+
 // WorktreeInfo represents information about a Git worktree
 type WorktreeInfo struct {
 	Name      string
@@ -635,4 +643,134 @@ func isDirEmpty(dirname string) (bool, error) {
 		return false, err
 	}
 	return len(entries) == 0, nil
+}
+
+// CommitAll stages all changes (tracked and untracked) and commits with the provided message
+func CommitAll(repoPath, message string) error {
+	if message == "" {
+		return fmt.Errorf("commit message cannot be empty")
+	}
+
+	// Stage all changes
+	cmd := exec.Command("git", "add", "-A")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stage changes: %w", err)
+	}
+
+	// Commit changes
+	cmd = exec.Command("git", "commit", "-m", message)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if it's a "nothing to commit" error
+		if strings.Contains(string(output), "nothing to commit") {
+			return fmt.Errorf("no changes to commit")
+		}
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	return nil
+}
+
+// GetCommitLog gets list of commits on sourceBranch that aren't on targetBranch
+func GetCommitLog(repoPath, targetBranch, sourceBranch string) ([]CommitInfo, error) {
+	// Use git log with custom format: hash|message|author|date
+	// Format: %h = short hash, %s = subject, %an = author name, %ad = author date
+	cmd := exec.Command("git", "log", fmt.Sprintf("%s..%s", targetBranch, sourceBranch),
+		"--pretty=format:%h|%s|%an|%ad", "--date=short")
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit log: %w", err)
+	}
+
+	// Parse output
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var commits []CommitInfo
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) != 4 {
+			continue
+		}
+
+		commits = append(commits, CommitInfo{
+			Hash:    parts[0],
+			Message: parts[1],
+			Author:  parts[2],
+			Date:    parts[3],
+		})
+	}
+
+	return commits, nil
+}
+
+// GetDiffFiles gets list of files that differ between source and target branches
+func GetDiffFiles(repoPath, sourceBranch, targetBranch string) ([]string, error) {
+	// Use git diff --name-only to get list of changed files
+	// Using three-dot syntax (targetBranch...sourceBranch) to show changes in sourceBranch
+	// that are not in targetBranch
+	cmd := exec.Command("git", "diff", "--name-only", fmt.Sprintf("%s...%s", targetBranch, sourceBranch))
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff files: %w", err)
+	}
+
+	// Parse output - each line is a file path
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var files []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+
+	return files, nil
+}
+
+// MergeBranch merges source branch into current branch of target repo (main worktree)
+func MergeBranch(targetRepoPath, sourceBranch, commitMessage string) error {
+	// Verify we're on a valid branch (not detached HEAD)
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = targetRepoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch == "" {
+		return fmt.Errorf("not on a valid branch (detached HEAD)")
+	}
+
+	// Verify source branch exists
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+sourceBranch)
+	cmd.Dir = targetRepoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("source branch '%s' does not exist", sourceBranch)
+	}
+
+	// Perform merge
+	cmd = exec.Command("git", "merge", sourceBranch, "-m", commitMessage)
+	cmd.Dir = targetRepoPath
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		outputStr := string(output)
+		// Check for merge conflicts
+		if strings.Contains(outputStr, "CONFLICT") || strings.Contains(outputStr, "conflict") {
+			return fmt.Errorf("merge conflict occurred: %w", err)
+		}
+		return fmt.Errorf("merge failed: %w\nOutput: %s", err, outputStr)
+	}
+
+	return nil
 }
