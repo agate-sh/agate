@@ -428,7 +428,8 @@ func (c *CommitOverlay) View() string {
 		// Show elapsed time and quit option after 3 seconds
 		if c.startTime != nil && time.Since(*c.startTime) >= 3*time.Second {
 			stopwatch := components.FormatElapsedTime(*c.startTime, "c", "cancel")
-			appendLine(stopwatch)
+			// Add left padding to align with loader label text (spinner + space = 2 chars)
+			appendLine("  " + stopwatch)
 		}
 	} else {
 		// Show normal commit UI
