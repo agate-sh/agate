@@ -271,6 +271,7 @@ install_agate() {
     local version="$2"
     local install_path="${INSTALL_DIR}/${BINARY_NAME}"
     local temp_dir
+    local is_upgrade="$3"
 
     # Create temporary directory
     temp_dir=$(mktemp -d) || die "Failed to create temporary directory"
@@ -322,7 +323,11 @@ install_agate() {
     mv "$binary_file" "$install_path" || die "Failed to install binary"
     chmod +x "$install_path" || die "Failed to make binary executable"
 
-    printf "${GREEN}${BOLD}✓${NC} Installed \033[3magate\033[0m \033[2m($install_path)${NC}\n"
+    if [[ "$is_upgrade" == "true" ]]; then
+        printf "${GREEN}${BOLD}✓${NC} Updated \033[3magate\033[0m \033[2m(v${version})${NC}\n"
+    else
+        printf "${GREEN}${BOLD}✓${NC} Installed \033[3magate\033[0m \033[2m(v${version})${NC}\n"
+    fi
 }
 
 # Update shell configuration
@@ -356,26 +361,9 @@ update_shell_config() {
 
     # Check if directory is already in shell config
     if [[ -n "$shell_config" ]] && [[ -f "$shell_config" ]] && grep -q "${INSTALL_DIR}" "$shell_config"; then
-        print_success "Installation directory already in PATH"
-        # Still return the shell config path for success box
-        case "${SHELL}" in
-            */bash)
-                if [[ -f "$HOME/.bash_profile" ]]; then
-                    echo "$HOME/.bash_profile"
-                else
-                    echo "$HOME/.bashrc"
-                fi
-                ;;
-            */zsh)
-                echo "$HOME/.zshrc"
-                ;;
-            */fish)
-                echo "$HOME/.config/fish/config.fish"
-                ;;
-            *)
-                echo ""
-                ;;
-        esac
+        printf "${GREEN}${BOLD}✓${NC} Installation directory already in PATH \033[2m(${shell_config})${NC}\n" >&2
+        # Return the shell config path for success box
+        echo "$shell_config"
         return
     fi
 
@@ -414,8 +402,7 @@ check_existing_installation() {
             printf "${GREEN}${BOLD}✓${NC} Agate already installed \033[2m(v${current_version})${NC}\n"
             return 1  # Return error to skip installation but continue to success box
         else
-            warn "Found existing installation (v${current_version})"
-            info "Upgrading to v$1..."
+            printf "${GREEN}${BOLD}✓${NC} Found existing installation \033[2m(v${current_version})${NC}\n"
         fi
     fi
 }
@@ -480,8 +467,13 @@ main() {
     check_dependencies
 
     # Install Agate (unless already installed)
+    local is_upgrade=false
     if [[ "$skip_install" != "true" ]]; then
-        install_agate "$platform" "$version"
+        # Check if this is an upgrade
+        if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
+            is_upgrade=true
+        fi
+        install_agate "$platform" "$version" "$is_upgrade"
     fi
 
     # Always update shell configuration (it will check if already in PATH)
