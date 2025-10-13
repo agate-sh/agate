@@ -674,6 +674,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case tmuxDetachedMsg:
+		debug.DebugLog("[tmuxDetachedMsg] ===== DETACHED FROM TMUX =====")
+		if m.sessionManager != nil {
+			activeSession := m.sessionManager.GetActiveSession()
+			if activeSession != nil && activeSession.Worktree != nil {
+				debug.DebugLog("[tmuxDetachedMsg] Active session before switchToPane: path=%s, branch=%s",
+					activeSession.Worktree.Path, activeSession.Worktree.Branch)
+			} else {
+				debug.DebugLog("[tmuxDetachedMsg] No active session or worktree")
+			}
+		}
+
 		// Left content is now handled by WorktreeList directly
 		// ASCII art will be displayed by WorktreeList
 
@@ -681,8 +692,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.footer.SetMode("preview")
 		m.shortcutOverlay.SetMode("preview")
 
+		debug.DebugLog("[tmuxDetachedMsg] About to call switchToPane(FocusAgents)")
 		// Return focus to the agents pane (which will automatically jump to the active agent's row)
 		m, _ = m.switchToPane(layout.FocusAgents)
+		debug.DebugLog("[tmuxDetachedMsg] Returned from switchToPane(FocusAgents)")
 
 		// Immediately resize the tmux session to current window dimensions
 		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.ready {
@@ -721,17 +734,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Worktree created successfully - start tmux session but keep dialog open
-		// Refresh the worktree list
-		if m.worktreeList != nil {
-			if err := m.worktreeList.Refresh(); err != nil {
-				debug.DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
-				// Continue showing success message, but log the refresh failure
-			}
-			// Update Git pane after refresh
-			m.updateGitPane()
-		}
-
-		// Create and switch to new session for the worktree
+		// Create and switch to new session for the worktree FIRST
 		if msg.Worktree != nil {
 			// Use the agent name from the message (selected by user in dialog)
 			agentName := msg.AgentName
@@ -741,11 +744,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Create or get session for this worktree using session manager
 			newSession, err := m.sessionManager.GetOrCreateSession(msg.Worktree, agentName)
 			if err == nil {
-				// Switch to the new session
+				// Switch to the new session FIRST
 				m.sessionManager.SwitchToSession(newSession.WorktreeKey)
 
 				// Update agent based on new session
 				app.SetCurrentAgent(newSession.Agent)
+
+				// Update the agents pane to select the new worktree
+				if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+					agentsPane.Refresh()
+					agentsPane.SelectWorktreeByPath(msg.Worktree.Path)
+				}
+
+				// Refresh worktree list and update git pane
+				if m.worktreeList != nil {
+					if err := m.worktreeList.Refresh(); err != nil {
+						debug.DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
+					}
+					// Now updateGitPane will use the correct selected worktree
+					m.updateGitPane()
+				}
 
 				// Update tmux pane with new session
 				if m.tmuxPane != nil {
@@ -782,9 +800,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showSessionDialog = false
 		m.worktreeDialog = nil
 
-		// Refresh the agents pane to show the new session
+		// Refresh the agents pane to show the new session AND select it
 		if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
 			agentsPane.Refresh()
+			if msg.Worktree != nil {
+				// Select the newly created worktree so it becomes the active one
+				agentsPane.SelectWorktreeByPath(msg.Worktree.Path)
+				debug.DebugLog("[WorktreeInitializationCompleteMsg] Selected worktree: %s", msg.Worktree.Path)
+			}
 		}
 
 		// Auto-attach to the newly created session's tmux
@@ -828,45 +851,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case panes.AttachToSessionMsg:
 		// User wants to attach to a tmux session from the agents pane
 		if msg.Session != nil && msg.Session.TmuxSession != nil {
-			// Switch to this session first
 			if m.sessionManager != nil {
 				m.sessionManager.SwitchToSession(msg.Session.WorktreeKey)
-
-				// Update agent based on session
 				app.SetCurrentAgent(msg.Session.Agent)
-
-				// Update tmux pane with the session
-				if m.tmuxPane != nil {
-					if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-						tmuxPane.SetSession(msg.Session.TmuxSession)
-					}
-				}
-
-				// Update shell pane with the session
-				if m.shellPane != nil {
-					if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
-						shellPane.SetSession(msg.Session.ShellTmuxSession)
-					}
-				}
 			}
 
-			// Switch focus to tmux pane
+			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
+				tmuxPane.SetSession(msg.Session.TmuxSession)
+			}
+			if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
+				shellPane.SetSession(msg.Session.ShellTmuxSession)
+			}
+
 			m.focused = layout.FocusTmux
 			m.footer.SetFocus(layout.FocusTmux.String())
 			m.shortcutOverlay.SetFocus(layout.FocusTmux.String())
-
-			// Update UI to show attached mode
 			m.footer.SetMode("attached")
 			m.shortcutOverlay.SetMode("attached")
 
-			// Attach to the tmux session
 			detachCh, err := msg.Session.TmuxSession.Attach()
 			if err != nil {
 				return m, func() tea.Msg { return errMsg{err} }
 			}
-			// Block until detachment like Claude Squad does
 			<-detachCh
-			// Process detached message immediately
 			return m.Update(tmuxDetachedMsg{})
 		}
 		return m, nil
@@ -921,8 +928,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh UI to reflect deletion
 		if m.repoPane != nil {
 			if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+				var snapshot []panes.AgentListItem
+				if msg.Session != nil {
+					snapshot = repoPane.SnapshotItems()
+				}
+
 				if err := repoPane.Refresh(); err != nil {
 					debug.DebugLog("Failed to refresh repo pane after session deletion: %v", err)
+				}
+
+				// Select the next appropriate session with priority:
+				// 1. Session above, 2. Session below, 3. Main worktree
+				if msg.Session != nil {
+					repoPane.SelectSessionAfterDeletion(msg.Session, snapshot)
 				}
 			}
 		}
@@ -1243,7 +1261,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-
 		case key.Matches(msg, common.GlobalKeys.Quit):
 			// Persist sessions before quitting
 			if m.sessionManager != nil {
@@ -1282,7 +1299,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, common.GlobalKeys.NewSession):
 			// Create new worktree (available from both panes)
-			if m.worktreeManager != nil {
+			if m.sessionManager != nil {
 				// Get default agent from state or use current subprocess
 				var defaultAgent string
 				if m.stateManager != nil {
@@ -1292,45 +1309,67 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Fallback to current subprocess if no default set
 					defaultAgent = m.subprocess
 				}
-				m.worktreeDialog = overlays.NewSessionDialog(m.worktreeManager, defaultAgent)
-				m.showSessionDialog = true
-				return m, nil
+
+				var worktreeManager *git.WorktreeManager
+				var repoName string
+				if pane, ok := m.repoPane.(*panes.AgentsPane); ok {
+					repoName = pane.GetHoveredRepoName()
+				}
+
+				var err error
+				if repoName != "" {
+					worktreeManager, err = m.sessionManager.GetWorktreeManagerForRepo(repoName)
+					if err != nil {
+						debug.DebugLog("NewSession: failed to resolve worktree manager for repo %s: %v", repoName, err)
+					}
+				}
+
+				if worktreeManager == nil {
+					worktreeManager = m.sessionManager.GetWorktreeManager()
+				}
+
+				if worktreeManager != nil {
+					m.worktreeManager = worktreeManager
+					m.worktreeDialog = overlays.NewSessionDialog(worktreeManager, defaultAgent)
+					m.showSessionDialog = true
+					return m, nil
+				}
 			}
 
-	case key.Matches(msg, common.GlobalKeys.AttachAgent):
-		// Attach to agent tmux session (global shortcut)
-		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
-			m.footer.SetMode("attached")
-			m.shortcutOverlay.SetMode("attached")
-			detachCh, err := currentTmux.Attach()
-			if err != nil {
-				return m, func() tea.Msg { return errMsg{err} }
+		case key.Matches(msg, common.GlobalKeys.AttachAgent):
+			// Attach to agent tmux session (global shortcut)
+			if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
+				m.footer.SetMode("attached")
+				m.shortcutOverlay.SetMode("attached")
+				detachCh, err := currentTmux.Attach()
+				if err != nil {
+					return m, func() tea.Msg { return errMsg{err} }
+				}
+				<-detachCh
+				return m.Update(tmuxDetachedMsg{})
 			}
-			<-detachCh
-			return m.Update(tmuxDetachedMsg{})
-		}
-		return m, nil
+			return m, nil
 
-	case key.Matches(msg, common.GlobalKeys.Commit):
-		// Show commit overlay (global shortcut)
-		activeSession := m.sessionManager.GetActiveSession()
-		if activeSession != nil && activeSession.Worktree != nil {
-			// Check if there are any changes to commit
-			fileStatus := git.GetFileStatuses(activeSession.Worktree.Path)
-			if fileStatus == nil || fileStatus.IsClean {
-				// No changes to commit - show toast
-				toastCmd := m.toast.Show("No changes to commit", 0)
-				return m, toastCmd
+		case key.Matches(msg, common.GlobalKeys.Commit):
+			// Show commit overlay (global shortcut)
+			activeSession := m.sessionManager.GetActiveSession()
+			if activeSession != nil && activeSession.Worktree != nil {
+				// Check if there are any changes to commit
+				fileStatus := git.GetFileStatuses(activeSession.Worktree.Path)
+				if fileStatus == nil || fileStatus.IsClean {
+					// No changes to commit - show toast
+					toastCmd := m.toast.Show("No changes to commit", 0)
+					return m, toastCmd
+				}
+
+				// There are changes - show commit overlay
+				m.commitOverlay = overlays.NewCommitOverlay(activeSession)
+				m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+				m.showCommitOverlay = true
+				initCmd := m.commitOverlay.Init()
+				return m, initCmd
 			}
-
-			// There are changes - show commit overlay
-			m.commitOverlay = overlays.NewCommitOverlay(activeSession)
-			m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-			m.showCommitOverlay = true
-			initCmd := m.commitOverlay.Init()
-			return m, initCmd
-		}
-		return m, nil
+			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.Up):
 			// Navigate up in focused pane

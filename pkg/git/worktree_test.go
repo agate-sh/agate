@@ -820,3 +820,38 @@ func TestStageAll(t *testing.T) {
 		t.Error("Expected commit SHA after staging all files")
 	}
 }
+
+func TestNewWorktreeManagerForPath(t *testing.T) {
+	repo := createTestRepo(t)
+	defer repo.cleanup()
+
+	manager, err := NewWorktreeManagerForPath(repo.path)
+	if err != nil {
+		t.Fatalf("NewWorktreeManagerForPath returned error: %v", err)
+	}
+
+	if manager == nil {
+		t.Fatalf("NewWorktreeManagerForPath returned nil manager")
+	}
+
+	gotPath := filepath.Clean(manager.GetRepositoryPath())
+	gotEval, err := filepath.EvalSymlinks(gotPath)
+	if err == nil {
+		gotPath = gotEval
+	}
+
+	wantedPath := filepath.Clean(repo.path)
+	wantEval, err := filepath.EvalSymlinks(wantedPath)
+	if err == nil {
+		wantedPath = wantEval
+	}
+
+	if gotPath != wantedPath {
+		t.Fatalf("GetRepositoryPath = %s, want %s", gotPath, wantedPath)
+	}
+
+	expectedName := sanitizeRepoName(filepath.Base(repo.path))
+	if got := manager.GetRepositoryName(); got != expectedName {
+		t.Fatalf("GetRepositoryName = %s, want %s", got, expectedName)
+	}
+}

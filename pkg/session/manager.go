@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,8 +19,9 @@ import (
 type Manager struct {
 	sessions      map[string]*Session  // WorktreeKey -> Session
 	activeSession *Session             // Currently active session
-	worktreeMgr   *git.WorktreeManager // Git worktree management
-	stateMgr      StateManager         // Thread-safe state persistence
+	worktreeMgr   *git.WorktreeManager // Default Git worktree manager (launch repo)
+	worktreeMap   map[string]*git.WorktreeManager
+	stateMgr      StateManager // Thread-safe state persistence
 }
 
 // StateManager defines the interface for state persistence
@@ -30,6 +32,7 @@ type StateManager interface {
 	SetActiveSession(sessionKey string) error
 	GetActiveSession() string
 	UpdateSessions(fn func(*config.SessionState) error) error
+	GetLastWorktreeForRepo(repoName string) *config.WorktreeRef
 }
 
 // NewManager creates a new session manager
@@ -38,11 +41,19 @@ func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manage
 		debug.DebugLog("WARNING: SessionManager created with nil StateManager - persistence will not work")
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		sessions:    make(map[string]*Session),
 		worktreeMgr: worktreeMgr,
+		worktreeMap: make(map[string]*git.WorktreeManager),
 		stateMgr:    stateMgr,
 	}
+
+	if worktreeMgr != nil {
+		repoName := worktreeMgr.GetRepositoryName()
+		mgr.worktreeMap[repoName] = worktreeMgr
+	}
+
+	return mgr
 }
 
 // CreateSession creates a new session for the given worktree and agent
@@ -164,6 +175,14 @@ func (m *Manager) SwitchToSession(worktreeKey string) (*Session, error) {
 
 // GetActiveSession returns the currently active session
 func (m *Manager) GetActiveSession() *Session {
+	if m.activeSession != nil && m.activeSession.Worktree != nil {
+		debug.DebugLog("[SessionManager] GetActiveSession: returning path=%s, branch=%s",
+			m.activeSession.Worktree.Path, m.activeSession.Worktree.Branch)
+	} else if m.activeSession != nil {
+		debug.DebugLog("[SessionManager] GetActiveSession: returning session with nil worktree")
+	} else {
+		debug.DebugLog("[SessionManager] GetActiveSession: returning nil")
+	}
 	return m.activeSession
 }
 
@@ -264,6 +283,88 @@ func (m *Manager) GetLinkedSessions(repoName string) []*Session {
 		}
 	}
 	return sessions
+}
+
+// GetRepositoryPath returns the absolute path for the given repository name.
+func (m *Manager) GetRepositoryPath(repoName string) (string, error) {
+	repoName = strings.TrimSpace(repoName)
+	if repoName == "" {
+		if m.worktreeMgr != nil {
+			return m.worktreeMgr.GetRepositoryPath(), nil
+		}
+		return "", fmt.Errorf("repository name cannot be empty")
+	}
+
+	if manager, ok := m.worktreeMap[repoName]; ok && manager != nil {
+		return manager.GetRepositoryPath(), nil
+	}
+
+	if m.worktreeMgr != nil && m.worktreeMgr.GetRepositoryName() == repoName {
+		return m.worktreeMgr.GetRepositoryPath(), nil
+	}
+
+	for _, session := range m.sessions {
+		if session == nil || session.Worktree == nil {
+			continue
+		}
+		if session.Worktree.RepoName != repoName {
+			continue
+		}
+		if m.isLinkedWorktree(session) {
+			continue
+		}
+		path := strings.TrimSpace(session.Worktree.Path)
+		if path != "" {
+			return filepath.Clean(path), nil
+		}
+	}
+
+	if m.stateMgr != nil {
+		if ref := m.stateMgr.GetLastWorktreeForRepo(repoName); ref != nil {
+			path := strings.TrimSpace(ref.Path)
+			if path != "" {
+				return filepath.Clean(path), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("repository path not found for repo: %s", repoName)
+}
+
+// GetWorktreeManagerForRepo returns a worktree manager scoped to the given repository.
+func (m *Manager) GetWorktreeManagerForRepo(repoName string) (*git.WorktreeManager, error) {
+	repoName = strings.TrimSpace(repoName)
+	if repoName == "" {
+		if m.worktreeMgr != nil {
+			return m.worktreeMgr, nil
+		}
+		return nil, fmt.Errorf("repository name cannot be empty")
+	}
+
+	if manager, ok := m.worktreeMap[repoName]; ok && manager != nil {
+		return manager, nil
+	}
+
+	repoPath, err := m.GetRepositoryPath(repoName)
+	if err != nil {
+		return nil, err
+	}
+
+	manager, err := git.NewWorktreeManagerForPath(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if m.worktreeMap == nil {
+		m.worktreeMap = make(map[string]*git.WorktreeManager)
+	}
+	key := manager.GetRepositoryName()
+	m.worktreeMap[key] = manager
+	if key != repoName {
+		m.worktreeMap[repoName] = manager
+	}
+
+	return manager, nil
 }
 
 // isLinkedWorktree determines if a session is from a linked worktree

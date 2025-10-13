@@ -98,6 +98,39 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 	}, nil
 }
 
+// NewWorktreeManagerForPath creates a worktree manager scoped to the provided repository path.
+func NewWorktreeManagerForPath(repoPath string) (*WorktreeManager, error) {
+	repoPath = strings.TrimSpace(repoPath)
+	if repoPath == "" {
+		return nil, fmt.Errorf("repository path cannot be empty")
+	}
+
+	absolutePath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve repository path: %w", err)
+	}
+
+	rootPath, err := getRepositoryRoot(absolutePath)
+	if err != nil {
+		return nil, fmt.Errorf("not a git repository: %w", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	worktreeBase := filepath.Join(homeDir, ".agate", "worktrees")
+
+	systemCaps := detectCOWSupport()
+
+	return &WorktreeManager{
+		repoPath:     rootPath,
+		worktreeBase: worktreeBase,
+		systemCaps:   systemCaps,
+		isGitRepo:    true,
+	}, nil
+}
+
 // IsGitRepo indicates whether the manager was initialized inside a Git repository.
 func (wm *WorktreeManager) IsGitRepo() bool {
 	return wm.isGitRepo

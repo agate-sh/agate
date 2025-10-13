@@ -18,3 +18,4 @@ Or to search for specific issues:
 ```bash
 grep "commit overlay" ~/.agate/debug.log
 ```
+- To verify your hypotheses, you can add debug logs and ask the user to walk through a set of actions to trigger those logs. This is a good way to ensure your assumptions are correct.
