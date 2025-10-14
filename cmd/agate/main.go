@@ -395,6 +395,7 @@ func (m model) Init() tea.Cmd {
 		startInitialMainSession(m.sessionManager, m.subprocess),
 		tea.EnterAltScreen,
 		m.loadingState.TickCmd(),
+		listenForBranchUpdates(m.sessionManager),
 	)
 }
 
@@ -441,6 +442,25 @@ func startInitialMainSession(sessionMgr *session.Manager, agentName string) tea.
 	}
 }
 
+func listenForBranchUpdates(sessionMgr *session.Manager) tea.Cmd {
+	if sessionMgr == nil {
+		return nil
+	}
+
+	updates := sessionMgr.BranchUpdates()
+	if updates == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		update, ok := <-updates
+		if !ok {
+			return nil
+		}
+		return branchUpdateMsg{update: update}
+	}
+}
+
 func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 	return func() tea.Msg {
 		// Capture tmux pane content with ANSI codes preserved
@@ -480,6 +500,10 @@ func combineCmds(cmds ...tea.Cmd) tea.Cmd {
 
 type tmuxSessionStartedMsg struct {
 	session *session.Session
+}
+
+type branchUpdateMsg struct {
+	update session.BranchUpdate
 }
 
 type tmuxOutputMsg struct {
@@ -607,6 +631,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return loadingTimeoutMsg{}
 			}),
 		)
+
+	case branchUpdateMsg:
+		var cmds []tea.Cmd
+		if m.sessionManager != nil && msg.update.Worktree != nil {
+			if m.sessionManager.ApplyBranchUpdate(msg.update) {
+				if m.repoPane != nil {
+					if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+						agentsPane.Refresh()
+						agentsPane.SelectWorktreeByPath(msg.update.Worktree.Path)
+					}
+				}
+				cmds = append(cmds, m.updateGitPane())
+			}
+		}
+		cmds = append(cmds, listenForBranchUpdates(m.sessionManager))
+		return m, combineCmds(cmds...)
 
 	case tmuxOutputMsg:
 		// Update tmux pane content

@@ -22,6 +22,14 @@ type Manager struct {
 	worktreeMgr   *git.WorktreeManager // Default Git worktree manager (launch repo)
 	worktreeMap   map[string]*git.WorktreeManager
 	stateMgr      StateManager // Thread-safe state persistence
+	headWatchers  map[string]*git.HeadWatcher
+	branchUpdates chan BranchUpdate
+}
+
+// BranchUpdate represents a change to the main worktree's branch for a repository.
+type BranchUpdate struct {
+	RepoName string
+	Worktree *git.WorktreeInfo
 }
 
 // StateManager defines the interface for state persistence
@@ -42,10 +50,12 @@ func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manage
 	}
 
 	mgr := &Manager{
-		sessions:    make(map[string]*Session),
-		worktreeMgr: worktreeMgr,
-		worktreeMap: make(map[string]*git.WorktreeManager),
-		stateMgr:    stateMgr,
+		sessions:      make(map[string]*Session),
+		worktreeMgr:   worktreeMgr,
+		worktreeMap:   make(map[string]*git.WorktreeManager),
+		stateMgr:      stateMgr,
+		headWatchers:  make(map[string]*git.HeadWatcher),
+		branchUpdates: make(chan BranchUpdate, 16),
 	}
 
 	if worktreeMgr != nil {
@@ -54,6 +64,14 @@ func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manage
 	}
 
 	return mgr
+}
+
+// BranchUpdates returns a read-only channel that emits branch updates for main worktrees.
+func (m *Manager) BranchUpdates() <-chan BranchUpdate {
+	if m == nil {
+		return nil
+	}
+	return m.branchUpdates
 }
 
 // CreateSession creates a new session for the given worktree and agent
@@ -114,6 +132,7 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 
 	// Store session
 	m.sessions[worktreeKey] = session
+	m.ensureHeadWatcher(session)
 
 	// Persist session to config
 	if err := m.PersistSessions(); err != nil {
@@ -125,6 +144,40 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 		session.ID, worktree.Path, agentName)
 
 	return session, nil
+}
+
+// ApplyBranchUpdate updates the stored session metadata to reflect a branch change.
+// Returns true if an existing session was updated.
+func (m *Manager) ApplyBranchUpdate(update BranchUpdate) bool {
+	if update.Worktree == nil {
+		return false
+	}
+
+	updated := false
+	for _, session := range m.sessions {
+		if session == nil || session.Worktree == nil {
+			continue
+		}
+		if m.isLinkedWorktree(session) {
+			continue
+		}
+		if filepath.Clean(session.Worktree.Path) != filepath.Clean(update.Worktree.Path) {
+			continue
+		}
+
+		session.Worktree.Branch = update.Worktree.Branch
+		session.Worktree.Name = update.Worktree.Name
+		session.Worktree.GitStatus = update.Worktree.GitStatus
+		updated = true
+	}
+
+	if updated {
+		if err := m.PersistSessions(); err != nil {
+			debug.DebugLog("Failed to persist sessions after branch update: %v", err)
+		}
+	}
+
+	return updated
 }
 
 // GetOrCreateSession returns existing session or creates a new one
@@ -140,6 +193,7 @@ func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName strin
 		// Update access time
 		session.Update()
 		debug.DebugLog("Reusing existing session: %s", session.ID)
+		m.ensureHeadWatcher(session)
 		return session, nil
 	}
 
@@ -232,6 +286,7 @@ func (m *Manager) DeleteSession(worktreeKey string) error {
 	}
 
 	// Remove from sessions map
+	m.stopHeadWatcher(session)
 	delete(m.sessions, worktreeKey)
 
 	// If this was the active session, clear it
@@ -247,6 +302,94 @@ func (m *Manager) DeleteSession(worktreeKey string) error {
 
 	debug.DebugLog("Successfully deleted session: %s", session.ID)
 	return nil
+}
+
+func (m *Manager) ensureHeadWatcher(session *Session) {
+	if m == nil || session == nil || session.Worktree == nil {
+		return
+	}
+	if m.headWatchers == nil {
+		m.headWatchers = make(map[string]*git.HeadWatcher)
+	}
+	if m.isLinkedWorktree(session) {
+		return
+	}
+
+	repoPath := filepath.Clean(session.Worktree.Path)
+	if repoPath == "" {
+		return
+	}
+
+	if _, exists := m.headWatchers[repoPath]; exists {
+		return
+	}
+
+	repoName := session.Worktree.RepoName
+	watcher, err := git.NewHeadWatcher(repoPath, func() {
+		m.handleHeadChange(repoName, repoPath)
+	})
+	if err != nil {
+		debug.DebugLog("Failed to start HEAD watcher for %s: %v", repoPath, err)
+		return
+	}
+
+	m.headWatchers[repoPath] = watcher
+}
+
+func (m *Manager) handleHeadChange(repoName, repoPath string) {
+	manager, err := m.GetWorktreeManagerForRepo(repoName)
+	if err != nil {
+		debug.DebugLog("handleHeadChange: failed to get worktree manager for %s: %v", repoName, err)
+		return
+	}
+
+	worktree, err := manager.GetMainWorktreeInfo()
+	if err != nil {
+		debug.DebugLog("handleHeadChange: failed to get main worktree info for %s: %v", repoName, err)
+		return
+	}
+	if worktree == nil {
+		return
+	}
+
+	update := BranchUpdate{
+		RepoName: repoName,
+		Worktree: worktree,
+	}
+
+	select {
+	case m.branchUpdates <- update:
+		debug.DebugLog("handleHeadChange: dispatched branch update for repo=%s path=%s", repoName, repoPath)
+	default:
+		debug.DebugLog("handleHeadChange: branch update channel full, dropping update for repo=%s", repoName)
+	}
+}
+
+func (m *Manager) stopHeadWatcher(session *Session) {
+	if m == nil || session == nil || session.Worktree == nil {
+		return
+	}
+	repoPath := filepath.Clean(session.Worktree.Path)
+	if repoPath == "" {
+		return
+	}
+	watcher, ok := m.headWatchers[repoPath]
+	if !ok {
+		return
+	}
+	if watcher != nil {
+		if err := watcher.Close(); err != nil {
+			debug.DebugLog("stopHeadWatcher: failed to close watcher for %s: %v", repoPath, err)
+		}
+	}
+	delete(m.headWatchers, repoPath)
+}
+
+// ShutdownWatchers stops all active HEAD watchers. Mainly used for tests.
+func (m *Manager) ShutdownWatchers() {
+	for _, session := range m.sessions {
+		m.stopHeadWatcher(session)
+	}
 }
 
 // ListSessions returns all sessions (both main and linked worktrees)
