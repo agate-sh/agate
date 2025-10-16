@@ -199,19 +199,12 @@ check_dependencies() {
         fi
     fi
 
-    # Check for docker
-    if command_exists docker; then
-        found_deps+=("docker")
-    else
-        missing_deps+=("docker")
-    fi
-
     # Check for gh (GitHub CLI)
-    if command_exists gh; then
-        found_deps+=("gh")
-    else
-        missing_deps+=("gh")
-    fi
+    # if command_exists gh; then
+    #     found_deps+=("gh")
+    # else
+    #     missing_deps+=("gh")
+    # fi
 
     # Check for fzf and install if missing
     if ! command_exists fzf; then
@@ -230,15 +223,15 @@ check_dependencies() {
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         for dep in "${missing_deps[@]}"; do
             if [[ "$dep" == "$agent" ]]; then
-                print_warn "${AGENT_COLOR}${dep}${NC} not found. You'll need to install it separately."
+                printf "${YELLOW}${BOLD}⚠${NC} ${AGENT_COLOR}${dep}${NC} not found. You'll need to install it separately.\n"
             else
                 print_warn "${dep} not found. You'll need to install it separately."
             fi
         done
     fi
 
-    # Show found dependencies
-    if [[ ${#found_deps[@]} -gt 0 ]]; then
+    # Show found dependencies only if no dependencies are missing
+    if [[ ${#missing_deps[@]} -eq 0 ]] && [[ ${#found_deps[@]} -gt 0 ]]; then
         local deps_list
         deps_list=$(printf '%s, ' "${found_deps[@]}")
         deps_list=${deps_list%, }  # Remove trailing comma and space
