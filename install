@@ -184,10 +184,18 @@ command_exists() {
 check_dependencies() {
     local missing_deps=()
     local found_deps=()
+    local os_type="$1"  # Pass OS type from detect_platform
 
     # Check for curl (still needed for downloading)
     if ! command_exists curl; then
         die "curl is required but not installed. Please install curl and try again."
+    fi
+
+    # Check for tmux (required for agate to run)
+    if command_exists tmux; then
+        found_deps+=("tmux")
+    else
+        missing_deps+=("tmux")
     fi
 
     # Check for agent CLI if specified
@@ -224,6 +232,29 @@ check_dependencies() {
         for dep in "${missing_deps[@]}"; do
             if [[ "$dep" == "$agent" ]]; then
                 printf "${YELLOW}${BOLD}⚠${NC} ${AGENT_COLOR}${dep}${NC} not found. You'll need to install it separately.\n"
+            elif [[ "$dep" == "tmux" ]]; then
+                print_warn "tmux not found. You'll need to install it to use agate."
+                # Show OS-specific install command
+                case "$os_type" in
+                    darwin*)
+                        print_info "brew install tmux"
+                        ;;
+                    linux*)
+                        # Try to detect Linux distro
+                        if command_exists apt-get; then
+                            print_info "sudo apt-get install tmux"
+                        elif command_exists yum; then
+                            print_info "sudo yum install tmux"
+                        elif command_exists pacman; then
+                            print_info "sudo pacman -S tmux"
+                        else
+                            print_info "Install tmux using your package manager"
+                        fi
+                        ;;
+                    windows*)
+                        print_info "Install tmux using WSL or a package manager like Chocolatey"
+                        ;;
+                esac
             else
                 print_warn "${dep} not found. You'll need to install it separately."
             fi
@@ -450,14 +481,17 @@ main() {
     local platform
     platform=$(detect_platform)
 
+    # Extract OS type from platform (e.g., "darwin" from "darwin_arm64")
+    local os_type="${platform%%_*}"
+
     # Check existing installation for upgrade
     local skip_install=false
     if ! check_existing_installation "$version"; then
         skip_install=true
     fi
 
-    # Check dependencies
-    check_dependencies
+    # Check dependencies (pass OS type for platform-specific messages)
+    check_dependencies "$os_type"
 
     # Install Agate (unless already installed)
     local is_upgrade=false

@@ -17,28 +17,7 @@ import (
 var tmuxPath string
 
 func init() {
-	// First try to find tmux in PATH
-	if path, err := exec.LookPath("tmux"); err == nil {
-		tmuxPath = path
-		return
-	}
-
-	// Fallback to common locations if not in PATH
-	paths := []string{
-		"/opt/homebrew/bin/tmux", // Apple Silicon Homebrew
-		"/usr/local/bin/tmux",     // Intel Homebrew / standard macOS
-		"/usr/bin/tmux",           // Linux
-	}
-
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			tmuxPath = path
-			return
-		}
-	}
-
-	// Final fallback
-	tmuxPath = "tmux"
+	tmuxPath = FindTmuxPath()
 }
 
 // Command creates a tmux command with the correct path
