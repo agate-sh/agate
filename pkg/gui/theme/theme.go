@@ -12,7 +12,7 @@ var (
 	TextMuted       = "#7a7a7a" // 240 - dark gray for very subtle text like file paths
 
 	// Border colors
-	BorderActive = "#c9c9c9" // 250 - brighter gray for active non-tmux pane borders
+	BorderActive = "#c9c9c9" // 250 - brighter gray for overlays and toasts
 	BorderMuted  = "#7a7a7a" // 240 - standard border color
 
 	// Status/semantic colors (reused for borders when needed)

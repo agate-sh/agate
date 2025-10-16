@@ -243,7 +243,7 @@ func (d *SessionDeleteConfirmDialog) View() string {
 	// Apply dialog border and padding
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.TextDescription)).
+		BorderForeground(lipgloss.Color(theme.BorderActive)).
 		Padding(1, 2).
 		Width(maxContentWidth)
 
