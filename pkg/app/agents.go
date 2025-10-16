@@ -78,6 +78,13 @@ var ContinueAgent = AgentConfig{
 	CompanyName:    "Continue",
 }
 
+var ClineAgent = AgentConfig{
+	Name:           "cline",
+	BorderColor:    "#f3cb76",
+	ExecutableName: "cline",
+	CompanyName:    "Cline",
+}
+
 // Default configuration for unknown agents
 var DefaultAgent = AgentConfig{
 	Name:           "default",
@@ -98,6 +105,7 @@ func GetAgentConfig(subprocess string) AgentConfig {
 		GeminiAgent,
 		CodexAgent,
 		ContinueAgent,
+		ClineAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
@@ -122,6 +130,7 @@ func GetAllAgents() []AgentConfig {
 		GeminiAgent,
 		CodexAgent,
 		ContinueAgent,
+		ClineAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
@@ -167,6 +176,8 @@ func (a AgentConfig) HeadlessCommand(prompt string) []string {
 		return []string{"copilot", "-p", prompt}
 	case "cn":
 		return []string{"cn", "-p", prompt}
+	case "cline":
+		return []string{"cline", prompt}
 	case "amp":
 		return []string{"amp", "-x", prompt}
 	default:
