@@ -14,6 +14,42 @@ import (
 	"github.com/creack/pty"
 )
 
+var tmuxPath string
+
+func init() {
+	// First try to find tmux in PATH
+	if path, err := exec.LookPath("tmux"); err == nil {
+		tmuxPath = path
+		return
+	}
+
+	// Fallback to common locations if not in PATH
+	paths := []string{
+		"/opt/homebrew/bin/tmux", // Apple Silicon Homebrew
+		"/usr/local/bin/tmux",     // Intel Homebrew / standard macOS
+		"/usr/bin/tmux",           // Linux
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			tmuxPath = path
+			return
+		}
+	}
+
+	// Final fallback
+	tmuxPath = "tmux"
+}
+
+// Command creates a tmux command with the correct path
+func Command(args ...string) *exec.Cmd {
+	return exec.Command(tmuxPath, args...)
+}
+
+func tmuxCommand(args ...string) *exec.Cmd {
+	return Command(args...)
+}
+
 // TmuxSession represents a managed tmux session
 type TmuxSession struct {
 	// Session identification
@@ -69,13 +105,13 @@ func (t *TmuxSession) Start(workDir string) error {
 
 	if !exists {
 		// Create new tmux session using PTY like Claude Squad
-		cmd := exec.Command("tmux", "new-session", "-d", "-s", t.sanitizedName, "-c", workDir, t.program)
+		cmd := tmuxCommand("new-session", "-d", "-s", t.sanitizedName, "-c", workDir, t.program)
 
 		ptmx, err := t.ptyFactory.Start(cmd)
 		if err != nil {
 			// Cleanup any partially created session if any exists.
 			if exists, _ := t.SessionExists(); exists {
-				cleanupCmd := exec.Command("tmux", "kill-session", "-t", t.sanitizedName)
+				cleanupCmd := tmuxCommand("kill-session", "-t", t.sanitizedName)
 				if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
 					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
 				}
@@ -109,11 +145,11 @@ func (t *TmuxSession) Start(workDir string) error {
 		}
 
 		// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
-		historyCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "history-limit", "10000")
+		historyCmd := tmuxCommand("set-option", "-t", t.sanitizedName, "history-limit", "10000")
 		_ = historyCmd.Run() // Log warning but don't fail
 
 		// Enable mouse scrolling for the session
-		mouseCmd := exec.Command("tmux", "set-option", "-t", t.sanitizedName, "mouse", "on")
+		mouseCmd := tmuxCommand("set-option", "-t", t.sanitizedName, "mouse", "on")
 		_ = mouseCmd.Run() // Log warning but don't fail
 	}
 
@@ -132,7 +168,7 @@ func (t *TmuxSession) Restore() error {
 	}
 
 	// Create a PTY connected to tmux attach-session (like Claude Squad)
-	cmd := exec.Command("tmux", "attach-session", "-t", t.sanitizedName)
+	cmd := tmuxCommand("attach-session", "-t", t.sanitizedName)
 	ptmx, err := t.ptyFactory.Start(cmd)
 	if err != nil {
 		return fmt.Errorf("error opening PTY for session %s: %w", t.sanitizedName, err)
@@ -149,7 +185,7 @@ func (t *TmuxSession) Restore() error {
 
 // SessionExists checks if a tmux session exists
 func (t *TmuxSession) SessionExists() (bool, error) {
-	cmd := exec.Command("tmux", "has-session", "-t", t.sanitizedName)
+	cmd := tmuxCommand("has-session", "-t", t.sanitizedName)
 	err := cmd.Run()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -169,7 +205,7 @@ func (t *TmuxSession) AttachCommand() *exec.Cmd {
 	if t.sanitizedName == "" {
 		return nil
 	}
-	return exec.Command("tmux", "attach-session", "-t", t.sanitizedName)
+	return tmuxCommand("attach-session", "-t", t.sanitizedName)
 }
 
 // Attach attaches to the tmux session for interactive use
@@ -317,7 +353,7 @@ func (t *TmuxSession) updateWindowSize(cols, rows int) error {
 		})
 	}
 	// In detached mode, resize the tmux session directly
-	cmd := exec.Command("tmux", "resize-window", "-t", t.sanitizedName, "-x", fmt.Sprintf("%d", cols), "-y", fmt.Sprintf("%d", rows))
+	cmd := tmuxCommand("resize-window", "-t", t.sanitizedName, "-x", fmt.Sprintf("%d", cols), "-y", fmt.Sprintf("%d", rows))
 	return cmd.Run()
 }
 
@@ -331,7 +367,7 @@ func (t *TmuxSession) CapturePaneContent() (string, error) {
 	// -e preserves escape sequences (ANSI colors)
 	// -J joins wrapped lines
 	// -p prints to stdout
-	cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName)
+	cmd := tmuxCommand("capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("error capturing pane content: %w", err)
@@ -341,7 +377,7 @@ func (t *TmuxSession) CapturePaneContent() (string, error) {
 
 // CapturePaneContentWithOptions captures specific lines from the tmux pane
 func (t *TmuxSession) CapturePaneContentWithOptions(startLine, endLine int) (string, error) {
-	cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName,
+	cmd := tmuxCommand("capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName,
 		"-S", fmt.Sprintf("%d", startLine), "-E", fmt.Sprintf("%d", endLine))
 	output, err := cmd.Output()
 	if err != nil {
@@ -363,7 +399,7 @@ func (t *TmuxSession) HasUpdated() (updated bool, hasPrompt bool) {
 // SendKeys sends keystrokes to the tmux session
 func (t *TmuxSession) SendKeys(keys string) error {
 	// Use tmux send-keys command for detached sessions
-	cmd := exec.Command("tmux", "send-keys", "-t", t.sanitizedName, keys)
+	cmd := tmuxCommand("send-keys", "-t", t.sanitizedName, keys)
 	return cmd.Run()
 }
 
@@ -375,19 +411,19 @@ func (t *TmuxSession) TapEnter() error {
 // SendScrollUp sends scroll up command to tmux session
 func (t *TmuxSession) SendScrollUp() error {
 	// Use tmux copy-mode with scroll up
-	cmd := exec.Command("tmux", "copy-mode", "-t", t.sanitizedName)
+	cmd := tmuxCommand("copy-mode", "-t", t.sanitizedName)
 	if err := cmd.Run(); err != nil {
 		return err
 	}
 	// Send multiple up arrows for smoother scrolling (3 lines up)
-	cmd = exec.Command("tmux", "send-keys", "-t", t.sanitizedName, "Up", "Up", "Up")
+	cmd = tmuxCommand("send-keys", "-t", t.sanitizedName, "Up", "Up", "Up")
 	return cmd.Run()
 }
 
 // SendScrollDown sends scroll down command to tmux session
 func (t *TmuxSession) SendScrollDown() error {
 	// Try to scroll down - if at bottom, this will exit copy mode automatically
-	cmd := exec.Command("tmux", "send-keys", "-t", t.sanitizedName, "Down", "Down", "Down")
+	cmd := tmuxCommand("send-keys", "-t", t.sanitizedName, "Down", "Down", "Down")
 	return cmd.Run()
 }
 
@@ -407,7 +443,7 @@ func (t *TmuxSession) Kill() error {
 	}
 
 	// Kill the tmux session
-	cmd := exec.Command("tmux", "kill-session", "-t", t.sanitizedName)
+	cmd := tmuxCommand("kill-session", "-t", t.sanitizedName)
 	return cmd.Run()
 }
 

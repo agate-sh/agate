@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -1694,12 +1695,25 @@ func (m model) View() string {
 }
 
 func checkTmuxInstalled() error {
-	if _, err := os.Stat("/usr/local/bin/tmux"); os.IsNotExist(err) {
-		if _, err := os.Stat("/usr/bin/tmux"); os.IsNotExist(err) {
-			return fmt.Errorf("tmux is not installed. Please install tmux to use Agate.\nOn macOS: brew install tmux\nOn Ubuntu/Debian: sudo apt-get install tmux")
+	// Try to find tmux using the same logic as the tmux package
+	if _, err := exec.LookPath("tmux"); err == nil {
+		return nil
+	}
+
+	// Check common locations
+	paths := []string{
+		"/opt/homebrew/bin/tmux", // Apple Silicon Homebrew
+		"/usr/local/bin/tmux",     // Intel Homebrew / standard macOS
+		"/usr/bin/tmux",           // Linux
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return nil
 		}
 	}
-	return nil
+
+	return fmt.Errorf("tmux is not installed. Please install tmux to use Agate.\nOn macOS: brew install tmux\nOn Ubuntu/Debian: sudo apt-get install tmux")
 }
 
 func runAgent(subprocess string) error {
