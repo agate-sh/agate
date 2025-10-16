@@ -149,7 +149,7 @@ func (m *Manager) checkTmuxSessionExists(sessionName string) (bool, error) {
 
 	// Run tmux has-session directly with the exact name (don't use NewTmuxSession
 	// which would transform the name)
-	cmd := exec.Command("tmux", "has-session", "-t", sessionName)
+	cmd := tmux.Command("has-session", "-t", sessionName)
 	err := cmd.Run()
 
 	if err != nil {
