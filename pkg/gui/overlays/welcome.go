@@ -23,7 +23,7 @@ type WelcomeOverlay struct {
 var (
 	welcomeOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(theme.BorderMuted)).
+				BorderForeground(lipgloss.Color(theme.BorderActive)).
 				Padding(1, 2).
 				MaxWidth(65) // Same as help dialog that works
 

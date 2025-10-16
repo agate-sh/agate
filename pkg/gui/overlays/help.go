@@ -21,7 +21,7 @@ type HelpDialog struct {
 var (
 	helpOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(theme.BorderMuted)).
+				BorderForeground(lipgloss.Color(theme.BorderActive)).
 				Padding(1, 2).
 				MaxWidth(65) // Increase width to prevent border cutoff
 

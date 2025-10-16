@@ -60,7 +60,7 @@ const worktreeDialogMinContentWidth = 60
 var (
 	dialogStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(theme.TextDescription)).
+			BorderForeground(lipgloss.Color(theme.BorderActive)).
 			Padding(1, 2)
 
 	dialogTitleStyle = lipgloss.NewStyle().

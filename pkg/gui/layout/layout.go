@@ -172,17 +172,16 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	gitStyle := components.PaneBaseStyle
 	shellStyle := components.PaneBaseStyle
 
-	// Apply focus styling
+	// Apply focus styling - all active panes use agent color
 	switch focused {
 	case FocusAgents:
-		leftStyle = leftStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		leftStyle = leftStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	case FocusTmux:
-		// Use the agent's specific color from global state when tmux is focused
 		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	case FocusGit:
-		gitStyle = gitStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		gitStyle = gitStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	case FocusShell:
-		shellStyle = shellStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		shellStyle = shellStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	}
 
 	// Correct approach: Apply Width() first, then PlaceVertical
