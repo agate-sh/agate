@@ -3,3 +3,4 @@ export * from './session.js';
 export * from './git.js';
 export * from './tmux.js';
 export * from './api.js';
+export * from './events.js';

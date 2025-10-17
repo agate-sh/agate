@@ -54,20 +54,3 @@ export interface GetGitStatusRequest {
 export interface GetGitStatusResponse {
   status: GitStatus;
 }
-
-// Output Streaming (SSE)
-export interface PaneOutputEvent {
-  paneId: string;
-  data: string;
-  timestamp: string;
-}
-
-export interface SessionStateChangeEvent {
-  sessionId: string;
-  state: 'created' | 'attached' | 'detached' | 'destroyed';
-  timestamp: string;
-}
-
-export type ServerEvent =
-  | { type: 'pane_output'; payload: PaneOutputEvent }
-  | { type: 'session_state'; payload: SessionStateChangeEvent };
