@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/git"
+	"agate/pkg/git/statuspoller"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/layout"
 	"agate/pkg/gui/overlays"
@@ -39,6 +43,29 @@ type sessionMode int
 const (
 	modePreview sessionMode = iota // Read-only preview
 )
+
+type gitStatusPoller interface {
+	Initialize(ctx context.Context) (statuspoller.InitResult, error)
+	Poll(ctx context.Context) (statuspoller.PollResult, error)
+}
+
+type gitPollReason int
+
+const (
+	pollReasonScheduled gitPollReason = iota
+	pollReasonManual
+)
+
+func gitPollReasonName(reason gitPollReason) string {
+	switch reason {
+	case pollReasonScheduled:
+		return "scheduled"
+	case pollReasonManual:
+		return "manual"
+	default:
+		return fmt.Sprintf("unknown(%d)", reason)
+	}
+}
 
 // focusState is now defined in layout package
 
@@ -84,6 +111,8 @@ type model struct {
 	tmuxPane  components.Pane // Tmux terminal pane
 	gitPane   components.Pane // Git file status pane
 	shellPane components.Pane // Shell pane
+
+	gitPoll gitPollState
 }
 
 func initialModel(subprocess string) model {
@@ -210,13 +239,13 @@ func initialModel(subprocess string) model {
 		shellPane: shellPane,
 	}
 
-	// Initialize Git pane content if repo pane has items
-	if m.repoPane != nil {
-		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok && repoPane.HasItems() {
-			m.updateGitPane()
-		}
-	}
+	m.gitPollerFactory = makeGitStatusPoller
+	m.gitPollInitCmdBuilder = defaultGitPollInitCmd
+	m.gitPollRunCmdBuilder = defaultGitPollRunCmd
+	m.gitPollScheduleCmdBuilder = defaultGitPollScheduleCmd
+	m.gitPollInitRetryBuilder = defaultGitPollInitRetryCmd
 
+	// Initialize Git pane content if repo pane has items
 	return m
 }
 
@@ -386,8 +415,9 @@ func (m *model) updateGitPane() tea.Cmd {
 		debug.DebugLog("updateGitPane: set git pane repository to %s", repoPath)
 	}
 
-	debug.DebugLog("===== updateGitPane returning cmd=%v =====", refreshCmd != nil)
-	return refreshCmd
+	pollCmd := m.startGitStatusLoop(repoPath)
+	debug.DebugLog("===== updateGitPane returning cmd=%v =====", refreshCmd != nil || pollCmd != nil)
+	return combineCmds(refreshCmd, pollCmd)
 }
 
 func (m model) Init() tea.Cmd {
@@ -498,6 +528,68 @@ func combineCmds(cmds ...tea.Cmd) tea.Cmd {
 	}
 }
 
+func makeGitStatusPoller(repoPath string) gitStatusPoller {
+	return statuspoller.New(repoPath, runGitStatusCommand, time.Now)
+}
+
+func runGitStatusCommand(ctx context.Context, repoPath string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+	}
+	return output, nil
+}
+
+func defaultGitPollInitCmd(poller gitStatusPoller, repoPath string) tea.Cmd {
+	debug.DebugLog("[git poll] queueing init command for %s", repoPath)
+	return func() tea.Msg {
+		debug.DebugLog("[git poll] executing init command for %s", repoPath)
+		res, err := poller.Initialize(context.Background())
+		if err != nil {
+			debug.DebugLog("[git poll] init command errored for %s: %v", repoPath, err)
+		} else {
+			debug.DebugLog("[git poll] init command completed for %s", repoPath)
+		}
+		return gitPollInitMsg{repoPath: repoPath, result: res, err: err}
+	}
+}
+
+func defaultGitPollRunCmd(poller gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
+	debug.DebugLog("[git poll] queueing %s poll command for %s", gitPollReasonName(reason), repoPath)
+	return func() tea.Msg {
+		debug.DebugLog("[git poll] executing %s poll command for %s", gitPollReasonName(reason), repoPath)
+		res, err := poller.Poll(context.Background())
+		if err != nil {
+			debug.DebugLog("[git poll] %s poll command errored for %s: %v", gitPollReasonName(reason), repoPath, err)
+		} else {
+			debug.DebugLog("[git poll] %s poll command completed for %s", gitPollReasonName(reason), repoPath)
+		}
+		return gitPollResultMsg{repoPath: repoPath, reason: reason, result: res, err: err}
+	}
+}
+
+func defaultGitPollScheduleCmd(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
+	if after <= 0 {
+		after = 10 * time.Millisecond
+	}
+	debug.DebugLog("[git poll] scheduling %s poll for %s in %s", gitPollReasonName(reason), repoPath, after)
+	return tea.Tick(after, func(time.Time) tea.Msg {
+		return gitPollTriggerMsg{repoPath: repoPath, reason: reason}
+	})
+}
+
+func defaultGitPollInitRetryCmd(after time.Duration, repoPath string) tea.Cmd {
+	if after <= 0 {
+		after = time.Second
+	}
+	debug.DebugLog("[git poll] scheduling init retry command for %s in %s", repoPath, after)
+	return tea.Tick(after, func(time.Time) tea.Msg {
+		return gitPollInitRetryMsg{repoPath: repoPath}
+	})
+}
+
 type tmuxSessionStartedMsg struct {
 	session *session.Session
 }
@@ -519,6 +611,28 @@ type initializationCompleteMsg struct{}
 
 type errMsg struct {
 	error
+}
+
+type gitPollInitMsg struct {
+	repoPath string
+	result   statuspoller.InitResult
+	err      error
+}
+
+type gitPollTriggerMsg struct {
+	repoPath string
+	reason   gitPollReason
+}
+
+type gitPollResultMsg struct {
+	repoPath string
+	reason   gitPollReason
+	result   statuspoller.PollResult
+	err      error
+}
+
+type gitPollInitRetryMsg struct {
+	repoPath string
 }
 
 type loadingTimeoutMsg struct{}
@@ -583,7 +697,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update Git pane content after all components are sized
 		// This ensures the worktree list has proper dimensions and selection
-		m.updateGitPane()
+		return m, m.updateGitPane()
 
 	case tmuxSessionStartedMsg:
 		// Store the session (msg.session is now a *session.Session)
@@ -612,7 +726,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update Git pane now that the app is fully initialized
 		// This ensures the worktree list has been sized and has a selection
-		m.updateGitPane()
+		gitPaneCmd := m.updateGitPane()
 
 		// Set initial tmux session size using layout
 		if m.ready && activeSession.TmuxSession != nil {
@@ -625,12 +739,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Start monitoring tmux output and set up loading timeout
-		return m, tea.Batch(
+		sessionCmd := tea.Batch(
 			waitForTmuxOutput(activeSession.TmuxSession),
 			tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 				return loadingTimeoutMsg{}
 			}),
 		)
+
+		return m, combineCmds(gitPaneCmd, sessionCmd)
 
 	case branchUpdateMsg:
 		var cmds []tea.Cmd
@@ -649,6 +765,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, combineCmds(cmds...)
 
 	case tmuxOutputMsg:
+		var cmds []tea.Cmd
 		// Update tmux pane content
 		if msg.content != "" {
 			if m.tmuxPane != nil {
@@ -666,16 +783,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// On first real output, ensure Git pane is initialized
-			m.updateGitPane()
+			cmds = append(cmds, m.updateGitPane())
 		}
 
 		// Continue monitoring (increased frequency for better responsiveness)
-		return m, tea.Tick(time.Millisecond*100, func(time.Time) tea.Msg {
+		cmds = append(cmds, tea.Tick(time.Millisecond*100, func(time.Time) tea.Msg {
 			if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
 				return waitForTmuxOutput(currentTmux)()
 			}
 			return nil
-		})
+		}))
+
+		return m, combineCmds(cmds...)
 
 	case autoAttachMsg:
 		// Auto-attach to the tmux session after it's ready
@@ -802,7 +921,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						debug.DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
 					}
 					// Now updateGitPane will use the correct selected worktree
-					m.updateGitPane()
+					cmds = append(cmds, m.updateGitPane())
 				}
 
 				// Update tmux pane with new session
@@ -924,28 +1043,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeDialog = nil
 		return m, nil
 
+	case gitPollInitMsg:
+		return m.handleGitPollInit(msg)
+
+	case gitPollTriggerMsg:
+		return m.handleGitPollTrigger(msg)
+
+	case gitPollResultMsg:
+		return m.handleGitPollResult(msg)
+
+	case gitPollInitRetryMsg:
+		return m.handleGitPollInitRetry(msg)
+
 	case panes.GitRefreshMsg:
 		// Git pane needs to refresh after discard or other operations
+		var cmds []tea.Cmd
 		if m.gitPane != nil {
-			var cmd tea.Cmd
-			m.gitPane, cmd = m.gitPane.Update(msg)
-			return m, cmd
+			var paneCmd tea.Cmd
+			m.gitPane, paneCmd = m.gitPane.Update(msg)
+			cmds = append(cmds, paneCmd)
 		}
-		return m, nil
+		cmds = append(cmds, m.triggerManualGitPoll())
+		return m, combineCmds(cmds...)
 
 	case overlays.WorktreeDeletedMsg:
 		// Worktree deleted successfully
 		m.showWorktreeConfirm = false
 		m.worktreeConfirm = nil
+		var cmds []tea.Cmd
 		if m.worktreeList != nil {
 			if err := m.worktreeList.Refresh(); err != nil {
 				debug.DebugLog("Failed to refresh worktree list after deletion: %v", err)
 				// UI will still show deletion success, but log refresh failure
 			}
 			// Update Git pane after deletion
-			m.updateGitPane()
+			cmds = append(cmds, m.updateGitPane())
 		}
-		return m, nil
+		return m, combineCmds(cmds...)
 
 	case overlays.WorktreeDeletionErrorMsg:
 		// Worktree deletion failed
@@ -985,7 +1119,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Update Git pane
-		m.updateGitPane()
+		gitPaneCmd := m.updateGitPane()
 
 		// Show success toast
 		if msg.Session != nil && m.toast != nil {
@@ -998,9 +1132,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			checkmark := checkmarkStyle.Render("✓")
 			message := checkmark + " Deleted " + branchName
 			toastCmd := m.toast.Show(message, 0)
-			return m, toastCmd
+			return m, combineCmds(gitPaneCmd, toastCmd)
 		}
-		return m, nil
+		return m, gitPaneCmd
 
 	case overlays.SessionDeletionErrorMsg:
 		// Session deletion failed
@@ -1026,6 +1160,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showRepoDialog = false
 		m.repoDialog = nil
 
+		var cmds []tea.Cmd
+
 		// Add to persistent config
 		if m.stateManager != nil {
 			if err := m.stateManager.AddRepository(msg.Path); err != nil {
@@ -1040,10 +1176,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Repository was saved successfully, but UI refresh failed
 				}
 				// Update Git pane after adding repository
-				m.updateGitPane()
+				cmds = append(cmds, m.updateGitPane())
 			}
 		}
-		return m, nil
+		return m, combineCmds(cmds...)
 
 	case overlays.RepoDialogCancelledMsg:
 		// Repository dialog cancelled
@@ -1296,8 +1432,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				handled, cmd := m.gitPane.HandleKey("d")
 				if handled {
 					// Refresh git pane after discard
-					m.updateGitPane()
-					return m, cmd
+					refreshCmd := m.updateGitPane()
+					return m, combineCmds(cmd, refreshCmd)
 				}
 			}
 

@@ -1,4 +1,4 @@
-module agate
+module agate/go
 
 go 1.25.1
 
