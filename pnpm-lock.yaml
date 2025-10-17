@@ -78,6 +78,9 @@ importers:
       simple-git:
         specifier: ^3.28.0
         version: 3.28.0
+      ws:
+        specifier: ^8.18.3
+        version: 8.18.3
     devDependencies:
       '@types/express':
         specifier: ^4.17.21
@@ -85,6 +88,9 @@ importers:
       '@types/node':
         specifier: ^20.19.21
         version: 20.19.21
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       tsup:
         specifier: ^8.0.1
         version: 8.5.0(tsx@4.20.6)(typescript@5.9.3)
@@ -1075,6 +1081,12 @@ packages:
       '@types/http-errors': 2.0.5
       '@types/node': 20.19.21
       '@types/send': 0.17.5
+    dev: true
+
+  /@types/ws@8.18.1:
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
+    dependencies:
+      '@types/node': 20.19.21
     dev: true
 
   /@vitest/expect@3.2.4:
@@ -3040,6 +3052,19 @@ packages:
       string-width: 5.1.2
       strip-ansi: 7.1.2
     dev: true
+
+  /ws@8.18.3:
+    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+    dev: false
 
   /xml-parse-from-string@1.0.1:
     resolution: {integrity: sha512-ErcKwJTF54uRzzNMXq2X5sMIy88zJvfN2DmdoQvy7PAFJ+tPRU6ydWuOKNMyfmOjdyBQTFREi60s0Y0SyI0G0g==}

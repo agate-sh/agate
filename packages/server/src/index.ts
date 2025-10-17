@@ -1,6 +1,9 @@
 import { EventBus } from './event-bus.js';
 import { StateManager } from './state/manager.js';
 import { createServer } from './server.js';
+import { setupWebSocket } from './websocket.js';
+import { createServer as createHttpServer } from 'http';
+import { sessions } from './routes/session.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
@@ -17,11 +20,18 @@ async function start() {
   const repoCount = Object.keys(state.workspace.repositories).length;
   console.log(`Loaded state: ${sessionCount} sessions, ${repoCount} repositories`);
 
-  // Create and start server
+  // Create Express app and HTTP server
   const app = createServer(eventBus, stateManager);
-  app.listen(PORT, () => {
+  const httpServer = createHttpServer(app);
+
+  // Setup WebSocket server
+  setupWebSocket(httpServer, eventBus, sessions);
+
+  // Start server
+  httpServer.listen(PORT, () => {
     console.log(`Agate server listening on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
   });
 }
 

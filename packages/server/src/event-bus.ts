@@ -1,56 +1,29 @@
-import type { Response } from 'express';
 import type { ServerEvent } from '@agate/shared';
 
-type Subscriber = {
-  id: string;
-  res: Response;
-};
+type EventCallback = (event: ServerEvent) => void;
 
 /**
- * EventBus for Server-Sent Events
- * Supports multiple concurrent subscribers
+ * EventBus for pub/sub messaging
+ * Transport-agnostic (no longer SSE-specific)
  */
 export class EventBus {
-  private subscribers: Map<string, Subscriber> = new Map();
-  private keepaliveInterval: NodeJS.Timeout | null = null;
-  private readonly KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
-
-  constructor() {
-    this.startKeepalive();
-  }
+  private subscribers: Map<string, EventCallback> = new Map();
 
   /**
-   * Subscribe a client to the event stream
+   * Subscribe to all events
    */
-  subscribe(id: string, res: Response): void {
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-
-    // Handle client disconnect
-    res.on('close', () => {
-      this.unsubscribe(id);
-    });
-
-    this.subscribers.set(id, { id, res });
-    console.log(`Client subscribed: ${id} (total: ${this.subscribers.size})`);
-
-    // Send initial keepalive
-    this.sendToClient(id, {
-      type: 'keepalive',
-      timestamp: new Date().toISOString(),
-    });
+  subscribe(id: string, callback: EventCallback): void {
+    this.subscribers.set(id, callback);
+    console.log(`Subscriber added: ${id} (total: ${this.subscribers.size})`);
   }
 
   /**
-   * Unsubscribe a client from the event stream
+   * Unsubscribe from events
    */
   unsubscribe(id: string): void {
     const removed = this.subscribers.delete(id);
     if (removed) {
-      console.log(`Client unsubscribed: ${id} (total: ${this.subscribers.size})`);
+      console.log(`Subscriber removed: ${id} (total: ${this.subscribers.size})`);
     }
   }
 
@@ -62,57 +35,13 @@ export class EventBus {
       return;
     }
 
-    const data = JSON.stringify(event);
-    this.subscribers.forEach((subscriber) => {
-      this.sendRaw(subscriber.res, event.type, data);
-    });
-  }
-
-  /**
-   * Send an event to a specific client
-   */
-  private sendToClient(clientId: string, event: ServerEvent): void {
-    const subscriber = this.subscribers.get(clientId);
-    if (subscriber) {
-      const data = JSON.stringify(event);
-      this.sendRaw(subscriber.res, event.type, data);
-    }
-  }
-
-  /**
-   * Send raw SSE formatted data
-   */
-  private sendRaw(res: Response, event: string, data: string): void {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${data}\n\n`);
-  }
-
-  /**
-   * Start keepalive ping to prevent connection timeouts
-   */
-  private startKeepalive(): void {
-    this.keepaliveInterval = setInterval(() => {
-      if (this.subscribers.size === 0) {
-        return;
+    this.subscribers.forEach((callback) => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error('Error in event subscriber:', error);
       }
-
-      const keepaliveEvent: ServerEvent = {
-        type: 'keepalive',
-        timestamp: new Date().toISOString(),
-      };
-      this.publish(keepaliveEvent);
-    }, this.KEEPALIVE_INTERVAL_MS);
-  }
-
-  /**
-   * Stop keepalive ping and disconnect all clients
-   */
-  destroy(): void {
-    if (this.keepaliveInterval) {
-      clearInterval(this.keepaliveInterval);
-      this.keepaliveInterval = null;
-    }
-    this.subscribers.clear();
+    });
   }
 
   /**
@@ -120,5 +49,12 @@ export class EventBus {
    */
   getSubscriberCount(): number {
     return this.subscribers.size;
+  }
+
+  /**
+   * Cleanup all subscribers
+   */
+  destroy(): void {
+    this.subscribers.clear();
   }
 }

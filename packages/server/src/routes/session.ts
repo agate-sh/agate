@@ -18,7 +18,7 @@ import type { SessionCreatedEvent, SessionDeletedEvent } from '@agate/shared';
 const router: ExpressRouter = Router();
 
 // In-memory session registry
-const sessions = new Map<string, TmuxSessionManager>();
+export const sessions = new Map<string, TmuxSessionManager>();
 
 /**
  * POST /session

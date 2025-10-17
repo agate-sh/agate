@@ -6,14 +6,12 @@ import { StateManager } from '../state/manager.js';
 import { createServer } from '../server.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
 import type {
-  PtyOutputEvent,
   CreateSessionResponse,
   GetSessionResponse,
   SendSessionInputResponse,
   ResizeSessionResponse,
   DeleteSessionResponse,
 } from '@agate/shared';
-import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
@@ -23,10 +21,11 @@ import { homedir } from 'os';
  * 1. Create git worktree
  * 2. Create tmux session via POST /session
  * 3. Send input via POST /session/:id/input
- * 4. Verify PTY output streams via SSE (/events)
- * 5. Test all session management endpoints
+ * 4. Test all session management endpoints
+ *
+ * Note: PTY output streaming is tested separately in websocket.test.ts
  */
-describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY → SSE', () => {
+describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
   let testRepoPath: string;
   let worktreePath: string;
   let server: Server;
@@ -95,136 +94,6 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY → SSE',
       rmSync(testHome, { recursive: true, force: true });
     }
   });
-
-  it('should create worktree, spawn tmux session via HTTP API, and stream PTY output via SSE', async () => {
-    // Verify worktree was created
-    const worktreeManager = new WorktreeManager(testRepoPath);
-    const worktrees = await worktreeManager.list();
-    expect(worktrees.length).toBeGreaterThan(1); // main + new worktree
-
-    // Track events received
-    const receivedEvents: PtyOutputEvent[] = [];
-    let sseConnected = false;
-
-    // Create SSE client manually (using fetch with streaming)
-    const clientId = randomUUID();
-    const controller = new AbortController();
-
-    // Start listening to SSE endpoint
-    const ssePromise = (async () => {
-      try {
-        const response = await fetch(`http://localhost:${PORT}/events?clientId=${clientId}`, {
-          signal: controller.signal,
-          headers: {
-            'Accept': 'text/event-stream',
-          },
-        });
-
-        if (!response.body) {
-          throw new Error('No response body');
-        }
-
-        sseConnected = true;
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (line?.startsWith('event: pty.output')) {
-              // Next line should be the data
-              const dataLine = lines[i + 1];
-              if (dataLine?.startsWith('data: ')) {
-                const jsonData = dataLine.substring('data: '.length);
-                const event = JSON.parse(jsonData) as PtyOutputEvent;
-                receivedEvents.push(event);
-              }
-            }
-          }
-        }
-      } catch (error: unknown) {
-        const err = error as Error;
-        if (err.name !== 'AbortError') {
-          console.error('SSE error:', err);
-        }
-      }
-    })();
-
-    // Wait for SSE connection
-    await new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        if (sseConnected) {
-          clearInterval(checkInterval);
-          resolve(undefined);
-        }
-      }, 50);
-    });
-
-    // Create tmux session via HTTP API (POST /session)
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
-        agentName: 'claude',
-      }),
-    });
-
-    expect(createResponse.ok).toBe(true);
-    const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
-    expect(sessionId).toBeDefined();
-
-    // Send input to session via HTTP API (POST /session/:id/input)
-    const inputResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        data: 'echo "AGATE_TEST_OUTPUT_MARKER"\n',
-      }),
-    });
-
-    expect(inputResponse.ok).toBe(true);
-
-    // Wait for output to be captured and streamed
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // Stop SSE client
-    controller.abort();
-    await ssePromise.catch(() => {}); // Ignore abort errors
-
-    // Verify we received PTY output events
-    expect(receivedEvents.length).toBeGreaterThan(0);
-
-    // Verify event structure
-    const firstEvent = receivedEvents[0];
-    expect(firstEvent).toBeDefined();
-    expect(firstEvent?.type).toBe('pty.output');
-    expect(firstEvent?.sessionId).toBe(sessionId);
-    expect(firstEvent?.data).toBeDefined();
-    expect(typeof firstEvent?.data).toBe('string');
-
-    // Verify the output contains our marker (may be across multiple events)
-    const allOutput = receivedEvents.map(e => e.data).join('');
-    expect(allOutput).toContain('AGATE_TEST_OUTPUT_MARKER');
-
-    console.log(`✅ Integration test passed!`);
-    console.log(`   - Created worktree at: ${worktreePath}`);
-    console.log(`   - Created session via HTTP API: ${sessionId}`);
-    console.log(`   - Received ${receivedEvents.length} PTY output events`);
-    console.log(`   - Total output size: ${allOutput.length} bytes`);
-
-    // Cleanup: Delete session via HTTP API
-    await fetch(`http://localhost:${PORT}/session/${sessionId}`, {
-      method: 'DELETE',
-    });
-  }, 15000); // Increase timeout for this integration test
 
   describe('Session API Endpoints', () => {
     it('should create a session via POST /session', async () => {

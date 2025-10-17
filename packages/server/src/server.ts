@@ -1,6 +1,5 @@
 import express, { type Request, type Response, type NextFunction, type Express } from 'express';
 import cors from 'cors';
-import { randomUUID } from 'crypto';
 import { EventBus } from './event-bus.js';
 import { StateManager } from './state/manager.js';
 import gitRouter from './routes/git.js';
@@ -25,12 +24,6 @@ export function createServer(eventBus: EventBus, stateManager: StateManager): Ex
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
-
-  // SSE endpoint
-  app.get('/events', (req: Request, res: Response) => {
-    const clientId = (req.query.clientId as string) || randomUUID();
-    eventBus.subscribe(clientId, res);
   });
 
   // API routes

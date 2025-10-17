@@ -25,7 +25,8 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 
 - **OpenTUI** (`@opentui/core`, `@opentui/react`) - Terminal UI framework (React-based)
 - **node-pty** - PTY (pseudo-terminal) management for subprocess interaction
-- **Express** - HTTP server with REST API and SSE streaming
+- **Express** - HTTP server with REST API and WebSocket streaming
+- **WebSocket** (`ws`) - Real-time bidirectional communication for PTY I/O
 - **TypeScript** - Strict mode with comprehensive type checking
 - **pnpm** - Workspace management
 - **Vitest** - Test framework with integration testing
@@ -40,10 +41,13 @@ The Express server (`@agate/server`) is fully implemented with:
   - `POST /session/:id/input` - Send input to PTY
   - `POST /session/:id/resize` - Resize terminal
   - `DELETE /session/:id` - Kill session
-- **SSE Event Streaming** - Real-time PTY output via Server-Sent Events (`/events`)
+- **WebSocket Streaming** - Real-time PTY I/O via WebSocket (`/ws`)
+  - Bidirectional communication for input and output
+  - Session subscription model
+  - Event-based architecture with transport-agnostic EventBus
 - **Git Operations API** - Repository and worktree management
 - **State Persistence** - Atomic writes to `~/.agate/state.json`
-- **Integration Tests** - Full end-to-end tests using real HTTP requests
+- **Integration Tests** - Full end-to-end tests using real HTTP requests and WebSocket connections
 
 ## Building & Development
 
