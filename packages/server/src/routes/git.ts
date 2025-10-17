@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
+import type { Router as ExpressRouter } from 'express';
 import { createGitClient } from '../git/client.js';
 import { getFileStatus } from '../git/status.js';
 import { stageFile, stageAll, unstageFile, commitAll, discardChanges } from '../git/operations.js';
 import { WorktreeManager } from '../git/worktree.js';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * GET /git/status

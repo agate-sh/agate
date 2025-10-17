@@ -26,7 +26,7 @@ export class GitStatusPoller {
 
   constructor(
     private eventBus: EventBus,
-    options: PollerOptions = {}
+    _options: PollerOptions = {}
   ) {
     // Options preserved for backward compatibility but intervals are now adaptive
   }
