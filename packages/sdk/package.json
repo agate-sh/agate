@@ -1,0 +1,24 @@
+{
+  "name": "@agate/sdk",
+  "version": "0.1.0",
+  "description": "Agate TypeScript SDK (generated)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "generate": "openapi-typescript ../server/openapi.yaml -o src/schema.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "openapi-typescript": "^6.7.3",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}

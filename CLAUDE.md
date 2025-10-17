@@ -1,21 +1,146 @@
-NEVER MAINTAIN BACKWARDS COMPATABILITY. This project is new and we don't need to care.
+# CLAUDE.md
 
-## Building
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-To build the project, run:
+NEVER MAINTAIN BACKWARDS COMPATIBILITY. This project is new and we don't need to care.
+
+## Project Overview
+
+Agate is a terminal multiplexer built for managing CLI agents (Claude, Gemini, Codex, etc.) with an information-dense, intuitive interface. The project is **currently being migrated from Go to TypeScript**.
+
+**Current state:** The Go implementation is in `go/` (functional), and a new TypeScript implementation is being built in `packages/` using a pnpm monorepo.
+
+## Architecture
+
+The TypeScript implementation uses a **monorepo structure with 4 packages**:
+
+- **`@agate/shared`** - Shared TypeScript types (agent configs, session state, git types, tmux types, API contracts)
+- **`@agate/server`** - Express server for managing terminal sessions via node-pty
+- **`@agate/sdk`** - Auto-generated TypeScript client SDK (from OpenAPI specs)
+- **`@agate/client`** - OpenTUI-based React terminal UI (inspired by [sst/opencode](https://github.com/sst/opencode) `opentui` branch)
+
+**Key inspiration:** This project draws heavily from `sst/opencode` (specifically the `opentui` branch), but uses **React instead of Solid**. A local clone exists at `/Users/patrickerichsen/Git/opencode`.
+
+### Core Technologies
+
+- **OpenTUI** (`@opentui/core`, `@opentui/react`) - Terminal UI framework (React-based)
+- **node-pty** - PTY (pseudo-terminal) management for subprocess interaction
+- **Express** - HTTP server for managing sessions
+- **TypeScript** - Strict mode with comprehensive type checking
+- **pnpm** - Workspace management
+
+## Building & Development
+
+**All commands use pnpm:**
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run type checking across all packages
+pnpm typecheck
+
+# Development mode (watches all packages in parallel)
+pnpm dev
+
+# Clean build artifacts
+pnpm clean
 ```
-go build ./cmd/agate
+
+**Individual package commands:**
+
+```bash
+# Work in a specific package
+cd packages/server
+pnpm dev          # Watch mode
+pnpm build        # Production build
+pnpm typecheck    # Type check only
 ```
+
+**SDK generation** (when OpenAPI specs change):
+
+```bash
+cd packages/sdk
+pnpm generate  # Regenerates TypeScript client from openapi.yaml
+```
+
+## TypeScript Configuration
+
+- **Strict mode enabled** with additional safety checks:
+  - `noUncheckedIndexedAccess: true`
+  - `noUnusedLocals: true`
+  - `noUnusedParameters: true`
+  - `noFallthroughCasesInSwitch: true`
+- **ESNext modules** with `moduleResolution: "bundler"`
+- **Composite project references** for incremental builds across packages
+
+## Key Design Principles (from Go implementation)
+
+### State Management
+
+The Go implementation uses a **centralized, thread-safe StateManager** to prevent race conditions. The TypeScript version should follow similar patterns:
+
+- **Single source of truth**: In-memory state protected by appropriate concurrency controls
+- **Atomic updates**: All modifications happen in single operations
+- **Atomic file writes**: State written to temp file, then atomically renamed
+- State stored at `~/.agate/state.json`
+
+### Session Naming
+
+Session names must be:
+1. Valid tmux names (alphanumeric, underscores, hyphens, dots)
+2. Unique per worktree/branch
+3. **Idempotent** - processing a sanitized name returns the same name
+
+**Format:** `agate_<repo>_<branch>_<agent>_<8-hex-hash>`
+
+**Critical:** Never call sanitization functions multiple times (causes double-prefixing bugs).
+
+### Pane Layout System
+
+The UI uses a **three-column layout**:
+1. Repos/worktrees pane (25% width)
+2. Tmux/agent interaction pane (50% width)
+3. Right column split between Git status and Shell (remaining width)
+
+**Key layout principles:**
+- Compute content dimensions first, then add borders
+- Use consistent border styles and padding
+- Account for horizontal gutters between panes
 
 ## Debugging
 
-Debug logs are written to `~/.agate/debug.log`. To view recent logs:
+Debug logs are written to `~/.agate/debug.log`:
+
 ```bash
+# View recent logs
 tail -f ~/.agate/debug.log
+
+# Search for specific issues
+grep "session restore" ~/.agate/debug.log
 ```
 
-Or to search for specific issues:
-```bash
-grep "commit overlay" ~/.agate/debug.log
-```
-- To verify your hypotheses, you can add debug logs and ask the user to walk through a set of actions to trigger those logs. This is a good way to ensure your assumptions are correct.
+When debugging issues, add strategic debug logs and walk through actions to trigger them.
+
+## Agent Configuration
+
+Supported agents are defined in `packages/shared/src/types/agent.ts` with their:
+- Display names
+- Border colors (hex)
+- Executable names (for process matching)
+- Company names
+
+Current agents: Claude, Amp, Gemini, Codex, OpenCode, Cursor, Copilot, Continue, Cline
+
+## Migration Context
+
+The TypeScript rewrite aims to:
+1. Leverage the React ecosystem and OpenTUI for richer UI capabilities
+2. Provide better developer ergonomics with TypeScript
+3. Enable easier extensibility for plugins and custom panes
+4. Maintain the core architecture patterns that work (state management, session naming)
+
+**Reference the Go implementation** (`go/` folder) for understanding core logic, but don't maintain compatibility with it.

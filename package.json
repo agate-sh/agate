@@ -1,0 +1,17 @@
+{
+  "name": "@agate/root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agate - Multi-agent task execution in tmux",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "clean": "pnpm -r clean",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
