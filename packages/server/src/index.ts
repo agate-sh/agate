@@ -2,6 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { EventBus } from './event-bus.js';
+import gitRouter from './routes/git.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -22,6 +23,9 @@ app.get('/events', (req: Request, res: Response) => {
   const clientId = (req.query.clientId as string) || randomUUID();
   eventBus.subscribe(clientId, res);
 });
+
+// API routes
+app.use('/git', gitRouter);
 
 // Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
