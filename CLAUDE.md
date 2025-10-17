@@ -44,6 +44,8 @@ pnpm build
 pnpm typecheck
 
 # Development mode (watches all packages in parallel)
+# This automatically rebuilds @agate/shared when types change
+# and restarts the server on file changes
 pnpm dev
 
 # Clean build artifacts
@@ -59,6 +61,8 @@ pnpm dev          # Watch mode
 pnpm build        # Production build
 pnpm typecheck    # Type check only
 ```
+
+**IMPORTANT:** When developing, always use `pnpm dev` from the **root directory** to ensure `@agate/shared` types are automatically rebuilt when modified. Running individual package dev commands will cause type import errors.
 
 **SDK generation** (when OpenAPI specs change):
 
