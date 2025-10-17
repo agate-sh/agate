@@ -1,40 +1,36 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Server } from 'http';
 import { EventBus } from '../event-bus.js';
-import { TmuxSessionManager } from '../tmux/session.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { StateManager } from '../state/manager.js';
-import { SessionManager } from '../session/manager.js';
 import { createServer } from '../server.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
 import type {
   PtyOutputEvent,
-  SessionWorktree,
   CreateSessionResponse,
   GetSessionResponse,
   SendSessionInputResponse,
   ResizeSessionResponse,
   DeleteSessionResponse,
 } from '@agate/shared';
-import { AGENTS } from '@agate/shared';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
 
 /**
- * Integration test validating the full flow:
+ * E2E integration tests validating the full HTTP API flow:
  * 1. Create git worktree
- * 2. Spawn tmux session in worktree
- * 3. Run subprocess (simulated with echo)
- * 4. Verify PTY output streams via SSE
+ * 2. Create tmux session via POST /session
+ * 3. Send input via POST /session/:id/input
+ * 4. Verify PTY output streams via SSE (/events)
+ * 5. Test all session management endpoints
  */
-describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
+describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY → SSE', () => {
   let testRepoPath: string;
   let worktreePath: string;
   let server: Server;
   let eventBus: EventBus;
-  let sessionManager: TmuxSessionManager;
   let stateManager: StateManager;
   const PORT = 3001; // Use different port to avoid conflicts
   const testHome = join(homedir(), '.agate-test-integration-' + Date.now());
@@ -77,10 +73,6 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
 
   afterAll(async () => {
     // Cleanup
-    if (sessionManager?.isAlive()) {
-      await sessionManager.kill();
-    }
-
     if (server) {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -104,7 +96,7 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
     }
   });
 
-  it('should create worktree, spawn tmux session with subprocess, and stream PTY output via SSE', async () => {
+  it('should create worktree, spawn tmux session via HTTP API, and stream PTY output via SSE', async () => {
     // Verify worktree was created
     const worktreeManager = new WorktreeManager(testRepoPath);
     const worktrees = await worktreeManager.list();
@@ -174,24 +166,31 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
       }, 50);
     });
 
-    // Create tmux session in worktree
-    const sessionId = randomUUID();
-    sessionManager = new TmuxSessionManager(eventBus, sessionId);
-
-    const sessionName = `agate_test_${Date.now()}`;
-    await sessionManager.createSession({
-      name: sessionName,
-      agent: 'claude',
-      cwd: worktreePath,
-      cols: 80,
-      rows: 24,
+    // Create tmux session via HTTP API (POST /session)
+    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        worktreePath,
+        branch: 'test-branch',
+        agentName: 'claude',
+      }),
     });
 
-    expect(sessionManager.isAlive()).toBe(true);
+    expect(createResponse.ok).toBe(true);
+    const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+    expect(sessionId).toBeDefined();
 
-    // Spawn a subprocess that generates output (simulate claude with echo)
-    // We'll use a simple command that produces clear output
-    sessionManager.write('echo "AGATE_TEST_OUTPUT_MARKER"\n');
+    // Send input to session via HTTP API (POST /session/:id/input)
+    const inputResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: 'echo "AGATE_TEST_OUTPUT_MARKER"\n',
+      }),
+    });
+
+    expect(inputResponse.ok).toBe(true);
 
     // Wait for output to be captured and streamed
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -217,128 +216,15 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
 
     console.log(`✅ Integration test passed!`);
     console.log(`   - Created worktree at: ${worktreePath}`);
-    console.log(`   - Spawned tmux session: ${sessionName}`);
+    console.log(`   - Created session via HTTP API: ${sessionId}`);
     console.log(`   - Received ${receivedEvents.length} PTY output events`);
     console.log(`   - Total output size: ${allOutput.length} bytes`);
+
+    // Cleanup: Delete session via HTTP API
+    await fetch(`http://localhost:${PORT}/session/${sessionId}`, {
+      method: 'DELETE',
+    });
   }, 15000); // Increase timeout for this integration test
-
-  it('should persist session state and restore it across restarts', async () => {
-    // Create a tmux session
-    const sessionId = randomUUID();
-    const sessionName = `agate_persist_test_${Date.now()}`;
-    const tmuxManager = new TmuxSessionManager(eventBus, sessionId);
-
-    await tmuxManager.createSession({
-      name: sessionName,
-      agent: 'claude',
-      cwd: worktreePath,
-      cols: 80,
-      rows: 24,
-    });
-
-    expect(tmuxManager.isAlive()).toBe(true);
-
-    // Use SessionManager to manage the session
-    const sessManager = new SessionManager(stateManager);
-
-    // Create worktree metadata for session
-    const worktree: SessionWorktree = {
-      name: 'test-branch',
-      path: worktreePath,
-      branch: 'test-branch',
-      repoName: 'test-repo',
-      isMain: false,
-      commit: 'abc123',
-    };
-
-    const agent = AGENTS.claude;
-
-    // Create session via SessionManager
-    const session = sessManager.createSession(worktree, agent);
-    expect(session).toBeDefined();
-    expect(session.worktreeKey).toBe(`test-repo:${worktreePath}`);
-
-    // Switch to session to make it active
-    sessManager.switchToSession(session.worktreeKey);
-    expect(sessManager.getActiveSession()).toBe(session);
-
-    // Persist sessions via SessionManager
-    sessManager.persistSessions();
-    await stateManager.save();
-
-    // Verify state was persisted via StateManager
-    const savedMappings = stateManager.getSessionMappings();
-    expect(savedMappings[session.worktreeKey]).toBeDefined();
-    expect(stateManager.getActiveSession()).toBe(session.worktreeKey);
-
-    // Simulate restart - create new StateManager and SessionManager instances
-    const restoredState = await StateManager.create();
-    const restoredSessManager = new SessionManager(restoredState);
-
-    // Load sessions from disk
-    restoredSessManager.loadSessions();
-
-    // Verify session was restored
-    const restoredSessions = restoredSessManager.listSessions();
-    expect(restoredSessions).toHaveLength(1);
-    expect(restoredSessions[0]?.worktreeKey).toBe(session.worktreeKey);
-
-    // Verify active session was restored
-    const restoredActive = restoredSessManager.getActiveSession();
-    expect(restoredActive).toBeDefined();
-    expect(restoredActive?.worktreeKey).toBe(session.worktreeKey);
-    expect(restoredActive?.isActive).toBe(true);
-
-    console.log(`✅ Session persistence test passed!`);
-    console.log(`   - Saved session: ${sessionName}`);
-    console.log(`   - Restored session from disk via SessionManager`);
-    console.log(`   - Active session restored correctly`);
-
-    // Cleanup
-    await tmuxManager.kill();
-  }, 10000);
-
-  it('should persist workspace state (repositories and selections)', async () => {
-    // Add repositories
-    stateManager.addRepository('test-repo-1', '/path/to/repo1');
-    stateManager.addRepository('test-repo-2', '/path/to/repo2');
-
-    // Set worktree selections
-    stateManager.setLastWorktreeForRepo('test-repo-1', {
-      path: '/path/to/worktree1',
-      branch: 'main',
-    });
-
-    // Update workspace state
-    stateManager.updateWorkspace({
-      repositories: stateManager.getRepositories(),
-      repoSelections: stateManager.readWorkspace().repoSelections,
-      lastRepo: 'test-repo-1',
-    });
-
-    // Save state
-    await stateManager.save();
-
-    // Simulate restart
-    const restoredState = await StateManager.create();
-
-    // Verify repositories were restored
-    const repos = restoredState.getRepositories();
-    expect(repos['test-repo-1']).toBe('/path/to/repo1');
-    expect(repos['test-repo-2']).toBe('/path/to/repo2');
-
-    // Verify worktree selection was restored
-    const worktree = restoredState.getLastWorktreeForRepo('test-repo-1');
-    expect(worktree?.path).toBe('/path/to/worktree1');
-    expect(worktree?.branch).toBe('main');
-
-    // Verify last repo was restored
-    expect(restoredState.getLastActiveRepo()).toBe('test-repo-1');
-
-    console.log(`✅ Workspace persistence test passed!`);
-    console.log(`   - Saved 2 repositories`);
-    console.log(`   - Restored workspace state successfully`);
-  }, 5000);
 
   describe('Session API Endpoints', () => {
     it('should create a session via POST /session', async () => {

@@ -455,4 +455,82 @@ describe('SessionManager', () => {
       expect(Object.keys(persisted)).toHaveLength(0);
     });
   });
+
+  describe('Full Persistence E2E with Real StateManager', () => {
+    it('should persist session state and restore it across restarts', async () => {
+      const { mkdirSync, rmSync, existsSync } = await import('fs');
+      const { homedir } = await import('os');
+      const { join } = await import('path');
+
+      const testHome = join(homedir(), '.agate-test-session-persist-' + Date.now());
+      const originalHome = process.env.HOME;
+
+      try {
+        // Setup isolated test environment
+        process.env.HOME = testHome;
+        if (existsSync(testHome)) {
+          rmSync(testHome, { recursive: true, force: true });
+        }
+        mkdirSync(testHome, { recursive: true });
+
+        // Create real StateManager and SessionManager
+        const realStateManager = await StateManager.create();
+        const realSessionManager = new SessionManager(realStateManager);
+
+        // Create worktree metadata for session
+        const worktree: SessionWorktree = {
+          name: 'test-branch',
+          path: '/test/worktree/path',
+          branch: 'test-branch',
+          repoName: 'test-repo',
+          isMain: false,
+          commit: 'abc123',
+        };
+
+        const agent = AGENTS.claude;
+
+        // Create session via SessionManager
+        const session = realSessionManager.createSession(worktree, agent);
+        expect(session).toBeDefined();
+        expect(session.worktreeKey).toBe(`test-repo:/test/worktree/path`);
+
+        // Switch to session to make it active
+        realSessionManager.switchToSession(session.worktreeKey);
+        expect(realSessionManager.getActiveSession()).toBe(session);
+
+        // Persist sessions via SessionManager
+        realSessionManager.persistSessions();
+        await realStateManager.save();
+
+        // Verify state was persisted via StateManager
+        const savedMappings = realStateManager.getSessionMappings();
+        expect(savedMappings[session.worktreeKey]).toBeDefined();
+        expect(realStateManager.getActiveSession()).toBe(session.worktreeKey);
+
+        // Simulate restart - create new StateManager and SessionManager instances
+        const restoredState = await StateManager.create();
+        const restoredSessManager = new SessionManager(restoredState);
+
+        // Load sessions from disk
+        restoredSessManager.loadSessions();
+
+        // Verify session was restored
+        const restoredSessions = restoredSessManager.listSessions();
+        expect(restoredSessions).toHaveLength(1);
+        expect(restoredSessions[0]?.worktreeKey).toBe(session.worktreeKey);
+
+        // Verify active session was restored
+        const restoredActive = restoredSessManager.getActiveSession();
+        expect(restoredActive).toBeDefined();
+        expect(restoredActive?.worktreeKey).toBe(session.worktreeKey);
+        expect(restoredActive?.isActive).toBe(true);
+      } finally {
+        // Cleanup
+        process.env.HOME = originalHome;
+        if (existsSync(testHome)) {
+          rmSync(testHome, { recursive: true, force: true });
+        }
+      }
+    }, 10000);
+  });
 });

@@ -308,6 +308,44 @@ describe('StateManager', () => {
 
       expect(manager.getLastActiveRepo()).toBe('repo1');
     });
+
+    it('should persist workspace state (repositories and selections) across restarts', async () => {
+      // Add repositories
+      manager.addRepository('test-repo-1', '/path/to/repo1');
+      manager.addRepository('test-repo-2', '/path/to/repo2');
+
+      // Set worktree selections
+      manager.setLastWorktreeForRepo('test-repo-1', {
+        path: '/path/to/worktree1',
+        branch: 'main',
+      });
+
+      // Update workspace state
+      manager.updateWorkspace({
+        repositories: manager.getRepositories(),
+        repoSelections: manager.readWorkspace().repoSelections,
+        lastRepo: 'test-repo-1',
+      });
+
+      // Save state
+      await manager.save();
+
+      // Simulate restart
+      const restoredState = await StateManager.create();
+
+      // Verify repositories were restored
+      const repos = restoredState.getRepositories();
+      expect(repos['test-repo-1']).toBe('/path/to/repo1');
+      expect(repos['test-repo-2']).toBe('/path/to/repo2');
+
+      // Verify worktree selection was restored
+      const worktree = restoredState.getLastWorktreeForRepo('test-repo-1');
+      expect(worktree?.path).toBe('/path/to/worktree1');
+      expect(worktree?.branch).toBe('main');
+
+      // Verify last repo was restored
+      expect(restoredState.getLastActiveRepo()).toBe('test-repo-1');
+    });
   });
 
   describe('UI State Management', () => {
