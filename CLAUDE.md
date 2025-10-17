@@ -25,9 +25,25 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 
 - **OpenTUI** (`@opentui/core`, `@opentui/react`) - Terminal UI framework (React-based)
 - **node-pty** - PTY (pseudo-terminal) management for subprocess interaction
-- **Express** - HTTP server for managing sessions
+- **Express** - HTTP server with REST API and SSE streaming
 - **TypeScript** - Strict mode with comprehensive type checking
 - **pnpm** - Workspace management
+- **Vitest** - Test framework with integration testing
+
+### Server Architecture
+
+The Express server (`@agate/server`) is fully implemented with:
+
+- **Session Management API** - REST endpoints for creating/managing tmux sessions
+  - `POST /session` - Create new session
+  - `GET /session/:id` - Get session info
+  - `POST /session/:id/input` - Send input to PTY
+  - `POST /session/:id/resize` - Resize terminal
+  - `DELETE /session/:id` - Kill session
+- **SSE Event Streaming** - Real-time PTY output via Server-Sent Events (`/events`)
+- **Git Operations API** - Repository and worktree management
+- **State Persistence** - Atomic writes to `~/.agate/state.json`
+- **Integration Tests** - Full end-to-end tests using real HTTP requests
 
 ## Building & Development
 
@@ -60,16 +76,25 @@ cd packages/server
 pnpm dev          # Watch mode
 pnpm build        # Production build
 pnpm typecheck    # Type check only
+pnpm test         # Run tests
 ```
 
 **IMPORTANT:** When developing, always use `pnpm dev` from the **root directory** to ensure `@agate/shared` types are automatically rebuilt when modified. Running individual package dev commands will cause type import errors.
 
-**SDK generation** (when OpenAPI specs change):
+## Testing
 
 ```bash
-cd packages/sdk
-pnpm generate  # Regenerates TypeScript client from openapi.yaml
+# Run all tests
+pnpm --filter @agate/server test
+
+# Run specific test file
+pnpm --filter @agate/server test src/__tests__/integration.test.ts
+
+# Run tests in watch mode
+pnpm --filter @agate/server test --watch
 ```
+
+The server has 131 passing tests including unit tests for all modules and integration tests that verify the full HTTP API.
 
 ## TypeScript Configuration
 

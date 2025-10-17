@@ -1,23 +1,55 @@
 import type { TmuxSession } from './tmux.js';
 import type { GitStatus } from './git.js';
-import type { PersistedSession } from './session.js';
+import type { AgentName } from './agent.js';
 
 /**
  * API request/response types
  */
 
-// Session Management
+// Session Management (new REST API)
 export interface CreateSessionRequest {
   worktreePath: string;
   branch: string;
-  agentName: string;
+  agentName: AgentName;
 }
 
 export interface CreateSessionResponse {
-  session: PersistedSession;
-  tmuxSession: TmuxSession;
+  sessionId: string;
 }
 
+export interface GetSessionResponse {
+  id: string;
+  name: string;
+  agent: AgentName;
+  cwd: string;
+  cols: number;
+  rows: number;
+  pid: number;
+  isAlive: boolean;
+}
+
+export interface SendSessionInputRequest {
+  data: string;
+}
+
+export interface SendSessionInputResponse {
+  success: boolean;
+}
+
+export interface ResizeSessionRequest {
+  cols: number;
+  rows: number;
+}
+
+export interface ResizeSessionResponse {
+  success: boolean;
+}
+
+export interface DeleteSessionResponse {
+  success: boolean;
+}
+
+// Legacy Session Management (to be deprecated)
 export interface AttachSessionRequest {
   sessionId: string;
 }

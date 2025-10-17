@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type {
-  Session,
   SessionWorktree,
   PersistedSession,
   SessionState,

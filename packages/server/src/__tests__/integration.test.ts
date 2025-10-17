@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import express, { type Express } from 'express';
 import { Server } from 'http';
 import { EventBus } from '../event-bus.js';
 import { TmuxSessionManager } from '../tmux/session.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { StateManager } from '../state/manager.js';
 import { SessionManager } from '../session/manager.js';
+import { createServer } from '../server.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
-import type { PtyOutputEvent, PersistedSession, SessionWorktree } from '@agate/shared';
+import type {
+  PtyOutputEvent,
+  SessionWorktree,
+  CreateSessionResponse,
+  GetSessionResponse,
+  SendSessionInputResponse,
+  ResizeSessionResponse,
+  DeleteSessionResponse,
+} from '@agate/shared';
 import { AGENTS } from '@agate/shared';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
@@ -24,7 +32,6 @@ import { homedir } from 'os';
 describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
   let testRepoPath: string;
   let worktreePath: string;
-  let app: Express;
   let server: Server;
   let eventBus: EventBus;
   let sessionManager: TmuxSessionManager;
@@ -52,17 +59,12 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
     worktreePath = join(testRepoPath, '..', `worktree-${branchName}`);
     await worktreeManager.create(worktreePath, branchName);
 
-    // 3. Initialize StateManager
+    // 3. Initialize dependencies
     stateManager = await StateManager.create();
-
-    // 4. Setup Express server with EventBus
     eventBus = new EventBus();
-    app = express();
 
-    app.get('/events', (req, res) => {
-      const clientId = (req.query.clientId as string) || randomUUID();
-      eventBus.subscribe(clientId, res);
-    });
+    // 4. Create real Express server with all routes
+    const app = createServer(eventBus, stateManager);
 
     // Start server
     await new Promise<void>((resolve) => {
@@ -337,5 +339,153 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
     console.log(`   - Saved 2 repositories`);
     console.log(`   - Restored workspace state successfully`);
   }, 5000);
+
+  describe('Session API Endpoints', () => {
+    it('should create a session via POST /session', async () => {
+      const response = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worktreePath,
+          branch: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      expect(response.ok).toBe(true);
+      const data = (await response.json()) as CreateSessionResponse;
+      expect(data.sessionId).toBeDefined();
+      expect(typeof data.sessionId).toBe('string');
+    }, 10000);
+
+    it('should get session info via GET /session/:id', async () => {
+      // First create a session
+      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worktreePath,
+          branch: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+      // Now get session info
+      const getResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`);
+      expect(getResponse.ok).toBe(true);
+
+      const data = (await getResponse.json()) as GetSessionResponse;
+      expect(data.id).toBe(sessionId);
+      expect(data.name).toBeDefined();
+      expect(data.agent).toBe('claude');
+      expect(data.cwd).toBe(worktreePath);
+      expect(data.isAlive).toBe(true);
+    }, 10000);
+
+    it('should send input to session via POST /session/:id/input', async () => {
+      // Create session
+      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worktreePath,
+          branch: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+      // Send input
+      const inputResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: 'echo "test input"\n',
+        }),
+      });
+
+      expect(inputResponse.ok).toBe(true);
+      const data = (await inputResponse.json()) as SendSessionInputResponse;
+      expect(data.success).toBe(true);
+    }, 10000);
+
+    it('should resize session via POST /session/:id/resize', async () => {
+      // Create session
+      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worktreePath,
+          branch: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+      // Resize
+      const resizeResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cols: 120,
+          rows: 40,
+        }),
+      });
+
+      expect(resizeResponse.ok).toBe(true);
+      const data = (await resizeResponse.json()) as ResizeSessionResponse;
+      expect(data.success).toBe(true);
+    }, 10000);
+
+    it('should delete session via DELETE /session/:id', async () => {
+      // Create session
+      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worktreePath,
+          branch: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+      // Delete
+      const deleteResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      expect(deleteResponse.ok).toBe(true);
+      const data = (await deleteResponse.json()) as DeleteSessionResponse;
+      expect(data.success).toBe(true);
+
+      // Verify session no longer exists
+      const getResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`);
+      expect(getResponse.status).toBe(404);
+    }, 10000);
+
+    it('should return 404 for non-existent session', async () => {
+      const response = await fetch(`http://localhost:${PORT}/session/non-existent-id`);
+      expect(response.status).toBe(404);
+    }, 5000);
+
+    it('should return 400 for invalid create session request', async () => {
+      const response = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Missing required fields
+          worktreePath,
+        }),
+      });
+
+      expect(response.status).toBe(400);
+    }, 5000);
+  });
 
 });

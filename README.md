@@ -6,9 +6,12 @@ A terminal multiplexer built for managing CLI agents with an information-dense, 
 
 ## Overview
 
-Agate provides a streamlined way to interact with CLI-based AI agents like Claude, Gemini, and others. It splits your terminal into intelligent panes, giving you a focused workspace for agent interaction while maintaining full terminal capabilities.
+Agate provides a streamlined way to interact with CLI-based AI agents like Claude, Gemini, and others. The TypeScript rewrite uses a client/server architecture with an Express backend and React frontend.
 
-Think of it as a specialized terminal environment where you can seamlessly manage conversations with AI agents, monitor their output, and switch between different agents with ease.
+**Architecture:**
+- **Express Server** - REST API + SSE for session management and real-time PTY streaming
+- **React Client** - OpenTUI-based terminal UI
+- **Full test coverage** - 131 passing tests with integration testing
 
 ## Features
 
@@ -77,7 +80,30 @@ Debug mode is intended for development and troubleshooting. The debug panel and 
 
 ## Development
 
-### Building
+### TypeScript Implementation
+
+The project is being migrated to TypeScript using a pnpm monorepo:
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run type checking
+pnpm typecheck
+
+# Development mode (auto-rebuild on changes)
+pnpm dev
+
+# Run tests
+pnpm --filter @agate/server test
+```
+
+See `CLAUDE.md` for detailed development instructions.
+
+### Go Implementation (Legacy)
 
 ```bash
 # Standard build
