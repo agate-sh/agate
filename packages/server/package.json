@@ -10,8 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit",
-    "test": "vitest",
-    "test:ws": "tsx scripts/test-ws-client.ts"
+    "test": "vitest"
   },
   "dependencies": {
     "@agate/shared": "workspace:*",
