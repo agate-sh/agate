@@ -5,8 +5,10 @@ import { EventBus } from '../event-bus.js';
 import { TmuxSessionManager } from '../tmux/session.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { StateManager } from '../state/manager.js';
+import { SessionManager } from '../session/manager.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
-import type { PtyOutputEvent, PersistedSession } from '@agate/shared';
+import type { PtyOutputEvent, PersistedSession, SessionWorktree } from '@agate/shared';
+import { AGENTS } from '@agate/shared';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { mkdirSync, rmSync, existsSync } from 'fs';
@@ -219,12 +221,12 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
   }, 15000); // Increase timeout for this integration test
 
   it('should persist session state and restore it across restarts', async () => {
-    // Create a session
+    // Create a tmux session
     const sessionId = randomUUID();
     const sessionName = `agate_persist_test_${Date.now()}`;
-    const manager = new TmuxSessionManager(eventBus, sessionId);
+    const tmuxManager = new TmuxSessionManager(eventBus, sessionId);
 
-    await manager.createSession({
+    await tmuxManager.createSession({
       name: sessionName,
       agent: 'claude',
       cwd: worktreePath,
@@ -232,46 +234,66 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
       rows: 24,
     });
 
-    expect(manager.isAlive()).toBe(true);
+    expect(tmuxManager.isAlive()).toBe(true);
 
-    // Create session metadata
-    const worktreeKey = `test-repo:${worktreePath}:test-branch`;
-    const sessionData: PersistedSession = {
-      id: sessionId,
-      worktreeKey,
-      tmuxName: sessionName,
-      agentName: 'claude',
-      worktreePath,
+    // Use SessionManager to manage the session
+    const sessManager = new SessionManager(stateManager);
+
+    // Create worktree metadata for session
+    const worktree: SessionWorktree = {
+      name: 'test-branch',
+      path: worktreePath,
       branch: 'test-branch',
       repoName: 'test-repo',
-      createdAt: new Date().toISOString(),
-      lastAccessed: new Date().toISOString(),
+      isMain: false,
+      commit: 'abc123',
     };
 
-    // Save session to state
-    stateManager.saveSessionMapping(worktreeKey, sessionData);
-    stateManager.setActiveSession(worktreeKey);
+    const agent = AGENTS.claude;
+
+    // Create session via SessionManager
+    const session = sessManager.createSession(worktree, agent);
+    expect(session).toBeDefined();
+    expect(session.worktreeKey).toBe(`test-repo:${worktreePath}`);
+
+    // Switch to session to make it active
+    sessManager.switchToSession(session.worktreeKey);
+    expect(sessManager.getActiveSession()).toBe(session);
+
+    // Persist sessions via SessionManager
+    sessManager.persistSessions();
     await stateManager.save();
 
-    // Verify state was persisted
+    // Verify state was persisted via StateManager
     const savedMappings = stateManager.getSessionMappings();
-    expect(savedMappings[worktreeKey]).toEqual(sessionData);
-    expect(stateManager.getActiveSession()).toBe(worktreeKey);
+    expect(savedMappings[session.worktreeKey]).toBeDefined();
+    expect(stateManager.getActiveSession()).toBe(session.worktreeKey);
 
-    // Simulate restart - create new StateManager instance
+    // Simulate restart - create new StateManager and SessionManager instances
     const restoredState = await StateManager.create();
+    const restoredSessManager = new SessionManager(restoredState);
 
-    // Verify state was restored from disk
-    const restoredMappings = restoredState.getSessionMappings();
-    expect(restoredMappings[worktreeKey]).toEqual(sessionData);
-    expect(restoredState.getActiveSession()).toBe(worktreeKey);
+    // Load sessions from disk
+    restoredSessManager.loadSessions();
+
+    // Verify session was restored
+    const restoredSessions = restoredSessManager.listSessions();
+    expect(restoredSessions).toHaveLength(1);
+    expect(restoredSessions[0]?.worktreeKey).toBe(session.worktreeKey);
+
+    // Verify active session was restored
+    const restoredActive = restoredSessManager.getActiveSession();
+    expect(restoredActive).toBeDefined();
+    expect(restoredActive?.worktreeKey).toBe(session.worktreeKey);
+    expect(restoredActive?.isActive).toBe(true);
 
     console.log(`✅ Session persistence test passed!`);
     console.log(`   - Saved session: ${sessionName}`);
-    console.log(`   - Restored session from disk successfully`);
+    console.log(`   - Restored session from disk via SessionManager`);
+    console.log(`   - Active session restored correctly`);
 
     // Cleanup
-    await manager.kill();
+    await tmuxManager.kill();
   }, 10000);
 
   it('should persist workspace state (repositories and selections)', async () => {
@@ -315,4 +337,5 @@ describe('Integration Test: Worktree → Tmux → PTY → SSE', () => {
     console.log(`   - Saved 2 repositories`);
     console.log(`   - Restored workspace state successfully`);
   }, 5000);
+
 });
