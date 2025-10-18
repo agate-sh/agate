@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Server } from 'http';
+import { serve, type ServerType } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { EventBus } from '../event-bus.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { StateManager } from '../state/manager.js';
-import { createServer } from '../server.js';
+import { createHonoServer } from '../server.hono.js';
+import { createWebSocketHandler } from '../websocket.hono.js';
+import { sessions } from '../routes/session.hono.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
 import type {
   CreateSessionResponse,
   GetSessionResponse,
-  SendSessionInputResponse,
   ResizeSessionResponse,
   DeleteSessionResponse,
 } from '@agate/shared';
@@ -28,7 +30,7 @@ import { homedir } from 'os';
 describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
   let testRepoPath: string;
   let worktreePath: string;
-  let server: Server;
+  let server: ServerType;
   let eventBus: EventBus;
   let stateManager: StateManager;
   const PORT = 3001; // Use different port to avoid conflicts
@@ -58,24 +60,31 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
     stateManager = await StateManager.create();
     eventBus = new EventBus();
 
-    // 4. Create real Express server with all routes
-    const app = createServer(eventBus, stateManager);
+    // 4. Create Hono server with all routes
+    const app = createHonoServer(eventBus, stateManager);
 
-    // Start server
-    await new Promise<void>((resolve) => {
-      server = app.listen(PORT, () => {
-        console.log(`Test server listening on port ${PORT}`);
-        resolve();
-      });
+    // Setup WebSocket support
+    const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+
+    // Add WebSocket route
+    app.get('/ws', upgradeWebSocket(createWebSocketHandler(eventBus, sessions)));
+
+    // Start server with WebSocket support
+    server = serve({
+      fetch: app.fetch,
+      port: PORT,
     });
+
+    // Inject WebSocket upgrade handler
+    injectWebSocket(server);
+
+    console.log(`Test server listening on port ${PORT}`);
   });
 
   afterAll(async () => {
     // Cleanup
     if (server) {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
+      server.close();
     }
 
     eventBus?.destroy();
@@ -137,34 +146,6 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(data.agent).toBe('claude');
       expect(data.cwd).toBe(worktreePath);
       expect(data.isAlive).toBe(true);
-    }, 10000);
-
-    it('should send input to session via POST /session/:id/input', async () => {
-      // Create session
-      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          worktreePath,
-          branch: 'test-branch',
-          agentName: 'claude',
-        }),
-      });
-
-      const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
-
-      // Send input
-      const inputResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/input`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: 'echo "test input"\n',
-        }),
-      });
-
-      expect(inputResponse.ok).toBe(true);
-      const data = (await inputResponse.json()) as SendSessionInputResponse;
-      expect(data.success).toBe(true);
     }, 10000);
 
     it('should resize session via POST /session/:id/resize', async () => {

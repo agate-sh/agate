@@ -28,14 +28,6 @@ export interface GetSessionResponse {
   isAlive: boolean;
 }
 
-export interface SendSessionInputRequest {
-  data: string;
-}
-
-export interface SendSessionInputResponse {
-  success: boolean;
-}
-
 export interface ResizeSessionRequest {
   cols: number;
   rows: number;

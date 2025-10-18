@@ -1,9 +1,10 @@
+import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { EventBus } from './event-bus.js';
 import { StateManager } from './state/manager.js';
-import { createServer } from './server.js';
-import { setupWebSocket } from './websocket.js';
-import { createServer as createHttpServer } from 'http';
-import { sessions } from './routes/session.js';
+import { createHonoServer } from './server.hono.js';
+import { createWebSocketHandler } from './websocket.hono.js';
+import { sessions } from './routes/session.hono.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
@@ -20,19 +21,31 @@ async function start() {
   const repoCount = Object.keys(state.workspace.repositories).length;
   console.log(`Loaded state: ${sessionCount} sessions, ${repoCount} repositories`);
 
-  // Create Express app and HTTP server
-  const app = createServer(eventBus, stateManager);
-  const httpServer = createHttpServer(app);
+  // Create Hono app
+  const app = createHonoServer(eventBus, stateManager);
 
-  // Setup WebSocket server
-  setupWebSocket(httpServer, eventBus, sessions);
+  // Setup WebSocket support
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-  // Start server
-  httpServer.listen(PORT, () => {
-    console.log(`Agate server listening on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/health`);
-    console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
-  });
+  // Add WebSocket route
+  app.get('/ws', upgradeWebSocket(createWebSocketHandler(eventBus, sessions)));
+
+  // Start server with WebSocket support
+  const server = serve(
+    {
+      fetch: app.fetch,
+      port: PORT,
+    },
+    (info) => {
+      console.log(`Agate server listening on port ${info.port}`);
+      console.log(`Health check: http://localhost:${info.port}/health`);
+      console.log(`WebSocket endpoint: ws://localhost:${info.port}/ws`);
+      console.log(`OpenAPI docs: http://localhost:${info.port}/doc`);
+    }
+  );
+
+  // Inject WebSocket upgrade handler into the Node.js server
+  injectWebSocket(server);
 }
 
 start().catch((error) => {

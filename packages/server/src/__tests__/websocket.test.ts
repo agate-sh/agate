@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Server, createServer as createHttpServer } from 'http';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { serve, type ServerType } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { EventBus } from '../event-bus.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { StateManager } from '../state/manager.js';
-import { createServer } from '../server.js';
-import { setupWebSocket } from '../websocket.js';
-import { sessions } from '../routes/session.js';
+import { createHonoServer } from '../server.hono.js';
+import { createWebSocketHandler } from '../websocket.hono.js';
+import { sessions } from '../routes/session.hono.js';
 import { createTestRepo, cleanupTestRepo, createInitialCommit } from '../git/__tests__/test-helpers.js';
 import type { CreateSessionResponse } from '@agate/shared';
-import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
@@ -20,7 +20,7 @@ import WebSocket from 'ws';
 describe('WebSocket Integration Tests', () => {
   let testRepoPath: string;
   let worktreePath: string;
-  let server: Server;
+  let server: ServerType;
   let eventBus: EventBus;
   let stateManager: StateManager;
   const PORT = 3002; // Use different port to avoid conflicts with other tests
@@ -50,28 +50,39 @@ describe('WebSocket Integration Tests', () => {
     stateManager = await StateManager.create();
     eventBus = new EventBus();
 
-    // 4. Create real Express server with all routes
-    const app = createServer(eventBus, stateManager);
-    server = createHttpServer(app);
+    // 4. Create Hono server with all routes
+    const app = createHonoServer(eventBus, stateManager);
 
-    // 5. Setup WebSocket server
-    setupWebSocket(server, eventBus, sessions);
+    // Setup WebSocket support
+    const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-    // Start server
-    await new Promise<void>((resolve) => {
-      server.listen(PORT, () => {
-        console.log(`WebSocket test server listening on port ${PORT}`);
-        resolve();
-      });
+    // Add WebSocket route
+    app.get('/ws', upgradeWebSocket(createWebSocketHandler(eventBus, sessions)));
+
+    // Start server with WebSocket support
+    server = serve({
+      fetch: app.fetch,
+      port: PORT,
     });
+
+    // Inject WebSocket upgrade handler
+    injectWebSocket(server);
+
+    console.log(`WebSocket test server listening on port ${PORT}`);
+  });
+
+  afterEach(async () => {
+    // Cleanup all sessions after each test to prevent interference
+    for (const [sessionId, sessionManager] of sessions.entries()) {
+      await sessionManager.kill();
+      sessions.delete(sessionId);
+    }
   });
 
   afterAll(async () => {
     // Cleanup
     if (server) {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
+      server.close();
     }
 
     eventBus?.destroy();
@@ -104,6 +115,9 @@ describe('WebSocket Integration Tests', () => {
     });
     const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
+    // Wait for PTY to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 200));
+
     // 2. Connect WebSocket
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
     await new Promise(resolve => ws.once('open', resolve));
@@ -113,6 +127,9 @@ describe('WebSocket Integration Tests', () => {
       type: 'subscribe',
       sessionId
     }));
+
+    // Wait for subscription to be established
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     // 4. Collect output
     const output: string[] = [];
@@ -153,6 +170,9 @@ describe('WebSocket Integration Tests', () => {
     });
     const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
+    // Wait for PTY to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 200));
+
     // Connect two clients
     const ws1 = new WebSocket(`ws://localhost:${PORT}/ws`);
     const ws2 = new WebSocket(`ws://localhost:${PORT}/ws`);
@@ -165,6 +185,9 @@ describe('WebSocket Integration Tests', () => {
     // Both subscribe
     ws1.send(JSON.stringify({ type: 'subscribe', sessionId }));
     ws2.send(JSON.stringify({ type: 'subscribe', sessionId }));
+
+    // Wait for subscriptions to be established
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     // Collect output from both
     const output1: string[] = [];
@@ -209,6 +232,9 @@ describe('WebSocket Integration Tests', () => {
       }),
     });
     const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+    // Wait for PTY to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Connect and subscribe
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
@@ -285,6 +311,9 @@ describe('WebSocket Integration Tests', () => {
     });
     const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
+    // Wait for PTY to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 200));
+
     // Connect and subscribe
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
     await new Promise(resolve => ws.once('open', resolve));
@@ -298,15 +327,16 @@ describe('WebSocket Integration Tests', () => {
     ws.close();
     await new Promise(resolve => ws.once('close', resolve));
 
-    // Send input to session via HTTP (should not crash server)
-    const inputResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/input`, {
+    // Trigger session operation via HTTP (should not crash server even though WS is closed)
+    const resizeResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/resize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        data: 'echo "AFTER_DISCONNECT"\n',
+        cols: 100,
+        rows: 30,
       }),
     });
 
-    expect(inputResponse.ok).toBe(true);
+    expect(resizeResponse.ok).toBe(true);
   }, 10000);
 });
