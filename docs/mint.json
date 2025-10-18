@@ -2,17 +2,17 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Agate",
   "logo": {
-    "dark": "/images/logo/dark.svg",
-    "light": "/images/logo/light.svg"
+    "dark": "/images/logo/dark.png",
+    "light": "/images/logo/light.png"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.ico",
   "colors": {
-    "primary": "#0D9373",
-    "light": "#07C983",
-    "dark": "#0D9373",
+    "primary": "#9d87ae",
+    "light": "#b89dc4",
+    "dark": "#8a73a0",
     "anchors": {
-      "from": "#0D9373",
-      "to": "#07C983"
+      "from": "#9d87ae",
+      "to": "#b89dc4"
     }
   },
   "topbarLinks": [
@@ -48,19 +48,13 @@
     {
       "group": "Core Concepts",
       "pages": [
-        "guides/agents",
-        "guides/shells",
-        "guides/overlays",
-        "guides/keybindings"
+        "guides/agents"
       ]
     },
     {
       "group": "API Documentation",
       "pages": [
-        "api-reference/introduction",
-        "api-reference/agent-system",
-        "api-reference/shell-management",
-        "api-reference/ui-components"
+        "api-reference/introduction"
       ]
     }
   ],
@@ -70,7 +64,7 @@
   },
   "analytics": {
     "posthog": {
-      "apiKey": ""
+      "apiKey": "phc_YvgHCnubaIsEC6NLTadB253ln8BvkI92Th0ECTpE5Ms"
     }
   },
   "feedback": {
