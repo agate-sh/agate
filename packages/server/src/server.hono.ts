@@ -45,7 +45,7 @@ export function createHonoServer(eventBus: EventBus, stateManager: StateManager)
     );
   });
 
-  // OpenAPI documentation endpoint
+  // OpenAPI documentation endpoint (Swagger UI)
   app.get(
     '/doc',
     openAPIRouteHandler(app, {
@@ -58,6 +58,29 @@ export function createHonoServer(eventBus: EventBus, stateManager: StateManager)
         openapi: '3.1.0',
       },
     })
+  );
+
+  // OpenAPI spec as JSON
+  app.get(
+    '/openapi.json',
+    describeRoute({
+      description: 'Get OpenAPI specification',
+      operationId: 'openapi.spec',
+      responses: {
+        200: {
+          description: 'OpenAPI specification',
+          content: {
+            'application/json': {
+              schema: resolver(z.any()),
+            },
+          },
+        },
+      },
+    }),
+    async (c) => {
+      const spec = await generateOpenAPISpec(app);
+      return c.json(spec);
+    }
   );
 
   // Health check endpoint

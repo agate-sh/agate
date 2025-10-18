@@ -17,9 +17,7 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 - **`@agate/shared`** - Shared TypeScript types (agent configs, session state, git types, tmux types, API contracts)
 - **`@agate/server`** - Express server for managing terminal sessions via node-pty
 - **`@agate/sdk`** - Auto-generated TypeScript client SDK (from OpenAPI specs)
-- **`@agate/client`** - OpenTUI-based React terminal UI (inspired by [sst/opencode](https://github.com/sst/opencode) `opentui` branch)
-
-**Key inspiration:** This project draws heavily from `sst/opencode` (specifically the `opentui` branch), but uses **React instead of Solid**. A local clone exists at `/Users/patrickerichsen/Git/opencode`.
+- **`@agate/client`** - OpenTUI-based React terminal UI
 
 ### Core Technologies
 
@@ -100,6 +98,30 @@ pnpm --filter @agate/server test --watch
 
 The server has 131 passing tests including unit tests for all modules and integration tests that verify the full HTTP API.
 
+## OpenAPI Specification
+
+The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation from route definitions.
+
+### Accessing the OpenAPI Spec
+
+1. **Swagger UI (interactive docs)**: `GET /doc`
+2. **Raw JSON spec**: `GET /openapi.json`
+3. **Generate to file**: `pnpm --filter @agate/server generate:openapi`
+
+### OpenAPI Workflow
+
+- **Spec is NOT committed to git** (`openapi.json` is in `.gitignore`)
+- **Always generated from code** - No manual maintenance needed
+- **Live endpoints** - `/doc` and `/openapi.json` always serve fresh spec
+- **Script generation** - `generate-openapi.ts` writes spec to disk for SDK generation
+- **SDK generation** - The `@agate/sdk` package will consume the spec to generate TypeScript client
+
+### Key Files
+
+- `packages/server/src/server.hono.ts` - Route definitions with `describeRoute()` decorators
+- `packages/server/src/generate-openapi.ts` - Script to generate spec file
+- Route files use `hono-openapi`'s `describeRoute()` and `resolver()` for type-safe API definitions
+
 ## TypeScript Configuration
 
 - **Strict mode enabled** with additional safety checks:
@@ -124,6 +146,7 @@ The Go implementation uses a **centralized, thread-safe StateManager** to preven
 ### Session Naming
 
 Session names must be:
+
 1. Valid tmux names (alphanumeric, underscores, hyphens, dots)
 2. Unique per worktree/branch
 3. **Idempotent** - processing a sanitized name returns the same name
@@ -135,11 +158,13 @@ Session names must be:
 ### Pane Layout System
 
 The UI uses a **three-column layout**:
+
 1. Repos/worktrees pane (25% width)
 2. Tmux/agent interaction pane (50% width)
 3. Right column split between Git status and Shell (remaining width)
 
 **Key layout principles:**
+
 - Compute content dimensions first, then add borders
 - Use consistent border styles and padding
 - Account for horizontal gutters between panes
@@ -161,6 +186,7 @@ When debugging issues, add strategic debug logs and walk through actions to trig
 ## Agent Configuration
 
 Supported agents are defined in `packages/shared/src/types/agent.ts` with their:
+
 - Display names
 - Border colors (hex)
 - Executable names (for process matching)
@@ -171,6 +197,7 @@ Current agents: Claude, Amp, Gemini, Codex, OpenCode, Cursor, Copilot, Continue,
 ## Migration Context
 
 The TypeScript rewrite aims to:
+
 1. Leverage the React ecosystem and OpenTUI for richer UI capabilities
 2. Provide better developer ergonomics with TypeScript
 3. Enable easier extensibility for plugins and custom panes

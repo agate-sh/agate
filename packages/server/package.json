@@ -10,7 +10,8 @@
     "dev": "tsx watch src/index.ts",
     "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest",
+    "generate:openapi": "tsx src/generate-openapi.ts"
   },
   "dependencies": {
     "@agate/shared": "workspace:*",
