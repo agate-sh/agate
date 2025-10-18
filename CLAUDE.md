@@ -98,9 +98,9 @@ pnpm --filter @agate/server test --watch
 
 The server has 131 passing tests including unit tests for all modules and integration tests that verify the full HTTP API.
 
-## OpenAPI Specification
+## OpenAPI Specification & SDK Generation
 
-The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation from route definitions.
+The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation from route definitions. The TypeScript SDK is auto-generated from this spec.
 
 ### Accessing the OpenAPI Spec
 
@@ -108,18 +108,45 @@ The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation fr
 2. **Raw JSON spec**: `GET /openapi.json`
 3. **Generate to file**: `pnpm --filter @agate/server generate:openapi`
 
-### OpenAPI Workflow
+### Auto-Regeneration Workflow (Dev Mode)
 
-- **Spec is NOT committed to git** (`openapi.json` is in `.gitignore`)
-- **Always generated from code** - No manual maintenance needed
-- **Live endpoints** - `/doc` and `/openapi.json` always serve fresh spec
-- **Script generation** - `generate-openapi.ts` writes spec to disk for SDK generation
-- **SDK generation** - The `@agate/sdk` package will consume the spec to generate TypeScript client
+When running `pnpm dev` from the root, the SDK automatically stays in sync with server changes:
+
+```
+Server route modified
+  ↓ (chokidar watches packages/server/src/**/*.ts)
+OpenAPI spec regenerated
+  ↓ (chokidar watches packages/server/openapi.json)
+SDK client regenerated
+  ↓ (tsup watches src/gen/)
+SDK rebuilt with fresh types
+```
+
+**This happens automatically** - you never need to manually regenerate the SDK during development.
+
+### Manual SDK Generation
+
+```bash
+# Generate both spec and SDK
+pnpm --filter @agate/sdk generate
+
+# Or individually:
+pnpm --filter @agate/server generate:openapi  # Server → OpenAPI
+pnpm --filter @agate/sdk generate:sdk          # OpenAPI → SDK
+```
+
+### What's NOT Committed to Git
+
+- `packages/server/openapi.json` - Regenerated from routes
+- `packages/sdk/src/gen/` - Regenerated from OpenAPI spec
+
+Both are always generated from source code, so there's no risk of staleness.
 
 ### Key Files
 
 - `packages/server/src/server.hono.ts` - Route definitions with `describeRoute()` decorators
 - `packages/server/src/generate-openapi.ts` - Script to generate spec file
+- `packages/sdk/src/gen/` - Auto-generated SDK (types + methods)
 - Route files use `hono-openapi`'s `describeRoute()` and `resolver()` for type-safe API definitions
 
 ## TypeScript Configuration
