@@ -1,19 +1,8 @@
-import { render } from '@opentui/react';
-import { App } from './App';
+#!/usr/bin/env node
+import { render } from "@opentui/react";
+import { App } from "./App.js";
+import { logger } from "./logger.js";
 
-async function main() {
-  await render(
-    <App />,
-    {
-      targetFps: 60,
-      gatherStats: false,
-      exitOnCtrlC: true,
-      useKittyKeyboard: true,
-    }
-  );
-}
+logger.info('Starting Agate client');
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+render(<App />);

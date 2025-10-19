@@ -1,11 +1,13 @@
 {
   "name": "@agate/root",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Agate - Multi-agent task execution in tmux",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
+    "dev": "pnpm --filter '!@agate/client' --parallel dev",
+    "dev:client": "pnpm --filter @agate/client dev",
+    "dev:logs": "tail -f ~/.agate/dev.log 2>/dev/null || echo 'No logs yet. Start dev server first.'",
     "clean": "pnpm -r clean",
     "typecheck": "pnpm -r typecheck",
     "generate-logos": "npx tsx scripts/generate-logos.ts"
@@ -16,6 +18,8 @@
   },
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
     "zod-openapi": "^4.0.0"
   }
 }

@@ -339,4 +339,86 @@ describe('WebSocket Integration Tests', () => {
 
     expect(resizeResponse.ok).toBe(true);
   }, 10000);
+
+  it('should send initial tmux buffer content on WebSocket subscription (AGT-166)', async () => {
+    // Create session
+    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        worktreePath,
+        branch: 'test-branch',
+        agentName: 'claude',
+      }),
+    });
+
+    const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
+
+    // Wait for PTY to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // NOW connect via WebSocket and subscribe (BEFORE sending any input)
+    const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+
+    const messages: string[] = [];
+    let resolveTest: (value: boolean) => void;
+    const testPromise = new Promise<boolean>((resolve) => {
+      resolveTest = resolve;
+    });
+
+    ws.on('open', () => {
+      // Subscribe to the session
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        sessionId,
+      }));
+    });
+
+    ws.on('message', (data) => {
+      const message = JSON.parse(data.toString());
+
+      if (message.type === 'pty:output' && message.sessionId === sessionId) {
+        messages.push(message.data);
+
+        // After receiving the initial content, send new input
+        if (messages.length === 1) {
+          // Send input via WebSocket (not HTTP) to test that streaming continues
+          ws.send(JSON.stringify({
+            type: 'pty:input',
+            sessionId,
+            data: 'echo "NEW_CONTENT_AFTER_INITIAL"\n'
+          }));
+        }
+
+        // Once we receive the new content, we know both initial and streaming work
+        if (message.data.includes('NEW_CONTENT_AFTER_INITIAL')) {
+          resolveTest(true);
+          ws.close();
+        }
+      }
+    });
+
+    ws.on('error', (error) => {
+      resolveTest(false);
+    });
+
+    setTimeout(() => {
+      resolveTest(false);
+    }, 10000);
+
+    await testPromise;
+
+    // Verify we received at least 2 messages:
+    // 1. Initial buffer content (may be empty for new session)
+    // 2. New output after subscribing
+    expect(messages.length).toBeGreaterThanOrEqual(2);
+
+    // First message is the initial buffer capture
+    expect(messages[0]).toBeDefined();
+    expect(typeof messages[0]).toBe('string');
+
+    // Subsequent messages should include our test marker
+    const allOutput = messages.join('');
+    expect(allOutput).toContain('NEW_CONTENT_AFTER_INITIAL');
+  }, 15000);
 });

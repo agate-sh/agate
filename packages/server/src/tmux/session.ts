@@ -239,6 +239,41 @@ export class TmuxSessionManager {
   }
 
   /**
+   * Capture current pane content with ANSI escape sequences and joined wrapped lines
+   * Use this for sending initial buffer content to new WebSocket subscribers
+   */
+  async captureCurrentContent(): Promise<string> {
+    if (!this.sessionName) {
+      throw new Error('No session name set');
+    }
+
+    return new Promise((resolve, reject) => {
+      let output = '';
+
+      const child = pty.spawn(
+        'tmux',
+        ['capture-pane', '-p', '-e', '-J', '-t', this.sessionName],
+        {
+          name: 'xterm-256color',
+          cwd: this.cwd,
+        },
+      );
+
+      child.onData((data: string) => {
+        output += data;
+      });
+
+      child.onExit(({ exitCode }) => {
+        if (exitCode === 0) {
+          resolve(output);
+        } else {
+          reject(new Error(`tmux capture-pane failed with code ${exitCode}`));
+        }
+      });
+    });
+  }
+
+  /**
    * Kill the session and clean up
    */
   async kill(): Promise<void> {

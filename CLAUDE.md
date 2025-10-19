@@ -196,17 +196,59 @@ The UI uses a **three-column layout**:
 - Use consistent border styles and padding
 - Account for horizontal gutters between panes
 
-## Debugging
+## Logging
 
-Debug logs are written to `~/.agate/debug.log`:
+The project uses **pino** for structured logging with the following setup:
+
+### Log Locations
+
+- **Development mode**: Both server and client write to `~/.agate/dev.log` (unified)
+- **Production mode**: Separate logs at `~/.agate/server.log` and `~/.agate/client.log`
+
+### Viewing Logs
 
 ```bash
-# View recent logs
-tail -f ~/.agate/debug.log
+# In development - unified log stream
+pnpm dev:logs
+
+# Or manually tail the dev log
+tail -f ~/.agate/dev.log
 
 # Search for specific issues
-grep "session restore" ~/.agate/debug.log
+grep "session restore" ~/.agate/dev.log
 ```
+
+### Using the Logger
+
+**IMPORTANT**: Always use the `logger` object, NEVER use `console.log`, `console.error`, etc.
+
+The logger is available in all packages:
+
+```typescript
+// Server and shared packages
+import { logger } from './logger.js';
+
+// Client package
+import { logger } from '../logger.js';
+
+// Structured logging examples
+logger.info({ sessionId, userId }, 'Session created');
+logger.error({ err }, 'Failed to connect');  // Use { err } not { error }
+logger.debug({ state }, 'Current state');
+logger.warn({ sessionId, availableSessions }, 'Session not found');
+```
+
+**Log levels**: `trace`, `debug`, `info`, `warn`, `error`, `fatal`
+
+**Best practices**:
+- First parameter is always an object with context (structured data)
+- Second parameter is a human-readable message string
+- Use `{ err: error }` not `{ error }` when logging errors (pino convention)
+- Include relevant IDs and context in the structured data
+- Pretty-printed output in dev mode (with colors and timestamps)
+- Structured JSON in production
+- Automatic component tagging (`[server]` or `[client]`)
+- File persistence for debugging
 
 When debugging issues, add strategic debug logs and walk through actions to trigger them.
 

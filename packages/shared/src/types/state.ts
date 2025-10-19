@@ -1,4 +1,4 @@
-import { SessionState } from './session.js';
+import type { SessionState } from './session.js';
 
 /**
  * Worktree reference for tracking repository locations

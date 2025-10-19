@@ -7,11 +7,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsup",
-    "dev": "tsx watch src/index.ts",
+    "dev": "NODE_ENV=development NODE_OPTIONS='--conditions=@agate/source' tsx watch src/index.ts",
     "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "generate:openapi": "tsx src/generate-openapi.ts"
+    "generate:openapi": "NODE_OPTIONS='--conditions=@agate/source' tsx src/generate-openapi.ts"
   },
   "dependencies": {
     "@agate/shared": "workspace:*",

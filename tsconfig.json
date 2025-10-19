@@ -18,7 +18,8 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "customConditions": ["@agate/source"]
   },
   "files": [],
   "references": [

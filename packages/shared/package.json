@@ -7,12 +7,14 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "@agate/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./types": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
+    "./theme": {
+      "@agate/source": "./src/theme.ts",
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js"
     }
   },
   "scripts": {
@@ -22,6 +24,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {

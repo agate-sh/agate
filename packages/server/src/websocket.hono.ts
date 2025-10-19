@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { EventBus } from './event-bus.js';
 import type { TmuxSessionManager } from './tmux/session.js';
 import type { ServerEvent } from '@agate/shared';
+import { logger } from './logger.js';
 
 interface WebSocketMessage {
   type: string;
@@ -49,6 +50,8 @@ export function createWebSocketHandler(
               case 'subscribe':
                 // Subscribe to PTY output for a session
                 if (msg.sessionId) {
+                  logger.debug({ clientId: state.id, sessionId: msg.sessionId }, 'Client subscribing to session');
+
                   // Cleanup previous subscription if exists
                   if (state.unsubscribeCallback) {
                     state.unsubscribeCallback();
@@ -88,6 +91,32 @@ export function createWebSocketHandler(
                   // Subscribe to event bus
                   eventBus.subscribe(state.id, eventCallback);
 
+                  // Send initial content from tmux buffer
+                  const sessionManager = sessions.get(msg.sessionId);
+                  logger.debug({ sessionId: msg.sessionId, found: !!sessionManager }, 'Looking up session manager');
+
+                  if (sessionManager) {
+                    logger.debug({ sessionId: msg.sessionId }, 'Capturing initial tmux buffer content');
+                    sessionManager.captureCurrentContent().then((content) => {
+                      logger.debug({ sessionId: msg.sessionId, bytes: content.length }, 'Captured initial content');
+                      ws.send(
+                        JSON.stringify({
+                          type: 'pty:output',
+                          sessionId: msg.sessionId,
+                          data: content,
+                        })
+                      );
+                      logger.debug({ sessionId: msg.sessionId }, 'Sent initial content to client');
+                    }).catch((error) => {
+                      logger.error({ sessionId: msg.sessionId, err: error }, 'Failed to capture initial content');
+                    });
+                  } else {
+                    logger.warn({
+                      sessionId: msg.sessionId,
+                      availableSessions: Array.from(sessions.keys())
+                    }, 'Session not found in sessions map');
+                  }
+
                   // Store unsubscribe callback
                   state.unsubscribeCallback = () => {
                     eventBus.unsubscribe(state.id);
@@ -106,11 +135,11 @@ export function createWebSocketHandler(
 
               default:
                 // Ignore unknown message types (gracefully)
-                console.warn(`Unknown WebSocket message type: ${msg.type}`);
+                logger.warn({ type: msg.type }, 'Unknown WebSocket message type');
                 break;
             }
           } catch (error) {
-            console.error(`WebSocket message parsing error for client ${state.id}:`, error);
+            logger.error({ clientId: state.id, err: error }, 'WebSocket message parsing error');
           }
         },
 
@@ -123,7 +152,7 @@ export function createWebSocketHandler(
         },
 
         onError(event: any) {
-          console.error(`WebSocket error for client ${state.id}:`, event);
+          logger.error({ clientId: state.id, event }, 'WebSocket error');
         },
     };
   };
