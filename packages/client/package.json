@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "dev": "tsx watch src/index.tsx",
+    "dev": "bun --watch src/index.tsx",
+    "start": "bun src/index.tsx",
     "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit"
   },
@@ -18,7 +19,8 @@
     "@opentui/core": "^0.1.27",
     "@opentui/react": "^0.1.27",
     "posthog-js": "^1.276.0",
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "react-reconciler": "^0.33.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
