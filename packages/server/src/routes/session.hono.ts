@@ -1,20 +1,34 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import { randomUUID } from 'crypto';
+import { basename } from 'path';
 import z from 'zod';
 import { TmuxSessionManager } from '../tmux/session.js';
 import { EventBus } from '../event-bus.js';
+import { StateManager } from '../state/manager.js';
 import type {
   CreateSessionResponse,
   GetSessionResponse,
   ResizeSessionResponse,
   DeleteSessionResponse,
   AgentName,
+  PersistedSession,
 } from '@agate/shared';
 import type { SessionCreatedEvent, SessionDeletedEvent } from '@agate/shared';
+import { generateWorktreeKey } from '@agate/shared';
+
+// Session metadata for persistence
+interface SessionMetadata {
+  manager: TmuxSessionManager;
+  worktreeKey: string;
+  worktreePath: string;
+  branch: string;
+  repoName: string;
+  agentName: string;
+}
 
 // In-memory session registry
-export const sessions = new Map<string, TmuxSessionManager>();
+export const sessions = new Map<string, SessionMetadata>();
 
 // Define Zod schemas for validation
 const CreateSessionSchema = z.object({
@@ -83,6 +97,7 @@ const ERRORS = {
 type Env = {
   Variables: {
     eventBus: EventBus;
+    stateManager: StateManager;
   };
 };
 
@@ -113,8 +128,24 @@ export const sessionRouter = new Hono<Env>()
         // Generate session ID
         const sessionId = randomUUID();
 
-        // Get eventBus from context
+        // Get dependencies from context
         const eventBus = c.get('eventBus');
+        const stateManager = c.get('stateManager');
+
+        // Extract repo name from worktree path
+        // For paths like /Users/test/repos/my-project, extract 'my-project'
+        const pathParts = worktreePath.split('/').filter(Boolean);
+        const repoName = pathParts[pathParts.length - 1] || 'unknown';
+
+        // Generate worktree key for persistence
+        const worktreeKey = generateWorktreeKey({
+          repoName,
+          path: worktreePath,
+          branch,
+          isMain: true,
+          commit: '',
+          name: branch,
+        });
 
         // Create TmuxSessionManager
         const sessionManager = new TmuxSessionManager(eventBus, sessionId);
@@ -127,14 +158,38 @@ export const sessionRouter = new Hono<Env>()
           cwd: worktreePath,
         });
 
-        // Store in registry
-        sessions.set(sessionId, sessionManager);
+        // Store in registry with metadata
+        sessions.set(sessionId, {
+          manager: sessionManager,
+          worktreeKey,
+          worktreePath,
+          branch,
+          repoName,
+          agentName,
+        });
+
+        // Persist to state.json
+        const now = new Date().toISOString();
+        const persistedSession: PersistedSession = {
+          id: sessionId,
+          worktreeKey,
+          tmuxName: sessionName,
+          agentName,
+          worktreePath,
+          branch,
+          repoName,
+          createdAt: now,
+          lastAccessed: now,
+        };
+
+        stateManager.saveSessionMapping(worktreeKey, persistedSession);
+        await stateManager.save();
 
         // Emit session created event
         const event: SessionCreatedEvent = {
           type: 'session.created',
           sessionId,
-          timestamp: new Date().toISOString(),
+          timestamp: now,
         };
         eventBus.publish(event);
 
@@ -171,12 +226,12 @@ export const sessionRouter = new Hono<Env>()
       try {
         const { id } = c.req.valid('param');
 
-        const sessionManager = sessions.get(id);
-        if (!sessionManager) {
+        const sessionMetadata = sessions.get(id);
+        if (!sessionMetadata) {
           return c.json({ error: 'Session not found' }, 404);
         }
 
-        const info = sessionManager.getInfo();
+        const info = sessionMetadata.manager.getInfo();
         const response: GetSessionResponse = {
           id: info.id,
           name: info.name,
@@ -219,12 +274,12 @@ export const sessionRouter = new Hono<Env>()
         const { id } = c.req.valid('param');
         const { cols, rows } = c.req.valid('json');
 
-        const sessionManager = sessions.get(id);
-        if (!sessionManager) {
+        const sessionMetadata = sessions.get(id);
+        if (!sessionMetadata) {
           return c.json({ error: 'Session not found' }, 404);
         }
 
-        sessionManager.resize(cols, rows);
+        sessionMetadata.manager.resize(cols, rows);
 
         const response: ResizeSessionResponse = {
           success: true,
@@ -258,19 +313,24 @@ export const sessionRouter = new Hono<Env>()
       try {
         const { id } = c.req.valid('param');
 
-        const sessionManager = sessions.get(id);
-        if (!sessionManager) {
+        const sessionMetadata = sessions.get(id);
+        if (!sessionMetadata) {
           return c.json({ error: 'Session not found' }, 404);
         }
 
         // Kill the session
-        await sessionManager.kill();
+        await sessionMetadata.manager.kill();
+
+        // Get dependencies from context
+        const eventBus = c.get('eventBus');
+        const stateManager = c.get('stateManager');
+
+        // Remove from state.json
+        stateManager.removeSessionMapping(sessionMetadata.worktreeKey);
+        await stateManager.save();
 
         // Remove from registry
         sessions.delete(id);
-
-        // Get eventBus from context
-        const eventBus = c.get('eventBus');
 
         // Emit session deleted event
         const event: SessionDeletedEvent = {

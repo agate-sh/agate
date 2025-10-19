@@ -75,7 +75,11 @@ export class TmuxSessionManager {
         cols,
         rows,
         cwd: options.cwd,
-        env: process.env as { [key: string]: string },
+        env: {
+          ...process.env,
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+        } as { [key: string]: string },
       },
     );
 
@@ -107,7 +111,11 @@ export class TmuxSessionManager {
       cols,
       rows,
       cwd,
-      env: process.env as { [key: string]: string },
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+      } as { [key: string]: string },
     });
 
     this.isAliveFlag = true;

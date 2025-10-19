@@ -26,7 +26,7 @@ export function App() {
           <AgentsPane dialog={dialog} />
 
           {/* Terminal pane - hardcoded session for testing */}
-          <TerminalPane sessionId="0072bbef-5011-4859-9f48-56049d449bdc" />
+          <TerminalPane sessionId="011aa680-75d7-4ea7-8a1c-f2df3489a38b" />
         </box>
 
         {/* Status bar */}

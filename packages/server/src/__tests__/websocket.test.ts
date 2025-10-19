@@ -73,8 +73,8 @@ describe('WebSocket Integration Tests', () => {
 
   afterEach(async () => {
     // Cleanup all sessions after each test to prevent interference
-    for (const [sessionId, sessionManager] of sessions.entries()) {
-      await sessionManager.kill();
+    for (const [sessionId, sessionMetadata] of sessions.entries()) {
+      await sessionMetadata.manager.kill();
       sessions.delete(sessionId);
     }
   });

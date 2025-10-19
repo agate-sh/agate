@@ -13,7 +13,7 @@ interface TerminalPaneProps {
  * Handles keyboard input and sends it to the PTY via WebSocket
  */
 export function TerminalPane({ sessionId }: TerminalPaneProps) {
-  const { output, parsedLines, isConnected } = usePtyStream({ sessionId });
+  const { output, parsedLines, isConnected, sendInput } = usePtyStream({ sessionId });
   const boxRef = useRef<any>(null);
 
   // Debug: Log output changes
@@ -22,6 +22,45 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     logger.debug({ preview: output.substring(0, 200) }, '🖥️  Output preview');
     logger.debug({ parsedLinesCount: parsedLines.length }, '🎨 Parsed lines count');
   }, [output, parsedLines]);
+
+  // Handle keyboard input
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+
+    // Focus the box to receive keyboard events
+    box.focus();
+
+    const handleKeypress = (ch: string, key: any) => {
+      if (!isConnected) return;
+
+      logger.debug({ ch, key: key?.name }, 'Keypress received');
+
+      // Handle special keys
+      if (key.name === 'return') {
+        sendInput('\n');
+      } else if (key.name === 'backspace') {
+        sendInput('\x7f');
+      } else if (key.name === 'tab') {
+        sendInput('\t');
+      } else if (key.name === 'escape') {
+        sendInput('\x1b');
+      } else if (key.ctrl && key.name === 'c') {
+        sendInput('\x03');
+      } else if (key.ctrl && key.name === 'd') {
+        sendInput('\x04');
+      } else if (ch) {
+        sendInput(ch);
+      }
+    };
+
+    // Listen for keypress events on the box
+    box.on('keypress', handleKeypress);
+
+    return () => {
+      box.off('keypress', handleKeypress);
+    };
+  }, [isConnected, sendInput]);
 
   return (
     <box
@@ -44,7 +83,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
       </box>
 
       {/* Output area with ANSI rendering */}
-      <box flexGrow={1} flexDirection="column" overflow="hidden">
+      <box flexGrow={1} flexDirection="column" overflow="hidden" bg={theme.base}>
         {parsedLines.length === 0 ? (
           <text fg={theme.textMuted}>Waiting for output...</text>
         ) : (

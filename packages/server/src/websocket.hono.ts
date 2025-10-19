@@ -16,13 +16,22 @@ interface ClientState {
   unsubscribeCallback: (() => void) | null;
 }
 
+interface SessionMetadata {
+  manager: TmuxSessionManager;
+  worktreeKey: string;
+  worktreePath: string;
+  branch: string;
+  repoName: string;
+  agentName: string;
+}
+
 /**
  * Create WebSocket handler using @hono/node-ws
  * This replaces the standalone WebSocket server with Hono-integrated WebSocket handling
  */
 export function createWebSocketHandler(
   eventBus: EventBus,
-  sessions: Map<string, TmuxSessionManager>
+  sessions: Map<string, SessionMetadata>
 ) {
   return () => {
     const state: ClientState = {
@@ -40,9 +49,9 @@ export function createWebSocketHandler(
               case 'pty:input':
                 // Forward input to session
                 if (msg.sessionId && msg.data !== undefined) {
-                  const sessionManager = sessions.get(msg.sessionId);
-                  if (sessionManager) {
-                    sessionManager.write(msg.data);
+                  const sessionMetadata = sessions.get(msg.sessionId);
+                  if (sessionMetadata) {
+                    sessionMetadata.manager.write(msg.data);
                   }
                 }
                 break;
@@ -92,12 +101,12 @@ export function createWebSocketHandler(
                   eventBus.subscribe(state.id, eventCallback);
 
                   // Send initial content from tmux buffer
-                  const sessionManager = sessions.get(msg.sessionId);
-                  logger.debug({ sessionId: msg.sessionId, found: !!sessionManager }, 'Looking up session manager');
+                  const sessionMetadata = sessions.get(msg.sessionId);
+                  logger.debug({ sessionId: msg.sessionId, found: !!sessionMetadata }, 'Looking up session manager');
 
-                  if (sessionManager) {
+                  if (sessionMetadata) {
                     logger.debug({ sessionId: msg.sessionId }, 'Capturing initial tmux buffer content');
-                    sessionManager.captureCurrentContent().then((content) => {
+                    sessionMetadata.manager.captureCurrentContent().then((content) => {
                       logger.debug({ sessionId: msg.sessionId, bytes: content.length }, 'Captured initial content');
                       ws.send(
                         JSON.stringify({

@@ -1,4 +1,4 @@
-import { Terminal } from '@xterm/headless';
+import { Terminal, type IBufferCell } from '@xterm/headless';
 import { RGBA, type TextChunk } from '@opentui/core';
 
 /**
@@ -6,6 +6,15 @@ import { RGBA, type TextChunk } from '@opentui/core';
  */
 export interface AnsiLine {
   chunks: TextChunk[];
+}
+
+/**
+ * Color mode for terminal cells
+ */
+enum ColorMode {
+  DEFAULT = 0,
+  PALETTE = 1,
+  RGB = 2,
 }
 
 /**
@@ -45,12 +54,31 @@ function ansi256ToHex(index: number): string {
 }
 
 /**
+ * Convert color value to hex based on color mode
+ */
+function convertColorToHex(color: number, colorMode: ColorMode): string | undefined {
+  if (colorMode === ColorMode.RGB) {
+    // Extract RGB components from packed integer
+    const r = (color >> 16) & 255;
+    const g = (color >> 8) & 255;
+    const b = color & 255;
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  if (colorMode === ColorMode.PALETTE) {
+    return ansi256ToHex(color);
+  }
+
+  // ColorMode.DEFAULT - return undefined to use theme default
+  return undefined;
+}
+
+/**
  * Creates a TextChunk from xterm.js cell data
  */
 function cellToTextChunk(
   text: string,
-  fg: number | undefined,
-  bg: number | undefined,
+  cell: IBufferCell | null,
   attrs: number
 ): TextChunk {
   const chunk: TextChunk = {
@@ -58,17 +86,24 @@ function cellToTextChunk(
     text,
   };
 
-  // Extract color information
-  if (fg !== undefined) {
-    // fg is RGBA packed as 32-bit integer
-    // For now, use xterm's default color mapping
-    const hexColor = ansi256ToHex(fg & 0xFF);
-    chunk.fg = RGBA.fromHex(hexColor);
-  }
+  if (cell) {
+    // Determine foreground color mode and extract color
+    let fgColorMode = ColorMode.DEFAULT;
+    if (cell.isFgRGB()) {
+      fgColorMode = ColorMode.RGB;
+    } else if (cell.isFgPalette()) {
+      fgColorMode = ColorMode.PALETTE;
+    }
 
-  if (bg !== undefined) {
-    const hexColor = ansi256ToHex(bg & 0xFF);
-    chunk.bg = RGBA.fromHex(hexColor);
+    if (fgColorMode !== ColorMode.DEFAULT) {
+      const hexColor = convertColorToHex(cell.getFgColor(), fgColorMode);
+      if (hexColor) {
+        chunk.fg = RGBA.fromHex(hexColor);
+      }
+    }
+
+    // Don't set background - we want OpenTUI to use our theme background
+    // Setting explicit bg here causes white backgrounds from shell prompts
   }
 
   // Extract text attributes from flags
@@ -104,6 +139,32 @@ export class AnsiParser {
       cols,
       rows,
       allowProposedApi: true,
+      theme: {
+        background: '#030620', // theme.base - dark blue background
+        foreground: '#ffffff', // theme.textPrimary - white text
+        cursor: '#000000',
+        cursorAccent: '#ffffff',
+        selectionBackground: '#4a4a4a',
+        selectionForeground: '#ffffff',
+        // Standard ANSI colors
+        black: '#000000',
+        red: '#ff5555',
+        green: '#50fa7b',
+        yellow: '#f1fa8c',
+        blue: '#8be9fd',
+        magenta: '#ff79c6',
+        cyan: '#8be9fd',
+        white: '#ffffff',
+        // Bright colors
+        brightBlack: '#4a4a4a',
+        brightRed: '#ff6e6e',
+        brightGreen: '#69ff94',
+        brightYellow: '#ffffa5',
+        brightBlue: '#a4ffff',
+        brightMagenta: '#ff92df',
+        brightCyan: '#a4ffff',
+        brightWhite: '#ffffff',
+      },
     });
   }
 
@@ -127,8 +188,7 @@ export class AnsiParser {
 
       const chunks: TextChunk[] = [];
       let currentText = '';
-      let currentFg: number | undefined;
-      let currentBg: number | undefined;
+      let currentCell: IBufferCell | null = null;
       let currentAttrs = 0;
 
       for (let col = 0; col < line.length; col++) {
@@ -136,8 +196,6 @@ export class AnsiParser {
         if (!cell) continue;
 
         const char = cell.getChars();
-        const fg = cell.getFgColor();
-        const bg = cell.getBgColor();
         const attrs = cell.isAttributeDefault() ? 0 : (
           (cell.isBold() ? 0x01 : 0) |
           (cell.isUnderline() ? 0x02 : 0) |
@@ -145,27 +203,31 @@ export class AnsiParser {
           (cell.isDim() ? 0x08 : 0)
         );
 
-        // Check if style changed
+        // Check if style changed - compare full cell state
+        const fg = cell.getFgColor();
+        const bg = cell.getBgColor();
+        const prevFg = currentCell?.getFgColor();
+        const prevBg = currentCell?.getBgColor();
+
         const styleChanged =
-          fg !== currentFg ||
-          bg !== currentBg ||
+          fg !== prevFg ||
+          bg !== prevBg ||
           attrs !== currentAttrs;
 
         if (styleChanged && currentText) {
           // Flush current chunk
-          chunks.push(cellToTextChunk(currentText, currentFg, currentBg, currentAttrs));
+          chunks.push(cellToTextChunk(currentText, currentCell, currentAttrs));
           currentText = '';
         }
 
-        currentFg = fg;
-        currentBg = bg;
+        currentCell = cell;
         currentAttrs = attrs;
         currentText += char || ' ';
       }
 
       // Flush final chunk
       if (currentText) {
-        chunks.push(cellToTextChunk(currentText, currentFg, currentBg, currentAttrs));
+        chunks.push(cellToTextChunk(currentText, currentCell, currentAttrs));
       }
 
       lines.push({ chunks: chunks.length > 0 ? chunks : [{ __isChunk: true, text: '' }] });
