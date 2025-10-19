@@ -70,9 +70,10 @@ function ItemRenderer({
 
 interface AgentsPaneProps {
   dialog: DialogContext;
+  isFocused: boolean;
 }
 
-export function AgentsPane({ dialog }: AgentsPaneProps) {
+export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
   const state = useAgentsState();
   const api = useAgentAPI();
 
@@ -92,6 +93,9 @@ export function AgentsPane({ dialog }: AgentsPaneProps) {
   });
 
   useKeyboard((key) => {
+    // Only handle keyboard input when this pane is focused
+    if (!isFocused) return;
+
     if (key.name === "up" || key.sequence === "k") {
       state.moveSelectionUp();
       return;
@@ -153,7 +157,7 @@ export function AgentsPane({ dialog }: AgentsPaneProps) {
         minWidth={24}
         height="100%"
         borderStyle="single"
-        borderColor={theme.borderDefault}
+        borderColor={isFocused ? theme.agate : theme.borderDefault}
         flexDirection="column"
       >
         <EmptyState />
@@ -167,7 +171,7 @@ export function AgentsPane({ dialog }: AgentsPaneProps) {
       minWidth={24}
       height="100%"
       borderStyle="single"
-      borderColor={theme.borderDefault}
+      borderColor={isFocused ? theme.agate : theme.borderDefault}
       flexDirection="column"
     >
       {state.items.map((item, idx) => (

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
+import { useKeyboard } from '@opentui/react';
 import { usePtyStream } from '../hooks/usePtyStream.js';
 import { theme } from '../utils/theme.js';
 import { logger } from '../logger.js';
@@ -6,15 +7,15 @@ import { StyledText } from '@opentui/core';
 
 interface TerminalPaneProps {
   sessionId: string;
+  isFocused: boolean;
 }
 
 /**
  * TerminalPane component - Displays PTY output from a tmux session
  * Handles keyboard input and sends it to the PTY via WebSocket
  */
-export function TerminalPane({ sessionId }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, isFocused }: TerminalPaneProps) {
   const { output, parsedLines, isConnected, sendInput } = usePtyStream({ sessionId });
-  const boxRef = useRef<any>(null);
 
   // Debug: Log output changes
   useEffect(() => {
@@ -23,53 +24,32 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     logger.debug({ parsedLinesCount: parsedLines.length }, '🎨 Parsed lines count');
   }, [output, parsedLines]);
 
-  // Handle keyboard input
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box) return;
+  // Handle keyboard input using OpenTUI's useKeyboard hook
+  useKeyboard((key) => {
+    // Only handle keyboard input when this pane is focused
+    if (!isFocused) return;
+    if (!isConnected) return;
 
-    // Focus the box to receive keyboard events
-    box.focus();
+    logger.debug({ key: key.name, sequence: key.sequence }, 'Keypress received');
 
-    const handleKeypress = (ch: string, key: any) => {
-      if (!isConnected) return;
+    // Tab is reserved for focus management - don't send it to terminal
+    if (key.name === 'tab') {
+      return;
+    }
 
-      logger.debug({ ch, key: key?.name }, 'Keypress received');
-
-      // Handle special keys
-      if (key.name === 'return') {
-        sendInput('\n');
-      } else if (key.name === 'backspace') {
-        sendInput('\x7f');
-      } else if (key.name === 'tab') {
-        sendInput('\t');
-      } else if (key.name === 'escape') {
-        sendInput('\x1b');
-      } else if (key.ctrl && key.name === 'c') {
-        sendInput('\x03');
-      } else if (key.ctrl && key.name === 'd') {
-        sendInput('\x04');
-      } else if (ch) {
-        sendInput(ch);
-      }
-    };
-
-    // Listen for keypress events on the box
-    box.on('keypress', handleKeypress);
-
-    return () => {
-      box.off('keypress', handleKeypress);
-    };
-  }, [isConnected, sendInput]);
+    // Send all other keys directly via their raw sequence
+    if (key.sequence) {
+      sendInput(key.sequence);
+    }
+  });
 
   return (
     <box
-      ref={boxRef}
       flexGrow={1}
       flexDirection="column"
       border
       borderStyle="single"
-      borderColor={isConnected ? theme.success : theme.error}
+      borderColor={isFocused ? theme.agate : theme.borderDefault}
       padding={1}
     >
       {/* Header */}
