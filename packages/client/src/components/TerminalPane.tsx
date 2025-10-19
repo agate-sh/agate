@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { useKeyboard } from '@opentui/react';
+import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { usePtyStream } from '../hooks/usePtyStream.js';
+import * as api from '../api.js';
 import { theme } from '../utils/theme.js';
 import { logger } from '../logger.js';
 import { StyledText } from '@opentui/core';
@@ -8,14 +9,26 @@ import { StyledText } from '@opentui/core';
 interface TerminalPaneProps {
   sessionId: string;
   isFocused: boolean;
+  branch: string;
 }
 
 /**
  * TerminalPane component - Displays PTY output from a tmux session
  * Handles keyboard input and sends it to the PTY via WebSocket
  */
-export function TerminalPane({ sessionId, isFocused }: TerminalPaneProps) {
-  const { output, parsedLines, isConnected, sendInput } = usePtyStream({ sessionId });
+export function TerminalPane({ sessionId, isFocused, branch }: TerminalPaneProps) {
+  const { width, height } = useTerminalDimensions();
+
+  // Calculate terminal dimensions
+  // Terminal pane is ~70% of screen width, minus borders and padding
+  const cols = Math.floor(width * 0.7) - 4;
+  const rows = height - 4; // Account for header, status bar, borders
+
+  const { output, parsedLines, isConnected, sendInput } = usePtyStream({
+    sessionId,
+    cols,
+    rows,
+  });
 
   // Debug: Log output changes
   useEffect(() => {
@@ -23,6 +36,23 @@ export function TerminalPane({ sessionId, isFocused }: TerminalPaneProps) {
     logger.debug({ preview: output.substring(0, 200) }, '🖥️  Output preview');
     logger.debug({ parsedLinesCount: parsedLines.length }, '🎨 Parsed lines count');
   }, [output, parsedLines]);
+
+  // Resize the PTY when terminal dimensions change
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const resize = async () => {
+      logger.debug({ cols, rows, sessionId }, '📐 Resizing PTY session');
+      const response = await api.sessionResize({
+        path: { id: sessionId },
+        body: { cols, rows },
+      });
+      if (response.error) {
+        logger.error({ err: response.error }, 'Failed to resize PTY');
+      }
+    };
+    resize();
+  }, [cols, rows, sessionId, isConnected]);
 
   // Handle keyboard input using OpenTUI's useKeyboard hook
   useKeyboard((key) => {
@@ -50,18 +80,9 @@ export function TerminalPane({ sessionId, isFocused }: TerminalPaneProps) {
       border
       borderStyle="single"
       borderColor={isFocused ? theme.agate : theme.borderDefault}
+      title={branch}
       padding={1}
     >
-      {/* Header */}
-      <box height={1} width="100%" flexShrink={0}>
-        <text fg={theme.agate}>Terminal </text>
-        <text fg={theme.textMuted}>{sessionId.substring(0, 20)}...</text>
-        <box flexGrow={1} />
-        <text fg={isConnected ? theme.success : theme.error}>
-          {isConnected ? '● Connected' : '○ Disconnected'}
-        </text>
-      </box>
-
       {/* Output area with ANSI rendering */}
       <box flexGrow={1} flexDirection="column" overflow="hidden" bg={theme.base}>
         {parsedLines.length === 0 ? (

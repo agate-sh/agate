@@ -5,11 +5,14 @@ import { theme } from "./utils/theme.js";
 import { AgentsPane } from "./components/AgentsPane/index.js";
 import { useDialog } from "./hooks/useDialog.js";
 import { TerminalPane } from "./components/TerminalPane.js";
+import * as api from "./api.js";
+import type { SessionGetResponse } from "@agate/sdk";
 
 export function App() {
   const dialog = useDialog();
   const renderer = useRenderer();
   const [focusedPane, setFocusedPane] = useState<'agents' | 'terminal'>('agents');
+  const [session, setSession] = useState<SessionGetResponse | null>(null);
 
   // Set background color on mount
   useEffect(() => {
@@ -17,6 +20,19 @@ export function App() {
       renderer.setBackgroundColor(theme.base);
     }
   }, [renderer]);
+
+  // Fetch session data on mount
+  useEffect(() => {
+    const fetchSession = async () => {
+      const response = await api.sessionGet({
+        path: { id: "f9b27cc3-bbeb-4e52-9e48-650bde43df6c" },
+      });
+      if (response.data) {
+        setSession(response.data);
+      }
+    };
+    fetchSession();
+  }, []);
 
   // Handle Tab for pane focus cycling
   useKeyboard((key) => {
@@ -33,8 +49,14 @@ export function App() {
           {/* Agents sidebar */}
           <AgentsPane dialog={dialog} isFocused={focusedPane === 'agents'} />
 
-          {/* Terminal pane - hardcoded session for testing */}
-          <TerminalPane sessionId="26f1eea4-3351-4ff0-8936-a63aaa9ac8f1" isFocused={focusedPane === 'terminal'} />
+          {/* Terminal pane */}
+          {session && (
+            <TerminalPane
+              sessionId={session.id}
+              isFocused={focusedPane === 'terminal'}
+              branch={session.name.split('_')[1] || 'unknown'}
+            />
+          )}
         </box>
 
         {/* Status bar */}

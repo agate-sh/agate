@@ -13,9 +13,9 @@ pnpm add @agate/sdk
 ```typescript
 import { client, sessionCreate, sessionGet, sessionList } from '@agate/sdk';
 
-// Configure the client (default: http://localhost:3000)
+// Configure the client (default: http://localhost:24283)
 client.setConfig({
-  baseUrl: 'http://localhost:3000'
+  baseUrl: 'http://localhost:24283'
 });
 
 // Create a new session

@@ -8,3 +8,4 @@
 // Re-export everything from the generated client
 export * from './gen/index.js';
 export * from './gen/types.gen.js';
+export { client } from './gen/client.gen.js';

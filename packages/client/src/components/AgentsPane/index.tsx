@@ -1,8 +1,9 @@
 import { useKeyboard } from "@opentui/react";
+import { AGATE_SERVER_PORT } from "@agate/shared";
 import { theme } from "../../utils/theme.js";
 import { useAgentsState } from "../../hooks/useAgentsState.js";
 import { useWebSocket } from "../../hooks/useWebSocket.js";
-import { useAgentAPI } from "../../hooks/useAgentAPI.js";
+import * as api from "../../api.js";
 import type { DialogContext } from "../../hooks/useDialog.js";
 import { NewAgentDialog } from "../NewAgentDialog.js";
 import type { AgentListItem } from "./types.js";
@@ -75,10 +76,9 @@ interface AgentsPaneProps {
 
 export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
   const state = useAgentsState();
-  const api = useAgentAPI();
 
   useWebSocket({
-    url: "ws://localhost:3000/ws",
+    url: `ws://localhost:${AGATE_SERVER_PORT}/ws`,
     onSessionCreated: (session) => {
       state.setSessions((prev) => [...prev, session]);
     },
@@ -92,7 +92,7 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
     },
   });
 
-  useKeyboard((key) => {
+  useKeyboard(async (key) => {
     // Only handle keyboard input when this pane is focused
     if (!isFocused) return;
 
@@ -126,13 +126,18 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
       dialog.push(
         <NewAgentDialog
           repoName={repoName}
-          onSelect={(branchName, agentName) => {
+          onSelect={async (branchName, agentName) => {
             dialog.pop();
-            api
-              .createSession(process.cwd(), branchName, agentName)
-              .catch((error) => {
-                console.error("Failed to create session:", error);
-              });
+            const response = await api.sessionCreate({
+              body: {
+                worktreePath: process.cwd(),
+                branch: branchName,
+                agentName,
+              },
+            });
+            if (response.error) {
+              console.error("Failed to create session:", response.error);
+            }
           }}
           onClose={() => dialog.pop()}
         />
@@ -143,9 +148,12 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
     if (key.sequence === "d") {
       const item = state.items[state.selectedIndex];
       if (item?.type === "linked_session") {
-        api.deleteSession(item.worktree.id).catch((error) => {
-          console.error("Failed to delete session:", error);
+        const response = await api.sessionDelete({
+          path: { id: item.worktree.id },
         });
+        if (response.error) {
+          console.error("Failed to delete session:", response.error);
+        }
       }
     }
   });
@@ -172,6 +180,7 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
       height="100%"
       borderStyle="single"
       borderColor={isFocused ? theme.agate : theme.borderDefault}
+      title="Agents"
       flexDirection="column"
     >
       {state.items.map((item, idx) => (

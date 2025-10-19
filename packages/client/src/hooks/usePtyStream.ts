@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import WebSocket from 'ws';
+import { AGATE_SERVER_PORT } from '@agate/shared';
 import { logger } from '../logger.js';
 import { AnsiParser, type AnsiLine } from '../utils/ansiParser.js';
 
 interface UsePtyStreamOptions {
   sessionId: string;
+  cols?: number;
+  rows?: number;
   url?: string;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -17,7 +20,9 @@ interface UsePtyStreamOptions {
  */
 export function usePtyStream({
   sessionId,
-  url = 'ws://localhost:3000/ws',
+  cols = 120,
+  rows = 50,
+  url = `ws://localhost:${AGATE_SERVER_PORT}/ws`,
   onConnect,
   onDisconnect,
   onError,
@@ -27,6 +32,14 @@ export function usePtyStream({
   const [output, setOutput] = useState<string>('');
   const [parsedLines, setParsedLines] = useState<AnsiLine[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+
+  // Resize the parser when dimensions change
+  useEffect(() => {
+    if (parserRef.current) {
+      parserRef.current.resize(cols, rows);
+      logger.debug({ cols, rows }, '📐 Resizing terminal parser');
+    }
+  }, [cols, rows]);
 
   const sendInput = useCallback(
     (data: string) => {
@@ -52,7 +65,7 @@ export function usePtyStream({
 
     // Initialize ANSI parser
     if (!parserRef.current) {
-      parserRef.current = new AnsiParser(120, 50);
+      parserRef.current = new AnsiParser(cols, rows);
     }
 
     ws.onopen = () => {

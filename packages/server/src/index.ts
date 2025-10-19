@@ -7,9 +7,9 @@ import { createWebSocketHandler } from './websocket.hono.js';
 import { sessions } from './routes/session.hono.js';
 import { TmuxSessionManager } from './tmux/session.js';
 import { logger } from './logger.js';
-import type { AgentName } from '@agate/shared';
+import { AGATE_SERVER_PORT, type AgentName } from '@agate/shared';
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : AGATE_SERVER_PORT;
 
 /**
  * Restore sessions from persisted state by attaching to existing tmux sessions
