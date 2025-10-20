@@ -11,7 +11,6 @@ export interface WorktreeInfo {
   agentName: string;
   repoName: string;
   tmuxName: string;
-  isMain: boolean; // Whether this is the main worktree
 }
 
 /**
@@ -25,25 +24,9 @@ export type AgentListItem =
       repoPath: string;
     }
   | {
-      type: 'section_header';
-      sectionTitle: 'Main worktree' | 'Linked worktrees';
-      repoName: string;
-    }
-  | {
-      type: 'main_session';
+      type: 'session';
       worktree: WorktreeInfo;
       isPinned: boolean;
-      repoName: string;
-    }
-  | {
-      type: 'linked_session';
-      worktree: WorktreeInfo;
-      isPinned: boolean;
-      repoName: string;
-    }
-  | {
-      type: 'empty_message';
-      sectionTitle: 'main' | 'linked';
       repoName: string;
     }
   | {
@@ -55,8 +38,7 @@ export type AgentListItem =
  * Convert PersistedSession to WorktreeInfo
  */
 export function sessionToWorktreeInfo(
-  session: PersistedSession,
-  isMain: boolean = false
+  session: PersistedSession
 ): WorktreeInfo {
   return {
     id: session.id,
@@ -65,6 +47,5 @@ export function sessionToWorktreeInfo(
     agentName: session.agentName,
     repoName: session.repoName,
     tmuxName: session.tmuxName,
-    isMain,
   };
 }

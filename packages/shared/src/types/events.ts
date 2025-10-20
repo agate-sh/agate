@@ -7,7 +7,6 @@ export type EventType =
   | 'pty.resize'
   | 'pty.exit'
   | 'git.status'
-  | 'git.branch'
   | 'session.created'
   | 'session.updated'
   | 'session.deleted'
@@ -50,12 +49,6 @@ export interface GitStatusEvent extends BaseEvent {
   };
 }
 
-export interface GitBranchEvent extends BaseEvent {
-  type: 'git.branch';
-  sessionId: string;
-  branch: string;
-}
-
 export interface SessionCreatedEvent extends BaseEvent {
   type: 'session.created';
   sessionId: string;
@@ -80,7 +73,6 @@ export type ServerEvent =
   | PtyResizeEvent
   | PtyExitEvent
   | GitStatusEvent
-  | GitBranchEvent
   | SessionCreatedEvent
   | SessionUpdatedEvent
   | SessionDeletedEvent

@@ -66,7 +66,6 @@ describe('SessionManager', () => {
     path,
     branch,
     repoName,
-    isMain: !path.includes('/.agate/worktrees/'),
     commit: 'abc123',
   });
 
@@ -276,51 +275,6 @@ describe('SessionManager', () => {
 
       expect(found).toBeNull();
     });
-
-    it('should get main session for repository', () => {
-      const mainWorktree = createMockWorktree('repo1', '/path/to/repo1', 'main');
-      const linkedWorktree = createMockWorktree(
-        'repo1',
-        '/home/user/.agate/worktrees/repo1/feature',
-        'feature'
-      );
-      const agent = createMockAgent();
-
-      const mainSession = sessionManager.createSession(mainWorktree, agent);
-      sessionManager.createSession(linkedWorktree, agent);
-
-      const found = sessionManager.getMainSession('repo1');
-      expect(found).toBe(mainSession);
-    });
-
-    it('should get linked sessions for repository', () => {
-      const mainWorktree = createMockWorktree('repo1', '/path/to/repo1', 'main');
-      const linkedWorktree1 = createMockWorktree(
-        'repo1',
-        '/home/user/.agate/worktrees/repo1/feature1',
-        'feature1'
-      );
-      const linkedWorktree2 = createMockWorktree(
-        'repo1',
-        '/home/user/.agate/worktrees/repo1/feature2',
-        'feature2'
-      );
-      const agent = createMockAgent();
-
-      sessionManager.createSession(mainWorktree, agent);
-      const linked1 = sessionManager.createSession(linkedWorktree1, agent);
-      const linked2 = sessionManager.createSession(linkedWorktree2, agent);
-
-      const linkedSessions = sessionManager.getLinkedSessions('repo1');
-      expect(linkedSessions).toHaveLength(2);
-      expect(linkedSessions).toContain(linked1);
-      expect(linkedSessions).toContain(linked2);
-    });
-
-    it('should return empty array when no linked sessions exist', () => {
-      const linkedSessions = sessionManager.getLinkedSessions('nonexistent');
-      expect(linkedSessions).toEqual([]);
-    });
   });
 
   describe('Session Deletion', () => {
@@ -483,7 +437,6 @@ describe('SessionManager', () => {
           path: '/test/worktree/path',
           branch: 'test-branch',
           repoName: 'test-repo',
-          isMain: false,
           commit: 'abc123',
         };
 

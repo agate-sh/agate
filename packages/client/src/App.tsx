@@ -25,7 +25,7 @@ export function App() {
   useEffect(() => {
     const fetchSession = async () => {
       const response = await api.sessionGet({
-        path: { id: "f9b27cc3-bbeb-4e52-9e48-650bde43df6c" },
+        path: { id: "7cc598c0-7374-47f3-b0ad-130664e4bc03" },
       });
       if (response.data) {
         setSession(response.data);

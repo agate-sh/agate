@@ -66,10 +66,10 @@ export class TmuxSessionManager {
     const cols = options.cols ?? 80;
     const rows = options.rows ?? 24;
 
-    // Spawn tmux with new session
+    // Spawn tmux with new session and disable status bar
     this.ptyProcess = pty.spawn(
       'tmux',
-      ['new-session', '-s', options.name, '-c', options.cwd, options.agent],
+      ['new-session', '-s', options.name, '-c', options.cwd, options.agent, ';', 'set-option', 'status', 'off'],
       {
         name: 'xterm-256color',
         cols,

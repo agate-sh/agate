@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import z from 'zod';
 import { createGitClient } from '../git/client.js';
-import { getFileStatus } from '../git/status.js';
+import { getFileStatus, getCurrentBranch } from '../git/status.js';
 import { stageFile, stageAll, unstageFile, commitAll, discardChanges } from '../git/operations.js';
 import { WorktreeManager } from '../git/worktree.js';
 import { GitStatusSchema, WorktreesResponseSchema } from '@agate/shared';
@@ -67,6 +67,10 @@ const CommitResponseSchema = z.object({
   commit: z.string(),
 });
 
+const CurrentBranchResponseSchema = z.object({
+  branch: z.string(),
+});
+
 // Error responses
 const ERRORS = {
   400: {
@@ -117,6 +121,42 @@ export const gitRouter = new Hono()
       } catch (error) {
         console.error('Error getting git status:', error);
         return c.json({ error: 'Failed to get git status' }, 500);
+      }
+    }
+  )
+  .get(
+    '/head',
+    describeRoute({
+      description: 'Get current branch (HEAD)',
+      operationId: 'git.head',
+      responses: {
+        200: {
+          description: 'Current branch name',
+          content: {
+            'application/json': {
+              schema: resolver(CurrentBranchResponseSchema),
+            },
+          },
+        },
+        ...ERRORS,
+      },
+    }),
+    validator('query', RepoPathQuery),
+    async (c) => {
+      try {
+        const { repoPath } = c.req.valid('query');
+
+        const git = createGitClient(repoPath);
+        const branch = await getCurrentBranch(git);
+
+        if (!branch) {
+          return c.json({ error: 'Could not determine current branch' }, 500);
+        }
+
+        return c.json({ branch });
+      } catch (error) {
+        console.error('Error getting current branch:', error);
+        return c.json({ error: 'Failed to get current branch' }, 500);
       }
     }
   )

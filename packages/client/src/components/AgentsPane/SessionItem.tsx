@@ -6,7 +6,6 @@ import type { WorktreeInfo } from "./types.js";
 interface SessionItemProps {
   worktree: WorktreeInfo;
   isPinned: boolean;
-  isLinked: boolean;
   isSelected: boolean;
   isHovered: boolean;
 }
@@ -18,7 +17,6 @@ interface SessionItemProps {
 export function SessionItem({
   worktree,
   isPinned,
-  isLinked,
   isHovered,
 }: SessionItemProps) {
   const agent = AGENTS[worktree.agentName as keyof typeof AGENTS] || AGENTS.default;
@@ -28,13 +26,7 @@ export function SessionItem({
   // Determine hint text based on state
   let hint = "";
   if (isHovered) {
-    if (isPinned) {
-      // Hovering a pinned session
-      hint = isLinked ? " ↵ to pin, d to delete" : " ↵ to pin";
-    } else {
-      // Hovering an unpinned session
-      hint = isLinked ? " ↵ to select, d to delete" : " ↵ to select";
-    }
+    hint = isPinned ? " ↵ to pin, d to delete" : " ↵ to select, d to delete";
   }
 
   return (

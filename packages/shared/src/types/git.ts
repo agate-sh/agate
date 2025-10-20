@@ -28,6 +28,4 @@ export interface Worktree {
   branch: string;
   /** Commit hash */
   commit: string;
-  /** Whether this is the main worktree */
-  isMain: boolean;
 }

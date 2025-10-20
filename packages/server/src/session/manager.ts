@@ -5,7 +5,7 @@ import type {
   PersistedSession,
   SessionState,
 } from '@agate/shared';
-import { generateWorktreeKey, isLinkedWorktree } from '@agate/shared';
+import { generateWorktreeKey } from '@agate/shared';
 import type { StateManager } from '../state/manager.js';
 
 /**
@@ -133,40 +133,6 @@ export class SessionManager {
   }
 
   /**
-   * Get the main worktree session for a repository
-   * Returns null if no main session exists
-   */
-  getMainSession(repoName: string): Session | null {
-    for (const session of this.sessions.values()) {
-      if (
-        session.worktree.repoName === repoName &&
-        !isLinkedWorktree(session.worktree.path)
-      ) {
-        return session;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get all linked worktree sessions for a repository
-   */
-  getLinkedSessions(repoName: string): Session[] {
-    const linkedSessions: Session[] = [];
-
-    for (const session of this.sessions.values()) {
-      if (
-        session.worktree.repoName === repoName &&
-        isLinkedWorktree(session.worktree.path)
-      ) {
-        linkedSessions.push(session);
-      }
-    }
-
-    return linkedSessions;
-  }
-
-  /**
    * Delete a session by worktree key
    * Clears active session if it's being deleted
    */
@@ -239,7 +205,6 @@ export class SessionManager {
           path: persistedSession.worktreePath,
           branch: persistedSession.branch,
           repoName: persistedSession.repoName,
-          isMain: !isLinkedWorktree(persistedSession.worktreePath),
           commit: '', // Not persisted
         },
         agent: {

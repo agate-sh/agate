@@ -20,28 +20,6 @@ function groupSessionsByRepo(
 }
 
 /**
- * Get main session for a repository (session with worktreePath matching repo name)
- */
-function getMainSession(
-  sessions: PersistedSession[]
-): PersistedSession | null {
-  // Main session is the one where worktreePath doesn't contain '.git/worktrees'
-  const mainSession = sessions.find(
-    (s) => !s.worktreePath.includes('.git/worktrees')
-  );
-  return mainSession || null;
-}
-
-/**
- * Get linked sessions for a repository (sessions with worktreePath containing '.git/worktrees')
- */
-function getLinkedSessions(sessions: PersistedSession[]): PersistedSession[] {
-  return sessions
-    .filter((s) => s.worktreePath.includes('.git/worktrees'))
-    .sort((a, b) => a.branch.localeCompare(b.branch));
-}
-
-/**
  * Check if a worktree is the currently pinned worktree
  */
 function isPinnedWorktree(
@@ -58,7 +36,6 @@ function isPinnedWorktree(
 
 /**
  * Build flat list of items for rendering
- * Mirrors the Go implementation's buildItemList function
  */
 export function buildItemList(
   sessions: PersistedSession[],
@@ -100,59 +77,18 @@ export function buildItemList(
 
     // Only show sessions if repo is expanded
     if (expandedRepos.has(repoName)) {
-      const mainSession = getMainSession(repoSessions);
-      const linkedSessions = getLinkedSessions(repoSessions);
+      // Sort sessions by branch name
+      const sortedSessions = [...repoSessions].sort((a, b) =>
+        a.branch.localeCompare(b.branch)
+      );
 
-      // Main worktree section
-      items.push({
-        type: 'section_header',
-        sectionTitle: 'Main worktree',
-        repoName,
-      });
-
-      if (mainSession) {
-        const worktree = sessionToWorktreeInfo(mainSession, true);
+      // Add all sessions
+      for (const session of sortedSessions) {
+        const worktree = sessionToWorktreeInfo(session);
         items.push({
-          type: 'main_session',
+          type: 'session',
           worktree,
           isPinned: isPinnedWorktree(worktree, pinnedWorktree),
-          repoName,
-        });
-      } else {
-        items.push({
-          type: 'empty_message',
-          sectionTitle: 'main',
-          repoName,
-        });
-      }
-
-      // Gap between sections
-      items.push({
-        type: 'gap',
-        repoName,
-      });
-
-      // Linked worktrees section
-      items.push({
-        type: 'section_header',
-        sectionTitle: 'Linked worktrees',
-        repoName,
-      });
-
-      if (linkedSessions.length > 0) {
-        for (const session of linkedSessions) {
-          const worktree = sessionToWorktreeInfo(session, false);
-          items.push({
-            type: 'linked_session',
-            worktree,
-            isPinned: isPinnedWorktree(worktree, pinnedWorktree),
-            repoName,
-          });
-        }
-      } else {
-        items.push({
-          type: 'empty_message',
-          sectionTitle: 'linked',
           repoName,
         });
       }

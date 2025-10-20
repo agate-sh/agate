@@ -142,7 +142,6 @@ export const sessionRouter = new Hono<Env>()
           repoName,
           path: worktreePath,
           branch,
-          isMain: true,
           commit: '',
           name: branch,
         });

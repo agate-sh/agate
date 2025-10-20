@@ -74,6 +74,28 @@ function convertColorToHex(color: number, colorMode: ColorMode): string | undefi
 }
 
 /**
+ * Darken a hex color by a factor (for DIM attribute)
+ * @param hexColor - Hex color string (e.g., "#b1b9f9")
+ * @param factor - Brightness factor (0.6 = 60% brightness)
+ * @returns Darkened hex color
+ */
+function darkenColor(hexColor: string, factor: number = 0.6): string {
+  // Parse hex color
+  const r = parseInt(hexColor.slice(1, 3), 16);
+  const g = parseInt(hexColor.slice(3, 5), 16);
+  const b = parseInt(hexColor.slice(5, 7), 16);
+
+  // Apply dimming factor
+  const dimR = Math.floor(r * factor);
+  const dimG = Math.floor(g * factor);
+  const dimB = Math.floor(b * factor);
+
+  const result = `#${dimR.toString(16).padStart(2, '0')}${dimG.toString(16).padStart(2, '0')}${dimB.toString(16).padStart(2, '0')}`;
+
+  return result;
+}
+
+/**
  * Creates a TextChunk from xterm.js cell data
  */
 function cellToTextChunk(
@@ -87,6 +109,10 @@ function cellToTextChunk(
   };
 
   if (cell) {
+    // Check if DIM and INVERSE attributes are set
+    const isDim = (attrs & 0x08) !== 0;
+    const isInverse = (attrs & 0x10) !== 0;
+
     // Determine foreground color mode and extract color
     let fgColorMode = ColorMode.DEFAULT;
     if (cell.isFgRGB()) {
@@ -95,11 +121,28 @@ function cellToTextChunk(
       fgColorMode = ColorMode.PALETTE;
     }
 
-    if (fgColorMode !== ColorMode.DEFAULT) {
-      const hexColor = convertColorToHex(cell.getFgColor(), fgColorMode);
+    // Handle inverse video by swapping foreground and background
+    if (isInverse) {
+      // Reverse video: swap fg and bg colors
+      // Background becomes white (default foreground)
+      // Foreground becomes dark (theme background)
+      chunk.bg = RGBA.fromHex('#ffffff'); // White background block (default foreground)
+      chunk.fg = RGBA.fromHex('#030620'); // Dark text (theme background color)
+    } else if (fgColorMode !== ColorMode.DEFAULT) {
+      let hexColor = convertColorToHex(cell.getFgColor(), fgColorMode);
       if (hexColor) {
+        // If DIM attribute is set, darken the color manually
+        // This ensures consistent dimming across terminals
+        if (isDim) {
+          hexColor = darkenColor(hexColor, 0.6); // 60% brightness
+        }
+
         chunk.fg = RGBA.fromHex(hexColor);
       }
+    } else if (isDim) {
+      // DIM with default foreground color
+      // Use a standard dim grey color since we can't rely on OpenTUI to apply dimming
+      chunk.fg = RGBA.fromHex('#808080'); // Standard dim grey
     }
 
     // Don't set background - we want OpenTUI to use our theme background
@@ -117,8 +160,8 @@ function cellToTextChunk(
   if (attrs & 0x04) attributes |= 2; // TextAttributes.ITALIC
   // Underline: 0x02
   if (attrs & 0x02) attributes |= 4; // TextAttributes.UNDERLINE
-  // Dim: 0x08
-  if (attrs & 0x08) attributes |= 16; // TextAttributes.DIM
+  // Dim: 0x08 - DON'T pass this to OpenTUI, we handle it manually by setting color
+  // if (attrs & 0x08) attributes |= 16; // TextAttributes.DIM
 
   if (attributes > 0) {
     chunk.attributes = attributes;
@@ -176,15 +219,23 @@ export class AnsiParser {
   }
 
   /**
-   * Get the current terminal buffer as structured lines with styling
+   * Get visible viewport lines (what's currently displayed)
+   * Iterates from viewportY for terminal.rows lines
    */
-  getLines(): AnsiLine[] {
+  getVisibleLines(): AnsiLine[] {
     const lines: AnsiLine[] = [];
     const buffer = this.terminal.buffer.active;
+    const viewportY = buffer.viewportY;
 
-    for (let row = 0; row < buffer.length; row++) {
+    // Iterate through visible viewport (viewportY to viewportY + rows)
+    for (let i = 0; i < this.terminal.rows; i++) {
+      const row = viewportY + i;
       const line = buffer.getLine(row);
-      if (!line) continue;
+      if (!line) {
+        // Empty line
+        lines.push({ chunks: [{ __isChunk: true, text: '' }] });
+        continue;
+      }
 
       const chunks: TextChunk[] = [];
       let currentText = '';
@@ -200,10 +251,11 @@ export class AnsiParser {
           (cell.isBold() ? 0x01 : 0) |
           (cell.isUnderline() ? 0x02 : 0) |
           (cell.isItalic() ? 0x04 : 0) |
-          (cell.isDim() ? 0x08 : 0)
+          (cell.isDim() ? 0x08 : 0) |
+          (cell.isInverse() ? 0x10 : 0) // Reverse video
         );
 
-        // Check if style changed - compare full cell state
+        // Check if style changed
         const fg = cell.getFgColor();
         const bg = cell.getBgColor();
         const prevFg = currentCell?.getFgColor();
@@ -234,16 +286,6 @@ export class AnsiParser {
     }
 
     return lines;
-  }
-
-  /**
-   * Get only visible lines (non-empty or recent)
-   */
-  getVisibleLines(maxLines: number = 50): AnsiLine[] {
-    const allLines = this.getLines();
-
-    // Get the last N lines
-    return allLines.slice(-maxLines);
   }
 
   /**

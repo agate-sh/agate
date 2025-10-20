@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 NEVER MAINTAIN BACKWARDS COMPATIBILITY. This project is new and we don't need to care.
 
 ## Project Overview
@@ -31,7 +29,13 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 
 ### Server Architecture
 
-The Express server (`@agate/server`) is fully implemented with:
+The Hono server (`@agate/server`) is fully implemented with:
+
+- **Default Port**: `24283` (defined in `@agate/shared` as `AGATE_SERVER_PORT`)
+  - Can be overridden with `PORT` environment variable
+  - WebSocket endpoint: `ws://localhost:24283/ws`
+  - Health check: `http://localhost:24283/health`
+  - OpenAPI docs: `http://localhost:24283/doc`
 
 - **Session Management API** - REST endpoints for creating/managing tmux sessions
   - `POST /session` - Create new session
@@ -45,6 +49,7 @@ The Express server (`@agate/server`) is fully implemented with:
   - Event-based architecture with transport-agnostic EventBus
 - **Git Operations API** - Repository and worktree management
 - **State Persistence** - Atomic writes to `~/.agate/state.json`
+- **Session Restoration** - On server start, automatically reattaches to existing tmux sessions from persisted state
 - **Integration Tests** - Full end-to-end tests using real HTTP requests and WebSocket connections
 
 ## Building & Development
@@ -226,21 +231,22 @@ The logger is available in all packages:
 
 ```typescript
 // Server and shared packages
-import { logger } from './logger.js';
+import { logger } from "./logger.js";
 
 // Client package
-import { logger } from '../logger.js';
+import { logger } from "../logger.js";
 
 // Structured logging examples
-logger.info({ sessionId, userId }, 'Session created');
-logger.error({ err }, 'Failed to connect');  // Use { err } not { error }
-logger.debug({ state }, 'Current state');
-logger.warn({ sessionId, availableSessions }, 'Session not found');
+logger.info({ sessionId, userId }, "Session created");
+logger.error({ err }, "Failed to connect"); // Use { err } not { error }
+logger.debug({ state }, "Current state");
+logger.warn({ sessionId, availableSessions }, "Session not found");
 ```
 
 **Log levels**: `trace`, `debug`, `info`, `warn`, `error`, `fatal`
 
 **Best practices**:
+
 - First parameter is always an object with context (structured data)
 - Second parameter is a human-readable message string
 - Use `{ err: error }` not `{ error }` when logging errors (pino convention)

@@ -74,6 +74,12 @@ export function usePtyStream({
       setIsConnected(true);
       onConnect?.();
 
+      // Clear the parser buffer to prevent duplicate initial content
+      if (parserRef.current) {
+        parserRef.current.clear();
+        logger.debug('🧹 Cleared terminal buffer before subscribing');
+      }
+
       // Subscribe to PTY output for this session
       const subscribeMsg = {
         type: 'subscribe',
@@ -100,6 +106,19 @@ export function usePtyStream({
         if (message.type === 'pty:output' && message.sessionId === sessionId) {
           logger.info({ preview: message.data.substring(0, 100) }, '✅ PTY OUTPUT RECEIVED');
 
+          // Log raw ANSI codes (escaped for visibility)
+          const escapedData = message.data
+            .replace(/\x1b/g, '\\x1b')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r');
+          logger.info({ raw: escapedData.substring(0, 300) }, '🔍 RAW ANSI');
+
+          // Also log hex dump of first 100 bytes
+          const hexDump = Array.from(message.data.substring(0, 100))
+            .map(char => char.charCodeAt(0).toString(16).padStart(2, '0'))
+            .join(' ');
+          logger.info({ hex: hexDump }, '🔢 HEX DUMP');
+
           // Append new output to existing output (for raw debugging)
           setOutput((prev) => {
             const newOutput = prev + message.data;
@@ -110,7 +129,7 @@ export function usePtyStream({
           // Parse ANSI codes using headless terminal
           if (parserRef.current) {
             parserRef.current.write(message.data);
-            const lines = parserRef.current.getVisibleLines(50);
+            const lines = parserRef.current.getVisibleLines(); // Get viewport lines
             setParsedLines(lines);
             logger.debug({ linesCount: lines.length }, '🎨 Parsed lines');
           }

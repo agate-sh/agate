@@ -39,10 +39,3 @@ export interface Session {
 export function generateWorktreeKey(worktree: SessionWorktree): string {
   return `${worktree.repoName}:${worktree.path}`;
 }
-
-/**
- * Helper to check if a worktree path is a linked worktree
- */
-export function isLinkedWorktree(path: string): boolean {
-  return path.includes('/.agate/worktrees/');
-}

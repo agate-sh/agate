@@ -9,9 +9,7 @@ import { NewAgentDialog } from "../NewAgentDialog.js";
 import type { AgentListItem } from "./types.js";
 import { EmptyState } from "./EmptyState.js";
 import { RepoHeader } from "./RepoHeader.js";
-import { SectionHeader } from "./SectionHeader.js";
 import { SessionItem } from "./SessionItem.js";
-import { EmptyMessage } from "./EmptyMessage.js";
 
 interface ItemRendererProps {
   item: AgentListItem;
@@ -38,30 +36,15 @@ function ItemRenderer({
           isCurrent={item.repoName === currentRepo}
         />
       );
-    case "section_header":
-      return <SectionHeader title={item.sectionTitle} isHovered={isHovered} />;
-    case "main_session":
+    case "session":
       return (
         <SessionItem
           worktree={item.worktree}
           isPinned={item.isPinned}
-          isLinked={false}
           isSelected={isSelected}
           isHovered={isHovered}
         />
       );
-    case "linked_session":
-      return (
-        <SessionItem
-          worktree={item.worktree}
-          isPinned={item.isPinned}
-          isLinked={true}
-          isSelected={isSelected}
-          isHovered={isHovered}
-        />
-      );
-    case "empty_message":
-      return <EmptyMessage sectionType={item.sectionTitle} />;
     case "gap":
       return <box height={1} />;
     default:
@@ -112,10 +95,7 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
 
       if (item.type === "repo_header") {
         state.toggleRepo(item.repoName);
-      } else if (
-        item.type === "main_session" ||
-        item.type === "linked_session"
-      ) {
+      } else if (item.type === "session") {
         state.setPinnedWorktree(item.worktree);
       }
       return;
@@ -147,7 +127,7 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
 
     if (key.sequence === "d") {
       const item = state.items[state.selectedIndex];
-      if (item?.type === "linked_session") {
+      if (item?.type === "session") {
         const response = await api.sessionDelete({
           path: { id: item.worktree.id },
         });
@@ -166,6 +146,7 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
         height="100%"
         borderStyle="single"
         borderColor={isFocused ? theme.agate : theme.borderDefault}
+        title="Agents"
         flexDirection="column"
       >
         <EmptyState />

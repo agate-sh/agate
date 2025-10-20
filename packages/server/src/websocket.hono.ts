@@ -97,10 +97,7 @@ export function createWebSocketHandler(
                     }
                   };
 
-                  // Subscribe to event bus
-                  eventBus.subscribe(state.id, eventCallback);
-
-                  // Send initial content from tmux buffer
+                  // Send initial content from tmux buffer FIRST
                   const sessionMetadata = sessions.get(msg.sessionId);
                   logger.debug({ sessionId: msg.sessionId, found: !!sessionMetadata }, 'Looking up session manager');
 
@@ -116,6 +113,16 @@ export function createWebSocketHandler(
                         })
                       );
                       logger.debug({ sessionId: msg.sessionId }, 'Sent initial content to client');
+
+                      // Subscribe to event bus AFTER sending initial content
+                      // This prevents race condition where new events arrive before initial state
+                      eventBus.subscribe(state.id, eventCallback);
+                      logger.debug({ clientId: state.id, sessionId: msg.sessionId }, 'Subscribed to event bus after sending initial content');
+
+                      // Store unsubscribe callback
+                      state.unsubscribeCallback = () => {
+                        eventBus.unsubscribe(state.id);
+                      };
                     }).catch((error) => {
                       logger.error({ sessionId: msg.sessionId, err: error }, 'Failed to capture initial content');
                     });
@@ -125,11 +132,6 @@ export function createWebSocketHandler(
                       availableSessions: Array.from(sessions.keys())
                     }, 'Session not found in sessions map');
                   }
-
-                  // Store unsubscribe callback
-                  state.unsubscribeCallback = () => {
-                    eventBus.unsubscribe(state.id);
-                  };
                 }
                 break;
 

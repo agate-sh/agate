@@ -21,6 +21,14 @@ export interface GitStatus {
 }
 
 /**
+ * Gets the current branch name (HEAD).
+ */
+export async function getCurrentBranch(git: SimpleGit): Promise<string | null> {
+  const status = await git.status();
+  return status.current ?? null;
+}
+
+/**
  * Gets detailed file status including additions/deletions per file.
  */
 export async function getFileStatus(git: SimpleGit): Promise<GitStatus> {
