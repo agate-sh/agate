@@ -1,4 +1,4 @@
-module agate/client
+module agate/tui
 
 go 1.25.1
 

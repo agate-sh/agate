@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"agate/client/internal/agents"
-	"agate/client/internal/api"
+	"agate/tui/internal/agents"
+	"agate/tui/internal/api"
 	agateclient "agate/sdk/gen"
 
 	tea "github.com/charmbracelet/bubbletea"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"agate/client/internal/ui"
+	"agate/tui/internal/ui"
 )
 
 func main() {
