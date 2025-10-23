@@ -19,7 +19,6 @@ export interface AgentsStateActions {
   toggleRepo: (repoName: string) => void;
   setPinnedWorktree: (worktree: WorktreeInfo | null) => void;
   setSelectedIndex: (index: number) => void;
-  setCurrentRepo: (repo: string | null) => void;
   moveSelectionUp: () => void;
   moveSelectionDown: () => void;
 }
@@ -35,13 +34,41 @@ export function useAgentsState(): AgentsState & AgentsStateActions {
     null
   );
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [currentRepo, setCurrentRepo] = useState<string | null>(null);
-
   // Build flat item list whenever dependencies change
   const items = useMemo(
-    () => buildItemList(sessions, expandedRepos, pinnedWorktree, currentRepo),
-    [sessions, expandedRepos, pinnedWorktree, currentRepo]
+    () => buildItemList(sessions, expandedRepos, pinnedWorktree),
+    [sessions, expandedRepos, pinnedWorktree]
   );
+
+  // Ensure selection index stays within bounds when item list changes
+  useEffect(() => {
+    if (items.length === 0) {
+      setSelectedIndex(0);
+      return;
+    }
+
+    setSelectedIndex((prev) => Math.min(prev, items.length - 1));
+  }, [items.length]);
+
+  // Derive the current repository from the selected list item
+  const currentRepo = useMemo(() => {
+    if (items.length === 0) {
+      return null;
+    }
+
+    const clampedIndex = Math.min(selectedIndex, items.length - 1);
+    const selectedItem = items[clampedIndex];
+
+    if (!selectedItem) {
+      return null;
+    }
+
+    if (selectedItem.type === 'session') {
+      return selectedItem.worktree.repoName;
+    }
+
+    return selectedItem.repoName;
+  }, [items, selectedIndex]);
 
   // Auto-expand first repo if none are expanded
   useEffect(() => {
@@ -102,7 +129,6 @@ export function useAgentsState(): AgentsState & AgentsStateActions {
     toggleRepo,
     setPinnedWorktree,
     setSelectedIndex,
-    setCurrentRepo,
     moveSelectionUp,
     moveSelectionDown,
   };

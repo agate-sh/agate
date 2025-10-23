@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { describeRoute, resolver, openAPIRouteHandler, generateSpecs } from 'hono-openapi';
+import { describeRoute, resolver, generateSpecs } from 'hono-openapi';
 import z from 'zod';
 import { EventBus } from './event-bus.js';
 import { StateManager } from './state/manager.js';
@@ -139,7 +139,7 @@ export function createHonoServer(eventBus: EventBus, stateManager: StateManager)
 /**
  * Generate OpenAPI spec from Hono routes
  */
-export async function generateOpenAPISpec(app: Hono): Promise<any> {
+export async function generateOpenAPISpec(app: Hono<any>): Promise<any> {
   const spec = await generateSpecs(app, {
     documentation: {
       info: {

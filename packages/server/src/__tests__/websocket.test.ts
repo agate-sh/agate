@@ -398,7 +398,7 @@ describe('WebSocket Integration Tests', () => {
       }
     });
 
-    ws.on('error', (error) => {
+    ws.on('error', (_error) => {
       resolveTest(false);
     });
 

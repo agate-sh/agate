@@ -17,10 +17,11 @@ export type LoggerComponent = 'server' | 'client';
 export interface LoggerOptions {
   component: LoggerComponent;
   isDev?: boolean;
+  disableStdout?: boolean;
 }
 
 export function createLogger(options: LoggerOptions) {
-  const { component, isDev = process.env.NODE_ENV === 'development' } = options;
+  const { component, isDev = process.env.NODE_ENV === 'development', disableStdout = false } = options;
 
   const logFile = isDev
     ? join(AGATE_DIR, 'dev.log') // Unified log in dev
@@ -38,8 +39,8 @@ export function createLogger(options: LoggerOptions) {
     },
   ];
 
-  // In dev mode, also log to stdout with pretty printing
-  if (isDev) {
+  // In dev mode, also log to stdout with pretty printing (unless disabled)
+  if (isDev && !disableStdout) {
     targets.push({
       target: 'pino-pretty',
       options: {

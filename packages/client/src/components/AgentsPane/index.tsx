@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { AGATE_SERVER_PORT } from "@agate/shared";
+import { basename } from "node:path";
 import { theme } from "../../utils/theme.js";
 import { useAgentsState } from "../../hooks/useAgentsState.js";
 import { useWebSocket } from "../../hooks/useWebSocket.js";
@@ -59,6 +61,32 @@ interface AgentsPaneProps {
 
 export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
   const state = useAgentsState();
+  const [defaultRepoName, setDefaultRepoName] = useState<string>(
+    basename(process.cwd())
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchRepoName = async () => {
+      try {
+        const response = await api.gitRepoInfo({
+          query: { dir: process.cwd() },
+        });
+        if (!cancelled && response.data?.repoName) {
+          setDefaultRepoName(response.data.repoName);
+        }
+      } catch (error) {
+        console.error("Failed to fetch repo info:", error);
+      }
+    };
+
+    fetchRepoName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useWebSocket({
     url: `ws://localhost:${AGATE_SERVER_PORT}/ws`,
@@ -102,7 +130,15 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
     }
 
     if (key.sequence === "n") {
-      const repoName = state.currentRepo || "Repository";
+      const selectedItem = state.items[state.selectedIndex];
+      const repoFromSelection = selectedItem
+        ? selectedItem.type === "session"
+          ? selectedItem.worktree.repoName
+          : selectedItem.repoName
+        : null;
+
+      const repoName =
+        repoFromSelection || state.currentRepo || defaultRepoName;
       dialog.push(
         <NewAgentDialog
           repoName={repoName}
@@ -110,8 +146,8 @@ export function AgentsPane({ dialog, isFocused }: AgentsPaneProps) {
             dialog.pop();
             const response = await api.sessionCreate({
               body: {
-                worktreePath: process.cwd(),
-                branch: branchName,
+                dir: process.cwd(),
+                branchName: branchName,
                 agentName,
               },
             });

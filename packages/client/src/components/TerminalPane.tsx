@@ -24,18 +24,11 @@ export function TerminalPane({ sessionId, isFocused, branch }: TerminalPaneProps
   const cols = Math.floor(width * 0.7) - 4;
   const rows = height - 4; // Account for header, status bar, borders
 
-  const { output, parsedLines, isConnected, sendInput } = usePtyStream({
+  const { parsedLines, isConnected, sendInput } = usePtyStream({
     sessionId,
     cols,
     rows,
   });
-
-  // Debug: Log output changes
-  useEffect(() => {
-    logger.debug({ outputLength: output.length }, '🖥️  Output length');
-    logger.debug({ preview: output.substring(0, 200) }, '🖥️  Output preview');
-    logger.debug({ parsedLinesCount: parsedLines.length }, '🎨 Parsed lines count');
-  }, [output, parsedLines]);
 
   // Resize the PTY when terminal dimensions change
   useEffect(() => {
@@ -84,7 +77,7 @@ export function TerminalPane({ sessionId, isFocused, branch }: TerminalPaneProps
       padding={1}
     >
       {/* Output area with ANSI rendering */}
-      <box flexGrow={1} flexDirection="column" overflow="hidden" bg={theme.base}>
+      <box flexGrow={1} flexDirection="column" overflow="hidden" backgroundColor={theme.base}>
         {parsedLines.length === 0 ? (
           <text fg={theme.textMuted}>Waiting for output...</text>
         ) : (

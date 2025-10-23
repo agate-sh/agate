@@ -1,38 +1,10 @@
+import { generateBranchName } from "@agate/shared";
+
 /**
  * Generate a random branch name in format: adjective-noun
- * Matches the Go implementation's GenerateRandomBranchName
+ * Delegates to the shared implementation so the client matches Go + CLI behaviour.
  */
-export function generateRandomBranchName(): string {
-  const adjectives = [
-    "quick",
-    "bright",
-    "swift",
-    "clever",
-    "bold",
-    "neat",
-    "clean",
-    "smooth",
-    "sharp",
-    "cool",
-  ];
-  const nouns = [
-    "fix",
-    "update",
-    "patch",
-    "change",
-    "work",
-    "task",
-    "feature",
-    "test",
-    "demo",
-    "trial",
-  ];
-
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-
-  return `${adj}-${noun}`;
-}
+export const generateRandomBranchName = generateBranchName;
 
 /**
  * Validate a Git branch name

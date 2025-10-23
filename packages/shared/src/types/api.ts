@@ -15,6 +15,10 @@ export interface CreateSessionRequest {
 
 export interface CreateSessionResponse {
   sessionId: string;
+  tmuxName: string;
+  worktreePath: string;
+  branchName: string;
+  repoName: string;
 }
 
 export interface GetSessionResponse {

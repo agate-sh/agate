@@ -1,3 +1,6 @@
+import { TextAttributes } from "@opentui/core";
+import { theme } from "../utils/theme.js";
+
 interface LabeledInputProps {
   label: string;
   value: string;
@@ -12,20 +15,30 @@ interface LabeledInputProps {
  */
 export function LabeledInput({
   label,
+  value,
   onChange,
   placeholder,
   focused = false,
 }: LabeledInputProps) {
   return (
-    <box flexDirection="column">
-      <text fg="white">
-        <strong>{label}</strong>
+    <box flexDirection="column" width="100%" gap={1}>
+      <text attributes={TextAttributes.DIM} fg={theme.textDescription}>
+        {label}
       </text>
-      <input
-        placeholder={placeholder}
-        onInput={onChange}
-        focused={focused}
-      />
+      <box
+        borderStyle="single"
+        borderColor={focused ? theme.borderActive : theme.borderMuted}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <input
+          value={value}
+          placeholder={placeholder}
+          onInput={onChange}
+          focused={focused}
+          width="100%"
+        />
+      </box>
     </box>
   );
 }

@@ -1,15 +1,19 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import z from 'zod';
-import { createGitClient } from '../git/client.js';
+import { createGitClient, getRepoInfo } from '../git/client.js';
 import { getFileStatus, getCurrentBranch } from '../git/status.js';
 import { stageFile, stageAll, unstageFile, commitAll, discardChanges } from '../git/operations.js';
 import { WorktreeManager } from '../git/worktree.js';
-import { GitStatusSchema, WorktreesResponseSchema } from '@agate/shared';
+import { GitStatusSchema, WorktreesResponseSchema, RepoInfoSchema } from '@agate/shared';
 
 // Query schemas
 const RepoPathQuery = z.object({
   repoPath: z.string(),
+});
+
+const DirQuery = z.object({
+  dir: z.string(),
 });
 
 // Request body schemas
@@ -81,6 +85,14 @@ const ERRORS = {
       },
     },
   },
+  404: {
+    description: 'Not found',
+    content: {
+      'application/json': {
+        schema: resolver(z.object({ error: z.string() })),
+      },
+    },
+  },
   500: {
     description: 'Internal server error',
     content: {
@@ -92,6 +104,40 @@ const ERRORS = {
 } as const;
 
 export const gitRouter = new Hono()
+  .get(
+    '/repo-info',
+    describeRoute({
+      description: 'Get repository information from a given path',
+      operationId: 'git.repoInfo',
+      responses: {
+        200: {
+          description: 'Repository information',
+          content: {
+            'application/json': {
+              schema: resolver(RepoInfoSchema),
+            },
+          },
+        },
+        ...ERRORS,
+      },
+    }),
+    validator('query', DirQuery),
+    async (c) => {
+      try {
+        const { dir } = c.req.valid('query');
+
+        const repoInfo = await getRepoInfo(dir);
+
+        return c.json(repoInfo);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Not a git repository') {
+          return c.json({ error: 'Not a git repository' }, 404);
+        }
+        console.error('Error getting repo info:', error);
+        return c.json({ error: 'Failed to get repository info' }, 500);
+      }
+    }
+  )
   .get(
     '/status',
     describeRoute({

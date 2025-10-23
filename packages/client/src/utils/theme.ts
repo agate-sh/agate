@@ -1,6 +1,7 @@
 /**
  * Terminal UI theme extending brand colors from @agate/shared
  */
+import { RGBA } from "@opentui/core";
 import { theme as brandTheme } from "@agate/shared/theme";
 
 export const theme = {
@@ -32,6 +33,7 @@ export const theme = {
   warningYellow: "#f1fa8c",
   white: "#ffffff",
   rowHighlight: "#525252",
+  overlayScrim: RGBA.fromValues(5 / 255, 5 / 255, 16 / 255, 0.6),
 
   // Background colors
   base: brandTheme.colors.bg.dark, // Use site's dark background (#030620)

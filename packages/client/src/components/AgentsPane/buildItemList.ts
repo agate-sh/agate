@@ -40,26 +40,15 @@ function isPinnedWorktree(
 export function buildItemList(
   sessions: PersistedSession[],
   expandedRepos: Set<string>,
-  pinnedWorktree: WorktreeInfo | null,
-  currentRepo: string | null = null
+  pinnedWorktree: WorktreeInfo | null
 ): AgentListItem[] {
   const items: AgentListItem[] = [];
   const groupedSessions = groupSessionsByRepo(sessions);
 
-  // Get sorted repository names (current repo first if set)
-  let repoNames = Array.from(groupedSessions.keys());
-
-  // Always include current repo if set, even if no sessions
-  if (currentRepo && !repoNames.includes(currentRepo)) {
-    repoNames.push(currentRepo);
-  }
-
-  // Sort: current repo first, then alphabetically
-  repoNames.sort((a, b) => {
-    if (a === currentRepo) return -1;
-    if (b === currentRepo) return 1;
-    return a.localeCompare(b);
-  });
+  // Get sorted repository names alphabetically
+  const repoNames = Array.from(groupedSessions.keys()).sort((a, b) =>
+    a.localeCompare(b)
+  );
 
   for (let idx = 0; idx < repoNames.length; idx++) {
     const repoName = repoNames[idx];

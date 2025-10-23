@@ -1,5 +1,9 @@
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { theme } from "../utils/theme.js";
+
+export const DIALOG_WIDTH = 60;
+export const DIALOG_PADDING_X = 4;
+export const DIALOG_PADDING_Y = 3;
 
 interface DialogProps {
   title?: string;
@@ -9,41 +13,48 @@ interface DialogProps {
 
 /**
  * Dialog overlay component
- * Centers a modal dialog with opaque background and border using absolute positioning
- * This solves the layout issue where dialog was appearing as a sibling instead of overlay
+ * Uses a shared overlay container to dim the background slightly and
+ * centers the modal content.
  */
 export function Dialog({ title, onClose, children }: DialogProps) {
-  // Close on Escape
+  const { width, height } = useTerminalDimensions();
+
   useKeyboard((key) => {
     if (key.name === "escape") {
       onClose();
     }
   });
 
+  const dialogWidth = Math.min(DIALOG_WIDTH, Math.max(20, width - 2));
+
   return (
     <box
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-        margin: "auto",
-        width: "60%",
-        height: "auto",
-        maxHeight: "80%",
-        flexDirection: "column",
-        borderStyle: "rounded",
-        borderColor: theme.borderActive,
-        backgroundColor: theme.mantle,
-        paddingLeft: 2,
-        paddingRight: 2,
-        paddingTop: 1,
-        paddingBottom: 1,
-      }}
+      width={width}
+      height={height}
+      position="absolute"
+      left={0}
+      top={0}
+      backgroundColor={theme.overlayScrim}
+      alignItems="center"
+      paddingTop={Math.floor(height / 4)}
     >
-      {title && <box marginBottom={1}><text>{title}</text></box>}
-      {children}
+      <box
+        flexDirection="column"
+        backgroundColor={theme.mantle}
+        paddingLeft={DIALOG_PADDING_X}
+        paddingRight={DIALOG_PADDING_X}
+        paddingTop={DIALOG_PADDING_Y}
+        paddingBottom={DIALOG_PADDING_Y}
+        width={dialogWidth}
+        maxWidth={Math.max(20, width - 2)}
+      >
+        {title && (
+          <box marginBottom={1}>
+            <text>{title}</text>
+          </box>
+        )}
+        {children}
+      </box>
     </box>
   );
 }

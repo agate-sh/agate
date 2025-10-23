@@ -51,7 +51,7 @@ describe('Git Routes', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as { branch: string };
       expect(data).toHaveProperty('branch');
       expect(data.branch).toBe('main');
     });
@@ -65,7 +65,7 @@ describe('Git Routes', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as { branch: string };
       expect(data.branch).toBe('master');
 
       // Switch back to main
@@ -81,7 +81,7 @@ describe('Git Routes', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as { branch: string };
       expect(data.branch).toBe('feature/test-branch');
 
       // Switch back to main

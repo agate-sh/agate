@@ -11,7 +11,7 @@ export async function createTestRepo(): Promise<{ path: string; git: SimpleGit }
   const path = await mkdtemp(join(tmpdir(), 'agate-test-'));
   const git = simpleGit(path);
 
-  await git.init();
+  await git.init(['-b', 'main']); // Use 'main' as the default branch
   await git.addConfig('user.name', 'Test User');
   await git.addConfig('user.email', 'test@example.com');
 

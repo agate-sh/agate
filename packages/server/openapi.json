@@ -36,6 +36,104 @@
         }
       }
     },
+    "/git/repo-info": {
+      "get": {
+        "operationId": "git.repoInfo",
+        "description": "Get repository information from a given path",
+        "responses": {
+          "200": {
+            "description": "Repository information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "repoRoot": {
+                      "type": "string"
+                    },
+                    "repoName": {
+                      "type": "string"
+                    },
+                    "currentBranch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "repoRoot",
+                    "repoName",
+                    "currentBranch"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dir",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ]
+      }
+    },
     "/git/status": {
       "get": {
         "operationId": "git.status",
@@ -152,6 +250,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -208,6 +324,24 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -323,6 +457,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -387,6 +539,24 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -494,6 +664,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -564,6 +752,24 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -663,6 +869,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -726,6 +950,24 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -829,6 +1071,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -912,6 +1172,24 @@
               }
             }
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -957,7 +1235,7 @@
     "/session": {
       "post": {
         "operationId": "session.create",
-        "description": "Create a new tmux session",
+        "description": "Create a new tmux session with atomic worktree creation",
         "responses": {
           "201": {
             "description": "Session created successfully",
@@ -968,10 +1246,26 @@
                   "properties": {
                     "sessionId": {
                       "type": "string"
+                    },
+                    "tmuxName": {
+                      "type": "string"
+                    },
+                    "worktreePath": {
+                      "type": "string"
+                    },
+                    "branchName": {
+                      "type": "string"
+                    },
+                    "repoName": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sessionId"
+                    "sessionId",
+                    "tmuxName",
+                    "worktreePath",
+                    "branchName",
+                    "repoName"
                   ]
                 }
               }
@@ -1038,19 +1332,31 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "worktreePath": {
+                  "dir": {
                     "type": "string"
                   },
-                  "branch": {
+                  "branchName": {
                     "type": "string"
                   },
                   "agentName": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "amp",
+                      "gemini",
+                      "codex",
+                      "opencode",
+                      "cursor",
+                      "copilot",
+                      "continue",
+                      "cline",
+                      "default"
+                    ]
                   }
                 },
                 "required": [
-                  "worktreePath",
-                  "branch",
+                  "dir",
+                  "branchName",
                   "agentName"
                 ]
               }

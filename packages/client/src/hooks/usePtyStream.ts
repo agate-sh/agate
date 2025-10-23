@@ -115,7 +115,7 @@ export function usePtyStream({
 
           // Also log hex dump of first 100 bytes
           const hexDump = Array.from(message.data.substring(0, 100))
-            .map(char => char.charCodeAt(0).toString(16).padStart(2, '0'))
+            .map((char) => (char as string).charCodeAt(0).toString(16).padStart(2, '0'))
             .join(' ');
           logger.info({ hex: hexDump }, '🔢 HEX DUMP');
 

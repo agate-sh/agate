@@ -35,3 +35,9 @@ export const WorktreeSchema = z.object({
 export const WorktreesResponseSchema = z.object({
   worktrees: z.array(WorktreeSchema),
 });
+
+export const RepoInfoSchema = z.object({
+  repoRoot: z.string(),
+  repoName: z.string(),
+  currentBranch: z.string(),
+});

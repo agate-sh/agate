@@ -15,7 +15,7 @@ import type {
   DeleteSessionResponse,
 } from '@agate/shared';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, realpathSync } from 'fs';
 import { homedir } from 'os';
 
 /**
@@ -104,19 +104,132 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
     }
   });
 
+  describe('Git API Endpoints', () => {
+    it('should return repo info for valid git repo via GET /git/repo-info', async () => {
+      const response = await fetch(
+        `http://localhost:${PORT}/git/repo-info?dir=${encodeURIComponent(testRepoPath)}`
+      );
+
+      expect(response.ok).toBe(true);
+      const data = await response.json() as { repoRoot: string; repoName: string; currentBranch: string };
+      // Normalize paths to handle macOS symlinks (/var -> /private/var)
+      expect(realpathSync(data.repoRoot)).toBe(realpathSync(testRepoPath));
+      expect(data.repoName).toBeDefined();
+      expect(typeof data.repoName).toBe('string');
+      expect(data.currentBranch).toBe('main'); // from createInitialCommit
+    }, 5000);
+
+    it('should return repo info when dir is subdirectory of git repo', async () => {
+      // Create a subdirectory in the test repo
+      const subDir = join(testRepoPath, 'subdir');
+      mkdirSync(subDir, { recursive: true });
+
+      const response = await fetch(
+        `http://localhost:${PORT}/git/repo-info?dir=${encodeURIComponent(subDir)}`
+      );
+
+      expect(response.ok).toBe(true);
+      const data = await response.json() as { repoRoot: string; repoName: string; currentBranch: string };
+      // Normalize paths to handle macOS symlinks (/var -> /private/var)
+      expect(realpathSync(data.repoRoot)).toBe(realpathSync(testRepoPath));
+      expect(data.repoName).toBeDefined();
+      expect(data.currentBranch).toBe('main');
+    }, 5000);
+
+    it('should return 404 for non-git directory via GET /git/repo-info', async () => {
+      const nonGitDir = join(testHome, 'not-a-git-repo');
+      mkdirSync(nonGitDir, { recursive: true });
+
+      const response = await fetch(
+        `http://localhost:${PORT}/git/repo-info?dir=${encodeURIComponent(nonGitDir)}`
+      );
+
+      expect(response.status).toBe(404);
+    }, 5000);
+
+    it('should return 400 for missing dir parameter', async () => {
+      const response = await fetch(`http://localhost:${PORT}/git/repo-info`);
+      expect(response.status).toBe(400);
+    }, 5000);
+  });
+
+  describe('Session API Endpoints (Refactored - Atomic Creation)', () => {
+    it('should create session atomically from dir via POST /session', async () => {
+      const response = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: testRepoPath,
+          branchName: 'test-atomic-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      expect(response.status).toBe(201);
+      const data = (await response.json()) as CreateSessionResponse;
+      expect(data.sessionId).toBeDefined();
+      expect(typeof data.sessionId).toBe('string');
+
+      // Verify session was created correctly
+      const sessionResponse = await fetch(`http://localhost:${PORT}/session/${data.sessionId}`);
+      expect(sessionResponse.ok).toBe(true);
+      const sessionData = (await sessionResponse.json()) as GetSessionResponse;
+      expect(sessionData.agent).toBe('claude');
+      // The cwd should be the worktree path, not the original repo path
+      expect(sessionData.cwd).toContain('test-atomic-branch');
+    }, 10000);
+
+    it('should rollback worktree on session creation failure', async () => {
+      // This test will create a session with an invalid configuration
+      // to trigger a failure after worktree creation
+      const response = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: testRepoPath,
+          branchName: 'test-rollback-branch',
+          agentName: 'invalid-agent', // This should cause validation error
+        }),
+      });
+
+      // Should fail with 400 or 500
+      expect(response.ok).toBe(false);
+
+      // TODO: Verify worktree was cleaned up (not created or removed)
+      // This will be verified once we implement the rollback logic
+    }, 10000);
+
+    it('should return 400 for invalid dir (not a git repo)', async () => {
+      const nonGitDir = join(testHome, 'not-a-git-repo-session');
+      mkdirSync(nonGitDir, { recursive: true });
+
+      const response = await fetch(`http://localhost:${PORT}/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: nonGitDir,
+          branchName: 'test-branch',
+          agentName: 'claude',
+        }),
+      });
+
+      expect(response.status).toBe(400);
+    }, 5000);
+  });
+
   describe('Session API Endpoints', () => {
     it('should create a session via POST /session', async () => {
       const response = await fetch(`http://localhost:${PORT}/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          worktreePath,
-          branch: 'test-branch',
+          dir: testRepoPath,
+          branchName: 'test-branch',
           agentName: 'claude',
         }),
       });
 
-      expect(response.ok).toBe(true);
+      expect(response.status).toBe(201);
       const data = (await response.json()) as CreateSessionResponse;
       expect(data.sessionId).toBeDefined();
       expect(typeof data.sessionId).toBe('string');
@@ -128,8 +241,8 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          worktreePath,
-          branch: 'test-branch',
+          dir: testRepoPath,
+          branchName: 'test-get-session',
           agentName: 'claude',
         }),
       });
@@ -144,7 +257,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(data.id).toBe(sessionId);
       expect(data.name).toBeDefined();
       expect(data.agent).toBe('claude');
-      expect(data.cwd).toBe(worktreePath);
+      expect(data.cwd).toContain('test-get-session');
       expect(data.isAlive).toBe(true);
     }, 10000);
 
@@ -154,8 +267,8 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          worktreePath,
-          branch: 'test-branch',
+          dir: testRepoPath,
+          branchName: 'test-resize',
           agentName: 'claude',
         }),
       });
@@ -183,8 +296,8 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          worktreePath,
-          branch: 'test-branch',
+          dir: testRepoPath,
+          branchName: 'test-delete',
           agentName: 'claude',
         }),
       });
@@ -216,7 +329,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           // Missing required fields
-          worktreePath,
+          dir: testRepoPath,
         }),
       });
 

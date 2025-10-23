@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Agate Express server",
   "type": "module",
+  "bin": {
+    "agate-server": "./dist/index.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {

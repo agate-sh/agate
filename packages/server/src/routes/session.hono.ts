@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import { randomUUID } from 'crypto';
-import { basename } from 'path';
+import { join } from 'path';
+import { homedir } from 'os';
+import { existsSync } from 'fs';
 import z from 'zod';
 import { TmuxSessionManager } from '../tmux/session.js';
 import { EventBus } from '../event-bus.js';
 import { StateManager } from '../state/manager.js';
+import { getRepoInfo } from '../git/client.js';
+import { WorktreeManager } from '../git/worktree.js';
 import type {
   CreateSessionResponse,
   GetSessionResponse,
@@ -15,7 +19,30 @@ import type {
   PersistedSession,
 } from '@agate/shared';
 import type { SessionCreatedEvent, SessionDeletedEvent } from '@agate/shared';
-import { generateWorktreeKey } from '@agate/shared';
+import { generateWorktreeKey, AGENTS, generateBranchName } from '@agate/shared';
+import { simpleGit } from 'simple-git';
+
+async function resolveUniqueBranchName(
+  repoRoot: string,
+  worktreeManager: WorktreeManager,
+  initialName: string
+): Promise<string> {
+  const git = simpleGit(repoRoot);
+  const existingBranches = new Set((await git.branchLocal()).all);
+  const existingWorktrees = new Set((await worktreeManager.list()).map((w) => w.branch));
+
+  let candidate = initialName;
+  const seen = new Set<string>();
+
+  while (true) {
+    if (!seen.has(candidate) && !existingBranches.has(candidate) && !existingWorktrees.has(candidate)) {
+      return candidate;
+    }
+
+    seen.add(candidate);
+    candidate = generateBranchName();
+  }
+}
 
 // Session metadata for persistence
 interface SessionMetadata {
@@ -31,10 +58,12 @@ interface SessionMetadata {
 export const sessions = new Map<string, SessionMetadata>();
 
 // Define Zod schemas for validation
+const validAgentNames = Object.keys(AGENTS) as [AgentName, ...AgentName[]];
+
 const CreateSessionSchema = z.object({
-  worktreePath: z.string(),
-  branch: z.string(),
-  agentName: z.string(),
+  dir: z.string(),
+  branchName: z.string(),
+  agentName: z.enum(validAgentNames),
 });
 
 const ResizeSessionSchema = z.object({
@@ -49,6 +78,10 @@ const SessionIdParam = z.object({
 // Response schemas
 const CreateSessionResponseSchema = z.object({
   sessionId: z.string(),
+  tmuxName: z.string(),
+  worktreePath: z.string(),
+  branchName: z.string(),
+  repoName: z.string(),
 });
 
 const GetSessionResponseSchema = z.object({
@@ -105,7 +138,7 @@ export const sessionRouter = new Hono<Env>()
   .post(
     '/',
     describeRoute({
-      description: 'Create a new tmux session',
+      description: 'Create a new tmux session with atomic worktree creation',
       operationId: 'session.create',
       responses: {
         201: {
@@ -121,53 +154,67 @@ export const sessionRouter = new Hono<Env>()
     }),
     validator('json', CreateSessionSchema),
     async (c) => {
-      try {
-        const body = c.req.valid('json');
-        const { worktreePath, branch, agentName } = body;
+      const body = c.req.valid('json');
+      const { dir, branchName, agentName } = body;
 
-        // Generate session ID
+      let worktreePath: string | null = null;
+      let resolvedBranchName = branchName;
+      let sessionManager: TmuxSessionManager | null = null;
+
+      try {
+        // 1. Get repository information from dir
+        const repoInfo = await getRepoInfo(dir);
+        const { repoRoot, repoName } = repoInfo;
+
+        // 2. Determine worktree path
+        const worktreesDir = join(homedir(), '.agate', 'worktrees', repoName);
+
+        const worktreeManager = new WorktreeManager(repoRoot);
+        resolvedBranchName = await resolveUniqueBranchName(repoRoot, worktreeManager, branchName);
+
+        worktreePath = join(worktreesDir, resolvedBranchName);
+
+        // 3. Create worktree atomically
+        await worktreeManager.create(worktreePath, resolvedBranchName);
+
+        // 4. Generate session ID
         const sessionId = randomUUID();
 
-        // Get dependencies from context
+        // 5. Get dependencies from context
         const eventBus = c.get('eventBus');
         const stateManager = c.get('stateManager');
 
-        // Extract repo name from worktree path
-        // For paths like /Users/test/repos/my-project, extract 'my-project'
-        const pathParts = worktreePath.split('/').filter(Boolean);
-        const repoName = pathParts[pathParts.length - 1] || 'unknown';
+        // 6. Create TmuxSessionManager
+        sessionManager = new TmuxSessionManager(eventBus, sessionId);
 
-        // Generate worktree key for persistence
-        const worktreeKey = generateWorktreeKey({
-          repoName,
-          path: worktreePath,
-          branch,
-          commit: '',
-          name: branch,
-        });
-
-        // Create TmuxSessionManager
-        const sessionManager = new TmuxSessionManager(eventBus, sessionId);
-
-        // Create tmux session
-        const sessionName = `agate_${branch}_${agentName}_${sessionId.substring(0, 8)}`;
+        // 7. Create tmux session in the worktree
+        const sessionName = `agate_${resolvedBranchName}_${agentName}_${sessionId.substring(0, 8)}`;
         await sessionManager.createSession({
           name: sessionName,
           agent: agentName as AgentName,
           cwd: worktreePath,
         });
 
-        // Store in registry with metadata
+        // 8. Generate worktree key for persistence
+        const worktreeKey = generateWorktreeKey({
+          repoName,
+          path: worktreePath,
+          branch: resolvedBranchName,
+          commit: '',
+          name: resolvedBranchName,
+        });
+
+        // 9. Store in registry with metadata
         sessions.set(sessionId, {
           manager: sessionManager,
           worktreeKey,
           worktreePath,
-          branch,
+          branch: resolvedBranchName,
           repoName,
           agentName,
         });
 
-        // Persist to state.json
+        // 10. Persist to state.json
         const now = new Date().toISOString();
         const persistedSession: PersistedSession = {
           id: sessionId,
@@ -175,7 +222,7 @@ export const sessionRouter = new Hono<Env>()
           tmuxName: sessionName,
           agentName,
           worktreePath,
-          branch,
+          branch: resolvedBranchName,
           repoName,
           createdAt: now,
           lastAccessed: now,
@@ -184,7 +231,7 @@ export const sessionRouter = new Hono<Env>()
         stateManager.saveSessionMapping(worktreeKey, persistedSession);
         await stateManager.save();
 
-        // Emit session created event
+        // 11. Emit session created event
         const event: SessionCreatedEvent = {
           type: 'session.created',
           sessionId,
@@ -192,12 +239,40 @@ export const sessionRouter = new Hono<Env>()
         };
         eventBus.publish(event);
 
-        // Return response
+        // 12. Return response
         const response: CreateSessionResponse = {
           sessionId,
+          tmuxName: sessionName,
+          worktreePath,
+          branchName: resolvedBranchName,
+          repoName,
         };
         return c.json(response, 201);
       } catch (error) {
+        // Rollback: Clean up worktree if it was created
+        if (worktreePath && existsSync(worktreePath)) {
+          try {
+            const worktreeManager = new WorktreeManager(worktreePath);
+            await worktreeManager.remove(worktreePath, { force: true });
+          } catch (cleanupError) {
+            console.error('Error rolling back worktree:', cleanupError);
+          }
+        }
+
+        // Rollback: Kill session if it was created
+        if (sessionManager) {
+          try {
+            await sessionManager.kill();
+          } catch (cleanupError) {
+            console.error('Error killing session during rollback:', cleanupError);
+          }
+        }
+
+        // Handle specific error cases
+        if (error instanceof Error && error.message === 'Not a git repository') {
+          return c.json({ error: 'Not a git repository' }, 400);
+        }
+
         console.error('Error creating session:', error);
         return c.json({ error: 'Failed to create session' }, 500);
       }

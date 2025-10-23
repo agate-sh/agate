@@ -1,0 +1,19 @@
+diff --git a/index.js b/index.js
+index 099564c862bc5fe7610c93751d44de7d7f41eb81..1c37ffedc5320ea52bf1ba5ad4b6929eedd81bc4 100644
+--- a/index.js
++++ b/index.js
+@@ -182,12 +182,12 @@ import React2 from "react";
+ 
+ // src/reconciler/reconciler.ts
+ import ReactReconciler from "react-reconciler";
+-import { ConcurrentRoot } from "react-reconciler/constants";
++import { ConcurrentRoot } from "react-reconciler/constants.js";
+ 
+ // src/reconciler/host-config.ts
+ import { TextNodeRenderable as TextNodeRenderable2 } from "@opentui/core";
+ import { createContext as createContext2 } from "react";
+-import { DefaultEventPriority, NoEventPriority } from "react-reconciler/constants";
++import { DefaultEventPriority, NoEventPriority } from "react-reconciler/constants.js";
+ 
+ // src/utils/id.ts
+ var idCounter = new Map;

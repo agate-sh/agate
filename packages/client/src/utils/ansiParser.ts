@@ -187,8 +187,6 @@ export class AnsiParser {
         foreground: '#ffffff', // theme.textPrimary - white text
         cursor: '#000000',
         cursorAccent: '#ffffff',
-        selectionBackground: '#4a4a4a',
-        selectionForeground: '#ffffff',
         // Standard ANSI colors
         black: '#000000',
         red: '#ff5555',

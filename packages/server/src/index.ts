@@ -24,9 +24,9 @@ async function restoreSessions(eventBus: EventBus, stateManager: StateManager): 
     try {
       // Use the persisted session ID (which includes worktree_key + agent)
       const sessionId = persistedSession.id;
-      const tmuxName = persistedSession.tmux_name;
-      const agent = persistedSession.agent_name as AgentName;
-      const cwd = persistedSession.worktree_path;
+      const tmuxName = persistedSession.tmuxName;
+      const agent = persistedSession.agentName as AgentName;
+      const cwd = persistedSession.worktreePath;
 
       logger.debug({
         sessionId,
@@ -48,8 +48,15 @@ async function restoreSessions(eventBus: EventBus, stateManager: StateManager): 
         const sessionManager = new TmuxSessionManager(eventBus, sessionId);
         await sessionManager.attachToSession(tmuxName, agent, cwd);
 
-        // Add to sessions map
-        sessions.set(sessionId, sessionManager);
+        // Add to sessions map with full metadata
+        sessions.set(sessionId, {
+          manager: sessionManager,
+          worktreeKey: persistedSession.worktreeKey,
+          worktreePath: persistedSession.worktreePath,
+          branch: persistedSession.branch,
+          repoName: persistedSession.repoName,
+          agentName: agent,
+        });
 
         logger.info({
           sessionId,

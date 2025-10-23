@@ -5,11 +5,13 @@
   "description": "Agate - Multi-agent task execution in tmux",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter '!@agate/client' --parallel dev",
+    "dev": "pnpm --filter '!@agate/client' --filter '!@agate/cli' --parallel dev",
     "dev:client": "pnpm --filter @agate/client dev",
     "dev:logs": "tail -f ~/.agate/dev.log 2>/dev/null || echo 'No logs yet. Start dev server first.'",
     "clean": "pnpm -r clean",
     "typecheck": "pnpm -r typecheck",
+    "test:e2e": "pnpm --filter @agate/e2e test",
+    "agate": "pnpm --filter @agate/cli exec node dist/index.js",
     "generate-logos": "npx tsx scripts/generate-logos.ts"
   },
   "engines": {
@@ -21,5 +23,10 @@
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2",
     "zod-openapi": "^4.0.0"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@opentui/react@0.1.27": "patches/@opentui__react@0.1.27.patch"
+    }
   }
 }
