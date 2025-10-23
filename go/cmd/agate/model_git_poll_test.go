@@ -56,13 +56,15 @@ func TestTriggerManualGitPollSchedulesAndResetsIdle(t *testing.T) {
 	}
 
 	m := model{
-		gitStatusPoller: stub,
-		gitPollRepoPath: "/tmp/repo",
-		gitPollReady:    true,
+		gitPoll: gitPollState{
+			poller:   stub,
+			repoPath: "/tmp/repo",
+			ready:    true,
+		},
 	}
 
 	var runCalls []gitPollReason
-	m.gitPollRunCmdBuilder = func(p gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
+	m.gitPoll.runCmdBuilder = func(p gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
 		runCalls = append(runCalls, reason)
 		return func() tea.Msg {
 			res, err := p.Poll(context.Background())
@@ -71,7 +73,7 @@ func TestTriggerManualGitPollSchedulesAndResetsIdle(t *testing.T) {
 	}
 
 	var scheduled []time.Duration
-	m.gitPollScheduleCmdBuilder = func(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
+	m.gitPoll.scheduleCmdBuilder = func(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
 		scheduled = append(scheduled, after)
 		return nil
 	}
@@ -85,7 +87,7 @@ func TestTriggerManualGitPollSchedulesAndResetsIdle(t *testing.T) {
 		t.Fatalf("expected manual poll to run once, got %v", runCalls)
 	}
 
-	if !m.gitPollSkipScheduled {
+	if !m.gitPoll.skipScheduled {
 		t.Fatalf("expected scheduled tick to be skipped while manual poll in flight")
 	}
 
@@ -102,7 +104,7 @@ func TestTriggerManualGitPollSchedulesAndResetsIdle(t *testing.T) {
 		t.Fatalf("expected next interval to be %v, got %v", stub.pollRes.NextInterval, scheduled)
 	}
 
-	if m.gitPollSkipScheduled {
+	if m.gitPoll.skipScheduled {
 		t.Fatalf("expected skip flag to be cleared after manual result")
 	}
 
@@ -119,19 +121,21 @@ func TestGitRefreshMsgTriggersManualPoll(t *testing.T) {
 	}
 
 	m := model{
-		gitStatusPoller: stub,
-		gitPollRepoPath: "/tmp/repo",
-		gitPollReady:    true,
-		gitPane:         &stubPane{},
+		gitPoll: gitPollState{
+			poller:   stub,
+			repoPath: "/tmp/repo",
+			ready:    true,
+		},
+		gitPane: &stubPane{},
 	}
 
 	var runCalls []gitPollReason
-	m.gitPollRunCmdBuilder = func(p gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
+	m.gitPoll.runCmdBuilder = func(p gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
 		runCalls = append(runCalls, reason)
 		return nil
 	}
 
-	m.gitPollScheduleCmdBuilder = func(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
+	m.gitPoll.scheduleCmdBuilder = func(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
 		return nil
 	}
 
@@ -142,7 +146,7 @@ func TestGitRefreshMsgTriggersManualPoll(t *testing.T) {
 		t.Fatalf("expected manual poll to run, got %v", runCalls)
 	}
 
-	if !m.gitPollSkipScheduled {
+	if !m.gitPoll.skipScheduled {
 		t.Fatalf("expected skip flag to be set after manual trigger")
 	}
 }
@@ -152,12 +156,14 @@ func TestGitPollInitErrorSchedulesRetry(t *testing.T) {
 	stub := &stubPoller{}
 
 	m := model{
-		gitStatusPoller: stub,
-		gitPollRepoPath: repo,
+		gitPoll: gitPollState{
+			poller:   stub,
+			repoPath: repo,
+		},
 	}
 
 	var retryDelays []time.Duration
-	m.gitPollInitRetryBuilder = func(after time.Duration, repoPath string) tea.Cmd {
+	m.gitPoll.initRetryCmdBuilder = func(after time.Duration, repoPath string) tea.Cmd {
 		if repoPath != repo {
 			t.Fatalf("unexpected repoPath: %s", repoPath)
 		}
@@ -168,7 +174,7 @@ func TestGitPollInitErrorSchedulesRetry(t *testing.T) {
 	}
 
 	var initCalls int
-	m.gitPollInitCmdBuilder = func(p gitStatusPoller, repoPath string) tea.Cmd {
+	m.gitPoll.initCmdBuilder = func(p gitStatusPoller, repoPath string) tea.Cmd {
 		if p != stub {
 			t.Fatalf("unexpected poller")
 		}
@@ -193,13 +199,13 @@ func TestGitPollInitErrorSchedulesRetry(t *testing.T) {
 		t.Fatalf("expected retry delay 1s, got %v", retryDelays[0])
 	}
 
-	if m.gitPollReady {
+	if m.gitPoll.ready {
 		t.Fatal("gitPollReady should remain false after init failure")
 	}
-	if m.gitPollScheduled {
+	if m.gitPoll.scheduled {
 		t.Fatal("gitPollScheduled should be false after init failure")
 	}
-	if m.gitPollSkipScheduled {
+	if m.gitPoll.skipScheduled {
 		t.Fatal("gitPollSkipScheduled should be false after init failure")
 	}
 

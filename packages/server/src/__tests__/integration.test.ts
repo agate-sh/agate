@@ -21,8 +21,8 @@ import { homedir } from 'os';
 /**
  * E2E integration tests validating the full HTTP API flow:
  * 1. Create git worktree
- * 2. Create tmux session via POST /session
- * 3. Send input via POST /session/:id/input
+ * 2. Create tmux session via POST /sessions
+ * 3. Send input via POST /sessions/:id/input
  * 4. Test all session management endpoints
  *
  * Note: PTY output streaming is tested separately in websocket.test.ts
@@ -154,8 +154,8 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
   });
 
   describe('Session API Endpoints (Refactored - Atomic Creation)', () => {
-    it('should create session atomically from dir via POST /session', async () => {
-      const response = await fetch(`http://localhost:${PORT}/session`, {
+    it('should create session atomically from dir via POST /sessions', async () => {
+      const response = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +171,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(typeof data.sessionId).toBe('string');
 
       // Verify session was created correctly
-      const sessionResponse = await fetch(`http://localhost:${PORT}/session/${data.sessionId}`);
+      const sessionResponse = await fetch(`http://localhost:${PORT}/sessions/${data.sessionId}`);
       expect(sessionResponse.ok).toBe(true);
       const sessionData = (await sessionResponse.json()) as GetSessionResponse;
       expect(sessionData.agent).toBe('claude');
@@ -182,7 +182,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
     it('should rollback worktree on session creation failure', async () => {
       // This test will create a session with an invalid configuration
       // to trigger a failure after worktree creation
-      const response = await fetch(`http://localhost:${PORT}/session`, {
+      const response = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,7 +203,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       const nonGitDir = join(testHome, 'not-a-git-repo-session');
       mkdirSync(nonGitDir, { recursive: true });
 
-      const response = await fetch(`http://localhost:${PORT}/session`, {
+      const response = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -218,8 +218,8 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
   });
 
   describe('Session API Endpoints', () => {
-    it('should create a session via POST /session', async () => {
-      const response = await fetch(`http://localhost:${PORT}/session`, {
+    it('should create a session via POST /sessions', async () => {
+      const response = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -235,9 +235,9 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(typeof data.sessionId).toBe('string');
     }, 10000);
 
-    it('should get session info via GET /session/:id', async () => {
+    it('should get session info via GET /sessions/:id', async () => {
       // First create a session
-      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+      const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -250,7 +250,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
       // Now get session info
-      const getResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`);
+      const getResponse = await fetch(`http://localhost:${PORT}/sessions/${sessionId}`);
       expect(getResponse.ok).toBe(true);
 
       const data = (await getResponse.json()) as GetSessionResponse;
@@ -261,9 +261,9 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(data.isAlive).toBe(true);
     }, 10000);
 
-    it('should resize session via POST /session/:id/resize', async () => {
+    it('should resize session via POST /sessions/:id/resize', async () => {
       // Create session
-      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+      const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -276,7 +276,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
       // Resize
-      const resizeResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/resize`, {
+      const resizeResponse = await fetch(`http://localhost:${PORT}/sessions/${sessionId}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -290,9 +290,9 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(data.success).toBe(true);
     }, 10000);
 
-    it('should delete session via DELETE /session/:id', async () => {
+    it('should delete session via DELETE /sessions/:id', async () => {
       // Create session
-      const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+      const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -305,7 +305,7 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       const { sessionId } = (await createResponse.json()) as CreateSessionResponse;
 
       // Delete
-      const deleteResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`, {
+      const deleteResponse = await fetch(`http://localhost:${PORT}/sessions/${sessionId}`, {
         method: 'DELETE',
       });
 
@@ -314,17 +314,17 @@ describe('Integration Test: E2E HTTP API → Worktree → Tmux → PTY', () => {
       expect(data.success).toBe(true);
 
       // Verify session no longer exists
-      const getResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}`);
+      const getResponse = await fetch(`http://localhost:${PORT}/sessions/${sessionId}`);
       expect(getResponse.status).toBe(404);
     }, 10000);
 
     it('should return 404 for non-existent session', async () => {
-      const response = await fetch(`http://localhost:${PORT}/session/non-existent-id`);
+      const response = await fetch(`http://localhost:${PORT}/sessions/non-existent-id`);
       expect(response.status).toBe(404);
     }, 5000);
 
     it('should return 400 for invalid create session request', async () => {
-      const response = await fetch(`http://localhost:${PORT}/session`, {
+      const response = await fetch(`http://localhost:${PORT}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

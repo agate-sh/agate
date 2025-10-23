@@ -131,7 +131,7 @@ export function createHonoServer(eventBus: EventBus, stateManager: StateManager)
 
   // Mount API routes
   app.route('/git', gitRouter);
-  app.route('/session', sessionRouter);
+  app.route('/sessions', sessionRouter);
 
   return app;
 }

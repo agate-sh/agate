@@ -1,6 +1,7 @@
 import type { TmuxSession } from './tmux.js';
 import type { GitStatus } from './git.js';
 import type { AgentName } from './agent.js';
+import type { PersistedSession } from './session.js';
 
 /**
  * API request/response types
@@ -43,6 +44,12 @@ export interface ResizeSessionResponse {
 
 export interface DeleteSessionResponse {
   success: boolean;
+}
+
+export interface ListSessionsResponse {
+  sessions: PersistedSession[];
+  activeSession: string;
+  defaultAgent: AgentName;
 }
 
 // Legacy Session Management (to be deprecated)

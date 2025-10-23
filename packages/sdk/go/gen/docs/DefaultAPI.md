@@ -16,10 +16,11 @@ Method | HTTP request | Description
 [**GitWorktreeDelete**](DefaultAPI.md#GitWorktreeDelete) | **Delete** /git/worktree | 
 [**GitWorktreesList**](DefaultAPI.md#GitWorktreesList) | **Get** /git/worktrees | 
 [**HealthCheck**](DefaultAPI.md#HealthCheck) | **Get** /health | 
-[**SessionCreate**](DefaultAPI.md#SessionCreate) | **Post** /session | 
-[**SessionDelete**](DefaultAPI.md#SessionDelete) | **Delete** /session/{id} | 
-[**SessionGet**](DefaultAPI.md#SessionGet) | **Get** /session/{id} | 
-[**SessionResize**](DefaultAPI.md#SessionResize) | **Post** /session/{id}/resize | 
+[**SessionCreate**](DefaultAPI.md#SessionCreate) | **Post** /sessions | 
+[**SessionDelete**](DefaultAPI.md#SessionDelete) | **Delete** /sessions/{id} | 
+[**SessionGet**](DefaultAPI.md#SessionGet) | **Get** /sessions/{id} | 
+[**SessionList**](DefaultAPI.md#SessionList) | **Get** /sessions | 
+[**SessionResize**](DefaultAPI.md#SessionResize) | **Post** /sessions/{id}/resize | 
 
 
 
@@ -1001,6 +1002,67 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**SessionGet200Response**](SessionGet200Response.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## SessionList
+
+> SessionList200Response SessionList(ctx).Execute()
+
+
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID/agateclient"
+)
+
+func main() {
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.SessionList(context.Background()).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.SessionList``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `SessionList`: SessionList200Response
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.SessionList`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+This endpoint does not need any parameter.
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiSessionListRequest struct via the builder pattern
+
+
+### Return type
+
+[**SessionList200Response**](SessionList200Response.md)
 
 ### Authorization
 

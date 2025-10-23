@@ -90,10 +90,11 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GitWorktreeDelete**](docs/DefaultAPI.md#gitworktreedelete) | **Delete** /git/worktree | 
 *DefaultAPI* | [**GitWorktreesList**](docs/DefaultAPI.md#gitworktreeslist) | **Get** /git/worktrees | 
 *DefaultAPI* | [**HealthCheck**](docs/DefaultAPI.md#healthcheck) | **Get** /health | 
-*DefaultAPI* | [**SessionCreate**](docs/DefaultAPI.md#sessioncreate) | **Post** /session | 
-*DefaultAPI* | [**SessionDelete**](docs/DefaultAPI.md#sessiondelete) | **Delete** /session/{id} | 
-*DefaultAPI* | [**SessionGet**](docs/DefaultAPI.md#sessionget) | **Get** /session/{id} | 
-*DefaultAPI* | [**SessionResize**](docs/DefaultAPI.md#sessionresize) | **Post** /session/{id}/resize | 
+*DefaultAPI* | [**SessionCreate**](docs/DefaultAPI.md#sessioncreate) | **Post** /sessions | 
+*DefaultAPI* | [**SessionDelete**](docs/DefaultAPI.md#sessiondelete) | **Delete** /sessions/{id} | 
+*DefaultAPI* | [**SessionGet**](docs/DefaultAPI.md#sessionget) | **Get** /sessions/{id} | 
+*DefaultAPI* | [**SessionList**](docs/DefaultAPI.md#sessionlist) | **Get** /sessions | 
+*DefaultAPI* | [**SessionResize**](docs/DefaultAPI.md#sessionresize) | **Post** /sessions/{id}/resize | 
 
 
 ## Documentation For Models
@@ -117,6 +118,8 @@ Class | Method | HTTP request | Description
  - [SessionCreate201Response](docs/SessionCreate201Response.md)
  - [SessionCreateRequest](docs/SessionCreateRequest.md)
  - [SessionGet200Response](docs/SessionGet200Response.md)
+ - [SessionList200Response](docs/SessionList200Response.md)
+ - [SessionList200ResponseSessionsInner](docs/SessionList200ResponseSessionsInner.md)
  - [SessionResizeRequest](docs/SessionResizeRequest.md)
 
 

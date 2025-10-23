@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -16,7 +13,6 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/git"
-	"agate/pkg/git/statuspoller"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/layout"
 	"agate/pkg/gui/overlays"
@@ -43,29 +39,6 @@ type sessionMode int
 const (
 	modePreview sessionMode = iota // Read-only preview
 )
-
-type gitStatusPoller interface {
-	Initialize(ctx context.Context) (statuspoller.InitResult, error)
-	Poll(ctx context.Context) (statuspoller.PollResult, error)
-}
-
-type gitPollReason int
-
-const (
-	pollReasonScheduled gitPollReason = iota
-	pollReasonManual
-)
-
-func gitPollReasonName(reason gitPollReason) string {
-	switch reason {
-	case pollReasonScheduled:
-		return "scheduled"
-	case pollReasonManual:
-		return "manual"
-	default:
-		return fmt.Sprintf("unknown(%d)", reason)
-	}
-}
 
 // focusState is now defined in layout package
 
@@ -239,11 +212,7 @@ func initialModel(subprocess string) model {
 		shellPane: shellPane,
 	}
 
-	m.gitPollerFactory = makeGitStatusPoller
-	m.gitPollInitCmdBuilder = defaultGitPollInitCmd
-	m.gitPollRunCmdBuilder = defaultGitPollRunCmd
-	m.gitPollScheduleCmdBuilder = defaultGitPollScheduleCmd
-	m.gitPollInitRetryBuilder = defaultGitPollInitRetryCmd
+	m.gitPoll = newGitPollState()
 
 	// Initialize Git pane content if repo pane has items
 	return m
@@ -528,68 +497,6 @@ func combineCmds(cmds ...tea.Cmd) tea.Cmd {
 	}
 }
 
-func makeGitStatusPoller(repoPath string) gitStatusPoller {
-	return statuspoller.New(repoPath, runGitStatusCommand, time.Now)
-}
-
-func runGitStatusCommand(ctx context.Context, repoPath string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return output, fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
-	}
-	return output, nil
-}
-
-func defaultGitPollInitCmd(poller gitStatusPoller, repoPath string) tea.Cmd {
-	debug.DebugLog("[git poll] queueing init command for %s", repoPath)
-	return func() tea.Msg {
-		debug.DebugLog("[git poll] executing init command for %s", repoPath)
-		res, err := poller.Initialize(context.Background())
-		if err != nil {
-			debug.DebugLog("[git poll] init command errored for %s: %v", repoPath, err)
-		} else {
-			debug.DebugLog("[git poll] init command completed for %s", repoPath)
-		}
-		return gitPollInitMsg{repoPath: repoPath, result: res, err: err}
-	}
-}
-
-func defaultGitPollRunCmd(poller gitStatusPoller, repoPath string, reason gitPollReason) tea.Cmd {
-	debug.DebugLog("[git poll] queueing %s poll command for %s", gitPollReasonName(reason), repoPath)
-	return func() tea.Msg {
-		debug.DebugLog("[git poll] executing %s poll command for %s", gitPollReasonName(reason), repoPath)
-		res, err := poller.Poll(context.Background())
-		if err != nil {
-			debug.DebugLog("[git poll] %s poll command errored for %s: %v", gitPollReasonName(reason), repoPath, err)
-		} else {
-			debug.DebugLog("[git poll] %s poll command completed for %s", gitPollReasonName(reason), repoPath)
-		}
-		return gitPollResultMsg{repoPath: repoPath, reason: reason, result: res, err: err}
-	}
-}
-
-func defaultGitPollScheduleCmd(after time.Duration, repoPath string, reason gitPollReason) tea.Cmd {
-	if after <= 0 {
-		after = 10 * time.Millisecond
-	}
-	debug.DebugLog("[git poll] scheduling %s poll for %s in %s", gitPollReasonName(reason), repoPath, after)
-	return tea.Tick(after, func(time.Time) tea.Msg {
-		return gitPollTriggerMsg{repoPath: repoPath, reason: reason}
-	})
-}
-
-func defaultGitPollInitRetryCmd(after time.Duration, repoPath string) tea.Cmd {
-	if after <= 0 {
-		after = time.Second
-	}
-	debug.DebugLog("[git poll] scheduling init retry command for %s in %s", repoPath, after)
-	return tea.Tick(after, func(time.Time) tea.Msg {
-		return gitPollInitRetryMsg{repoPath: repoPath}
-	})
-}
-
 type tmuxSessionStartedMsg struct {
 	session *session.Session
 }
@@ -611,28 +518,6 @@ type initializationCompleteMsg struct{}
 
 type errMsg struct {
 	error
-}
-
-type gitPollInitMsg struct {
-	repoPath string
-	result   statuspoller.InitResult
-	err      error
-}
-
-type gitPollTriggerMsg struct {
-	repoPath string
-	reason   gitPollReason
-}
-
-type gitPollResultMsg struct {
-	repoPath string
-	reason   gitPollReason
-	result   statuspoller.PollResult
-	err      error
-}
-
-type gitPollInitRetryMsg struct {
-	repoPath string
 }
 
 type loadingTimeoutMsg struct{}

@@ -15,6 +15,7 @@ import type {
   GetSessionResponse,
   ResizeSessionResponse,
   DeleteSessionResponse,
+  ListSessionsResponse,
   AgentName,
   PersistedSession,
 } from '@agate/shared';
@@ -59,6 +60,19 @@ export const sessions = new Map<string, SessionMetadata>();
 
 // Define Zod schemas for validation
 const validAgentNames = Object.keys(AGENTS) as [AgentName, ...AgentName[]];
+const agentNames: AgentName[] = [...validAgentNames];
+
+const PersistedSessionSchema = z.object({
+  id: z.string(),
+  worktreeKey: z.string(),
+  tmuxName: z.string(),
+  agentName: z.enum(validAgentNames),
+  worktreePath: z.string(),
+  branch: z.string(),
+  repoName: z.string(),
+  createdAt: z.string(),
+  lastAccessed: z.string(),
+});
 
 const CreateSessionSchema = z.object({
   dir: z.string(),
@@ -99,6 +113,12 @@ const SuccessResponseSchema = z.object({
   success: z.boolean(),
 });
 
+const ListSessionsResponseSchema = z.object({
+  sessions: z.array(PersistedSessionSchema),
+  activeSession: z.string(),
+  defaultAgent: z.enum(validAgentNames),
+});
+
 // Error responses
 const ERRORS = {
   400: {
@@ -135,6 +155,47 @@ type Env = {
 };
 
 export const sessionRouter = new Hono<Env>()
+  .get(
+    '/',
+    describeRoute({
+      description: 'List persisted sessions',
+      operationId: 'session.list',
+      responses: {
+        200: {
+          description: 'Sessions retrieved successfully',
+          content: {
+            'application/json': {
+              schema: resolver(ListSessionsResponseSchema),
+            },
+          },
+        },
+        ...ERRORS,
+      },
+    }),
+    (c) => {
+      try {
+        const stateManager = c.get('stateManager');
+        const sessionMappings = stateManager.getSessionMappings();
+        const sessions = Object.values(sessionMappings);
+        const activeSession = stateManager.getActiveSession();
+        const defaultAgentRaw = stateManager.getDefaultAgent();
+        const defaultAgent = agentNames.includes(defaultAgentRaw as AgentName)
+          ? (defaultAgentRaw as AgentName)
+          : agentNames[0];
+
+        const response: ListSessionsResponse = {
+          sessions,
+          activeSession,
+          defaultAgent,
+        };
+
+        return c.json(response);
+      } catch (error) {
+        console.error('Error listing sessions:', error);
+        return c.json({ error: 'Failed to list sessions' }, 500);
+      }
+    }
+  )
   .post(
     '/',
     describeRoute({

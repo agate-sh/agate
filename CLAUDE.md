@@ -41,11 +41,11 @@ The Hono server (`@agate/server`) is fully implemented with:
   - OpenAPI docs: `http://localhost:24283/doc`
 
 - **Session Management API** - REST endpoints for creating/managing tmux sessions
-  - `POST /session` - Create new session
-  - `GET /session/:id` - Get session info
-  - `POST /session/:id/input` - Send input to PTY
-  - `POST /session/:id/resize` - Resize terminal
-  - `DELETE /session/:id` - Kill session
+  - `POST /sessions` - Create new session
+  - `GET /sessions/:id` - Get session info
+  - `POST /sessions/:id/input` - Send input to PTY
+  - `POST /sessions/:id/resize` - Resize terminal
+  - `DELETE /sessions/:id` - Kill session
 - **WebSocket Streaming** - Real-time PTY I/O via WebSocket (`/ws`)
   - Bidirectional communication for input and output
   - Session subscription model

@@ -104,12 +104,12 @@ describe('WebSocket Integration Tests', () => {
 
   it('should stream PTY output via WebSocket', async () => {
     // 1. Create session via HTTP (existing)
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+    const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
+        dir: worktreePath,
+        branchName: 'test-branch',
         agentName: 'claude',
       }),
     });
@@ -159,12 +159,12 @@ describe('WebSocket Integration Tests', () => {
 
   it('should handle multiple concurrent WebSocket clients', async () => {
     // Create session
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+    const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
+        dir: worktreePath,
+        branchName: 'test-branch',
         agentName: 'claude',
       }),
     });
@@ -222,12 +222,12 @@ describe('WebSocket Integration Tests', () => {
 
   it('should handle graceful unsubscribe', async () => {
     // Create session
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+    const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
+        dir: worktreePath,
+        branchName: 'test-branch',
         agentName: 'claude',
       }),
     });
@@ -300,12 +300,12 @@ describe('WebSocket Integration Tests', () => {
 
   it('should cleanup event listeners on WebSocket close', async () => {
     // Create session
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+    const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
+        dir: worktreePath,
+        branchName: 'test-branch',
         agentName: 'claude',
       }),
     });
@@ -328,7 +328,7 @@ describe('WebSocket Integration Tests', () => {
     await new Promise(resolve => ws.once('close', resolve));
 
     // Trigger session operation via HTTP (should not crash server even though WS is closed)
-    const resizeResponse = await fetch(`http://localhost:${PORT}/session/${sessionId}/resize`, {
+    const resizeResponse = await fetch(`http://localhost:${PORT}/sessions/${sessionId}/resize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -342,12 +342,12 @@ describe('WebSocket Integration Tests', () => {
 
   it('should send initial tmux buffer content on WebSocket subscription (AGT-166)', async () => {
     // Create session
-    const createResponse = await fetch(`http://localhost:${PORT}/session`, {
+    const createResponse = await fetch(`http://localhost:${PORT}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        worktreePath,
-        branch: 'test-branch',
+        dir: worktreePath,
+        branchName: 'test-branch',
         agentName: 'claude',
       }),
     });

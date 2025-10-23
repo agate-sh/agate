@@ -1232,7 +1232,160 @@
         }
       }
     },
-    "/session": {
+    "/sessions": {
+      "get": {
+        "operationId": "session.list",
+        "description": "List persisted sessions",
+        "responses": {
+          "200": {
+            "description": "Sessions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "worktreeKey": {
+                            "type": "string"
+                          },
+                          "tmuxName": {
+                            "type": "string"
+                          },
+                          "agentName": {
+                            "type": "string",
+                            "enum": [
+                              "claude",
+                              "amp",
+                              "gemini",
+                              "codex",
+                              "opencode",
+                              "cursor",
+                              "copilot",
+                              "continue",
+                              "cline",
+                              "default"
+                            ]
+                          },
+                          "worktreePath": {
+                            "type": "string"
+                          },
+                          "branch": {
+                            "type": "string"
+                          },
+                          "repoName": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "lastAccessed": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "worktreeKey",
+                          "tmuxName",
+                          "agentName",
+                          "worktreePath",
+                          "branch",
+                          "repoName",
+                          "createdAt",
+                          "lastAccessed"
+                        ]
+                      }
+                    },
+                    "activeSession": {
+                      "type": "string"
+                    },
+                    "defaultAgent": {
+                      "type": "string",
+                      "enum": [
+                        "claude",
+                        "amp",
+                        "gemini",
+                        "codex",
+                        "opencode",
+                        "cursor",
+                        "copilot",
+                        "continue",
+                        "cline",
+                        "default"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sessions",
+                    "activeSession",
+                    "defaultAgent"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "operationId": "session.create",
         "description": "Create a new tmux session with atomic worktree creation",
@@ -1365,7 +1518,7 @@
         }
       }
     },
-    "/session/{id}": {
+    "/sessions/{id}": {
       "get": {
         "operationId": "session.get",
         "description": "Get session information",
@@ -1570,7 +1723,7 @@
         ]
       }
     },
-    "/session/{id}/resize": {
+    "/sessions/{id}/resize": {
       "post": {
         "operationId": "session.resize",
         "description": "Resize session terminal",

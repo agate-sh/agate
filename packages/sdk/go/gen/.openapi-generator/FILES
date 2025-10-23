@@ -26,6 +26,8 @@ docs/HealthCheck200Response.md
 docs/SessionCreate201Response.md
 docs/SessionCreateRequest.md
 docs/SessionGet200Response.md
+docs/SessionList200Response.md
+docs/SessionList200ResponseSessionsInner.md
 docs/SessionResizeRequest.md
 git_push.sh
 go.mod
@@ -49,6 +51,8 @@ model_health_check_200_response.go
 model_session_create_201_response.go
 model_session_create_request.go
 model_session_get_200_response.go
+model_session_list_200_response.go
+model_session_list_200_response_sessions_inner.go
 model_session_resize_request.go
 response.go
 test/api_default_test.go
