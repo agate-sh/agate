@@ -15,7 +15,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agate/client": "workspace:^",
     "@agate/server": "workspace:^",
     "@agate/sdk": "workspace:^",
     "@agate/shared": "workspace:^",

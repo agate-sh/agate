@@ -94,4 +94,4 @@ The website uses CSS custom properties that map to the same colors:
 
 - **Source of truth**: `agate-site/src/components/CustomStyles.astro`
 - **Shared theme**: `packages/shared/src/theme.ts`
-- **Terminal theme**: `packages/client/src/utils/theme.ts` (extends shared theme)
+- **Terminal theme**: `packages/client/pkg/gui/theme/theme.go` (Go Bubble Tea theme)

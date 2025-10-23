@@ -1,34 +1,76 @@
-import { execa } from "execa";
 import chalk from "chalk";
-import { createRequire } from "module";
+import { execa } from "execa";
+import { mkdir, readFile } from "fs/promises";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { ensureServer, getServerUrl } from "../bootstrap.js";
 import { initClient, validateGitRepo } from "../api.js";
 
-const require = createRequire(import.meta.url);
-const CLIENT_ENTRY = require.resolve("@agate/client/dist/index.js");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-async function resolveClientLauncher(): Promise<{
-  command: string;
-  args: string[];
-}> {
+const CLIENT_BINARY_NAME = process.platform === "win32" ? "agate-client.exe" : "agate-client";
+
+type ClientPaths = {
+  rootDir: string;
+  clientDir: string;
+  distDir: string;
+  binaryPath: string;
+};
+
+async function findWorkspaceRoot(): Promise<string> {
+  let current = __dirname;
+  while (true) {
+    const pkgPath = join(current, "package.json");
+    try {
+      const pkgRaw = await readFile(pkgPath, "utf8");
+      const pkg = JSON.parse(pkgRaw) as { name?: string };
+      if (pkg.name === "@agate/root") {
+        return current;
+      }
+    } catch (error) {
+      // ignore, just walk up
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      throw new Error("Workspace root not found");
+    }
+    current = parent;
+  }
+}
+
+async function getClientPaths(): Promise<ClientPaths> {
+  const rootDir =
+    process.env.AGATE_ROOT_DIR && process.env.AGATE_ROOT_DIR.trim().length > 0
+      ? process.env.AGATE_ROOT_DIR
+      : await findWorkspaceRoot();
+  const clientDir = join(rootDir, "packages", "client");
+  const distDir = join(clientDir, "dist");
+  const binaryPath = join(distDir, CLIENT_BINARY_NAME);
+  return { rootDir, clientDir, distDir, binaryPath };
+}
+
+async function buildGoClient(): Promise<string> {
+  const paths = await getClientPaths();
+  await mkdir(paths.distDir, { recursive: true });
+  await execa("go", ["build", "-o", paths.binaryPath, "./cmd/agate"], {
+    cwd: paths.clientDir,
+    stdio: "inherit",
+  });
+  return paths.binaryPath;
+}
+
+async function resolveClientExecutable(): Promise<string> {
   const explicitBin = process.env.AGATE_CLIENT_BIN;
   if (explicitBin && explicitBin.trim().length > 0) {
-    return {
-      command: explicitBin,
-      args: [CLIENT_ENTRY],
-    };
+    return explicitBin.trim();
   }
 
   try {
-    await execa("bun", ["--version"], { stdio: "ignore" });
-    return {
-      command: "bun",
-      args: [CLIENT_ENTRY],
-    };
-  } catch {
-    throw new Error(
-      "Bun runtime not found. Install Bun from https://bun.sh or set AGATE_CLIENT_BIN to the executable that launches the Agate client."
-    );
+    return await buildGoClient();
+  } catch (error) {
+    throw new Error(`Failed to build Go client: ${(error as Error).message}`);
   }
 }
 
@@ -45,8 +87,8 @@ export async function tuiCommand(): Promise<void> {
     initClient();
     await validateGitRepo(cwd);
 
-    const launcher = await resolveClientLauncher();
-    await execa(launcher.command, launcher.args, {
+    const executable = await resolveClientExecutable();
+    await execa(executable, [], {
       stdio: "inherit",
       env: {
         ...process.env,

@@ -1,0 +1,12 @@
+{
+  "name": "@agate/sdk-go",
+  "version": "0.0.1",
+  "private": true,
+  "description": "OpenAPI-generated Go client for the Agate server.",
+  "scripts": {
+    "generate": "bash ./scripts/generate.sh"
+  },
+  "devDependencies": {
+    "@openapitools/openapi-generator-cli": "2.25.0"
+  }
+}

@@ -25,7 +25,6 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/server" },
-    { "path": "./packages/sdk" },
-    { "path": "./packages/client" }
+    { "path": "./packages/sdk" }
   ]
 }

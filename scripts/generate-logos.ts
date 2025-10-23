@@ -9,12 +9,12 @@ const __dirname = dirname(__filename);
 
 // Configuration for logo generation
 const config = {
-  inputPath: join(__dirname, '../go/pkg/gui/overlays/ascii-art.txt'),
+  inputPath: join(__dirname, '../packages/client/pkg/gui/overlays/ascii-art.txt'),
   outputDir: join(__dirname, '../assets'),
   fontSize: 400,
   padding: 100,
   font: 'monospace',
-  agateColor: '#9d87ae', // Brand color from go/pkg/gui/theme/theme.go
+  agateColor: '#9d87ae', // Brand color from packages/client/pkg/gui/theme/theme.go
   themes: {
     dark: {
       background: '#000000',

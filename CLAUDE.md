@@ -4,9 +4,9 @@ NEVER MAINTAIN BACKWARDS COMPATIBILITY. This project is new and we don't need to
 
 ## Project Overview
 
-Agate is a terminal multiplexer built for managing CLI agents (Claude, Gemini, Codex, etc.) with an information-dense, intuitive interface. The project is **currently being migrated from Go to TypeScript**.
+Agate is a terminal multiplexer built for managing CLI agents (Claude, Gemini, Codex, etc.) with an information-dense, intuitive interface.
 
-**Current state:** The Go implementation is in `go/` (functional), and a new TypeScript implementation is being built in `packages/` using a pnpm monorepo.
+**Current state:** The Go implementation now lives in `packages/client/` (functional), and a new TypeScript implementation is being built in `packages/` using a pnpm monorepo.
 
 ## Architecture
 
@@ -32,6 +32,7 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 The Hono server (`@agate/server`) is fully implemented with:
 
 - **Default Port**: `24283` (defined in `@agate/shared` as `AGATE_SERVER_PORT`)
+
   - Can be overridden with `PORT` environment variable
   - WebSocket endpoint: `ws://localhost:24283/ws`
   - Health check: `http://localhost:24283/health`
@@ -278,4 +279,4 @@ The TypeScript rewrite aims to:
 3. Enable easier extensibility for plugins and custom panes
 4. Maintain the core architecture patterns that work (state management, session naming)
 
-**Reference the Go implementation** (`go/` folder) for understanding core logic, but don't maintain compatibility with it.
+**Reference the Go implementation** (`packages/client/` folder) for understanding core logic, but don't maintain compatibility with it.
