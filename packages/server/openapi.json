@@ -415,6 +415,9 @@
                           "commit": {
                             "type": "string"
                           },
+                          "isMain": {
+                            "type": "boolean"
+                          },
                           "bare": {
                             "type": "boolean"
                           },
@@ -426,6 +429,7 @@
                           "path",
                           "branch",
                           "commit",
+                          "isMain",
                           "bare",
                           "detached"
                         ]

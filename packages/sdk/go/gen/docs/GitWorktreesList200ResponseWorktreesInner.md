@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Path** | **string** |  | 
 **Branch** | **string** |  | 
 **Commit** | **string** |  | 
+**IsMain** | **bool** |  | 
 **Bare** | **bool** |  | 
 **Detached** | **bool** |  | 
 
@@ -14,7 +15,7 @@ Name | Type | Description | Notes
 
 ### NewGitWorktreesList200ResponseWorktreesInner
 
-`func NewGitWorktreesList200ResponseWorktreesInner(path string, branch string, commit string, bare bool, detached bool, ) *GitWorktreesList200ResponseWorktreesInner`
+`func NewGitWorktreesList200ResponseWorktreesInner(path string, branch string, commit string, isMain bool, bare bool, detached bool, ) *GitWorktreesList200ResponseWorktreesInner`
 
 NewGitWorktreesList200ResponseWorktreesInner instantiates a new GitWorktreesList200ResponseWorktreesInner object
 This constructor will assign default values to properties that have it defined,
@@ -87,6 +88,26 @@ and a boolean to check if the value has been set.
 `func (o *GitWorktreesList200ResponseWorktreesInner) SetCommit(v string)`
 
 SetCommit sets Commit field to given value.
+
+
+### GetIsMain
+
+`func (o *GitWorktreesList200ResponseWorktreesInner) GetIsMain() bool`
+
+GetIsMain returns the IsMain field if non-nil, zero value otherwise.
+
+### GetIsMainOk
+
+`func (o *GitWorktreesList200ResponseWorktreesInner) GetIsMainOk() (*bool, bool)`
+
+GetIsMainOk returns a tuple with the IsMain field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetIsMain
+
+`func (o *GitWorktreesList200ResponseWorktreesInner) SetIsMain(v bool)`
+
+SetIsMain sets IsMain field to given value.
 
 
 ### GetBare

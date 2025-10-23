@@ -9,6 +9,7 @@ export interface Worktree {
   path: string;
   branch: string;
   commit: string;
+  isMain: boolean;
   bare: boolean;
   detached: boolean;
 }
@@ -135,6 +136,7 @@ export class WorktreeManager {
             path: current.path,
             branch: current.branch ?? 'HEAD',
             commit: current.commit,
+            isMain: this.isMainPath(current.path),
             bare: current.bare ?? false,
             detached: current.detached ?? false,
           });
@@ -149,11 +151,16 @@ export class WorktreeManager {
         path: current.path,
         branch: current.branch ?? 'HEAD',
         commit: current.commit,
+        isMain: this.isMainPath(current.path),
         bare: current.bare ?? false,
         detached: current.detached ?? false,
       });
     }
 
     return worktrees;
+  }
+
+  private isMainPath(path: string): boolean {
+    return path === this.repoPath;
   }
 }

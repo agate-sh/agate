@@ -179,9 +179,7 @@ export const sessionRouter = new Hono<Env>()
         const sessions = Object.values(sessionMappings);
         const activeSession = stateManager.getActiveSession();
         const defaultAgentRaw = stateManager.getDefaultAgent();
-        const defaultAgent = agentNames.includes(defaultAgentRaw as AgentName)
-          ? (defaultAgentRaw as AgentName)
-          : agentNames[0];
+        const defaultAgent = (agentNames.find((name) => name === defaultAgentRaw) ?? agentNames[0]) as AgentName;
 
         const response: ListSessionsResponse = {
           sessions,
@@ -262,6 +260,9 @@ export const sessionRouter = new Hono<Env>()
           path: worktreePath,
           branch: resolvedBranchName,
           commit: '',
+          isMain: false,
+          bare: false,
+          detached: false,
           name: resolvedBranchName,
         });
 

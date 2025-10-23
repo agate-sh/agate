@@ -5,7 +5,7 @@ import type {
   PersistedSession,
   SessionState,
 } from '@agate/shared';
-import { generateWorktreeKey } from '@agate/shared';
+import { generateWorktreeKey, isLinkedWorktree } from '@agate/shared';
 import type { StateManager } from '../state/manager.js';
 
 /**
@@ -206,6 +206,9 @@ export class SessionManager {
           branch: persistedSession.branch,
           repoName: persistedSession.repoName,
           commit: '', // Not persisted
+          isMain: !isLinkedWorktree(persistedSession.worktreePath),
+          bare: false,
+          detached: false,
         },
         agent: {
           name: persistedSession.agentName,

@@ -28,6 +28,7 @@ export const WorktreeSchema = z.object({
   path: z.string(),
   branch: z.string(),
   commit: z.string(),
+  isMain: z.boolean(),
   bare: z.boolean(),
   detached: z.boolean(),
 });

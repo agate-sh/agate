@@ -67,6 +67,9 @@ describe('SessionManager', () => {
     branch,
     repoName,
     commit: 'abc123',
+    isMain: !path.includes('/.agate/worktrees/'),
+    bare: false,
+    detached: false,
   });
 
   const createMockAgent = (name: string = 'claude'): AgentConfig => {
@@ -438,6 +441,9 @@ describe('SessionManager', () => {
           branch: 'test-branch',
           repoName: 'test-repo',
           commit: 'abc123',
+          isMain: true,
+          bare: false,
+          detached: false,
         };
 
         const agent = AGENTS.claude;

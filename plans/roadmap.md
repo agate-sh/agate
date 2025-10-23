@@ -2,11 +2,13 @@
 
 This roadmap replaces the previous plan and focuses on rebuilding the Go TUI on top of the new TypeScript backend and generated Go SDK.
 
-## Stage 1 — Agents Panel (in progress)
-- Generate or hand-author minimal Go client data structures for listing agents, repos, and sessions from the API
-- Replace legacy stateful managers with data fetched from the HTTP API / WebSocket streams
-- Rebuild the Agents pane UI to render the new data model and notify the server for mutations
-- Remove or stub unrelated panes while the agents experience is under construction
+## Stage 1 — Agents Pane (in progress)
+- **Done**
+  - Added thin wrappers in `packages/client/internal/api` that call the generated SDK for repo, worktree, and session data.
+  - Rewired the Bubble Tea model in `packages/client/internal/ui` to consume live server payloads, including main/linked worktree grouping and session mutations.
+- **Next**
+  - Port the legacy Agents pane view, keybindings, and selection logic from `go/pkg/gui/panes/agents.go` into the new client so the UI matches the original screenshot.
+  - Stub the other panes for now; focus on restoring the Agents column end-to-end before reintroducing tmux/git/shell views.
 
 ## Stage 2 — Worktree & Session Management
 - Introduce Go bindings for worktree CRUD and session lifecycle APIs
@@ -19,11 +21,11 @@ This roadmap replaces the previous plan and focuses on rebuilding the Go TUI on 
    - Add or extend OpenAPI annotations where gaps exist, then run `pnpm --filter @agate/sdk-go generate` to refresh the Go SDK and commit the generated client (Stage 2 unblocks without worrying about backward compatibility).
    - Document any server changes required for Stage 2 directly in `packages/shared` types to keep both TS and Go sides in sync.
 2. Build Go-side API surface
-   - Add thin wrappers in `go/internal/remote` (or an equivalent new package) that call the generated SDK and return strongly typed responses tailored for the TUI.
-   - Replace direct filesystem/git inspection in `go/pkg/session` and `go/pkg/state` with calls into the remote package; remove unused legacy helpers rather than shimming them.
+   - Add thin wrappers in `packages/client/internal/api` that call the generated SDK directly (no hand-authored models) for worktree and session operations.
+   - Replace legacy filesystem/git inspection inside the client with these remote calls; remove unused helpers rather than shimming them.
    - Introduce context-aware helpers (with timeouts and cancellation) so the UI can abort long-running operations cleanly.
 3. Rewire worktree picker and session dialogs
-   - Update the data sources in `go/pkg/gui/panes/agents.go` (and any related presenters) to pull worktrees and sessions from the new remote layer.
+   - Update the Agents pane implementation in `packages/client/internal/ui` to source worktrees and sessions from the server responses.
    - Rebuild the creation/selection flows to use server mutations, mirroring the dialogs that exist today but sourcing data from the API responses.
    - Ensure selections persist via the shared state manager by storing server-issued identifiers instead of local tmux names.
 4. Handle errors and logging

@@ -24,6 +24,7 @@ type GitWorktreesList200ResponseWorktreesInner struct {
 	Path string `json:"path"`
 	Branch string `json:"branch"`
 	Commit string `json:"commit"`
+	IsMain bool `json:"isMain"`
 	Bare bool `json:"bare"`
 	Detached bool `json:"detached"`
 }
@@ -34,11 +35,12 @@ type _GitWorktreesList200ResponseWorktreesInner GitWorktreesList200ResponseWorkt
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGitWorktreesList200ResponseWorktreesInner(path string, branch string, commit string, bare bool, detached bool) *GitWorktreesList200ResponseWorktreesInner {
+func NewGitWorktreesList200ResponseWorktreesInner(path string, branch string, commit string, isMain bool, bare bool, detached bool) *GitWorktreesList200ResponseWorktreesInner {
 	this := GitWorktreesList200ResponseWorktreesInner{}
 	this.Path = path
 	this.Branch = branch
 	this.Commit = commit
+	this.IsMain = isMain
 	this.Bare = bare
 	this.Detached = detached
 	return &this
@@ -124,6 +126,30 @@ func (o *GitWorktreesList200ResponseWorktreesInner) SetCommit(v string) {
 	o.Commit = v
 }
 
+// GetIsMain returns the IsMain field value
+func (o *GitWorktreesList200ResponseWorktreesInner) GetIsMain() bool {
+	if o == nil {
+		var ret bool
+		return ret
+	}
+
+	return o.IsMain
+}
+
+// GetIsMainOk returns a tuple with the IsMain field value
+// and a boolean to check if the value has been set.
+func (o *GitWorktreesList200ResponseWorktreesInner) GetIsMainOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.IsMain, true
+}
+
+// SetIsMain sets field value
+func (o *GitWorktreesList200ResponseWorktreesInner) SetIsMain(v bool) {
+	o.IsMain = v
+}
+
 // GetBare returns the Bare field value
 func (o *GitWorktreesList200ResponseWorktreesInner) GetBare() bool {
 	if o == nil {
@@ -185,6 +211,7 @@ func (o GitWorktreesList200ResponseWorktreesInner) ToMap() (map[string]interface
 	toSerialize["path"] = o.Path
 	toSerialize["branch"] = o.Branch
 	toSerialize["commit"] = o.Commit
+	toSerialize["isMain"] = o.IsMain
 	toSerialize["bare"] = o.Bare
 	toSerialize["detached"] = o.Detached
 	return toSerialize, nil
@@ -198,6 +225,7 @@ func (o *GitWorktreesList200ResponseWorktreesInner) UnmarshalJSON(data []byte) (
 		"path",
 		"branch",
 		"commit",
+		"isMain",
 		"bare",
 		"detached",
 	}

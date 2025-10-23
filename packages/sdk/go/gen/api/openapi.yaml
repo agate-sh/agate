@@ -711,6 +711,7 @@ components:
       example:
         detached: true
         path: path
+        isMain: true
         commit: commit
         bare: true
         branch: branch
@@ -721,6 +722,8 @@ components:
           type: string
         commit:
           type: string
+        isMain:
+          type: boolean
         bare:
           type: boolean
         detached:
@@ -730,6 +733,7 @@ components:
       - branch
       - commit
       - detached
+      - isMain
       - path
     git_head_200_response:
       example:
@@ -951,11 +955,13 @@ components:
         worktrees:
         - detached: true
           path: path
+          isMain: true
           commit: commit
           bare: true
           branch: branch
         - detached: true
           path: path
+          isMain: true
           commit: commit
           bare: true
           branch: branch
