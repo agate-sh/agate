@@ -11,12 +11,13 @@
     "clean": "rm -rf dist *.tsbuildinfo src/gen",
     "typecheck": "tsc --noEmit",
     "generate:spec": "pnpm --filter @agate/server generate:openapi",
-    "generate:sdk": "npx @hey-api/openapi-ts --input ../server/openapi.json --output ./src/gen --client @hey-api/client-fetch",
+    "generate:sdk": "pnpm exec openapi-ts --input ../../server/openapi.json --output ./src/gen --client @hey-api/client-fetch",
     "generate": "pnpm generate:spec && pnpm generate:sdk",
-    "watch:spec": "chokidar '../server/src/**/*.ts' -c 'pnpm generate:spec'",
-    "watch:generate": "chokidar '../server/openapi.json' -c 'pnpm generate:sdk'"
+    "watch:spec": "chokidar '../../server/src/**/*.ts' -c 'pnpm generate:spec'",
+    "watch:generate": "chokidar '../../server/openapi.json' -c 'pnpm generate:sdk'"
   },
   "dependencies": {
+    "@hey-api/client-fetch": "^0.5.0",
     "openapi-fetch": "^0.9.0"
   },
   "devDependencies": {
@@ -24,7 +25,6 @@
     "@types/node": "^20.10.0",
     "chokidar-cli": "^3.0.0",
     "concurrently": "^9.2.1",
-    "openapi-typescript": "^6.7.3",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3"
   }

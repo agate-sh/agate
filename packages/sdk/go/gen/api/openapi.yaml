@@ -1,0 +1,913 @@
+openapi: 3.1.0
+info:
+  description: Agate terminal multiplexer API - auto-generated from route definitions
+  title: Agate Server API
+  version: 1.0.0
+servers:
+- url: /
+paths:
+  /health:
+    get:
+      description: Health check endpoint
+      operationId: health.check
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/health_check_200_response"
+          description: Server is healthy
+  /git/repo-info:
+    get:
+      description: Get repository information from a given path
+      operationId: git.repoInfo
+      parameters:
+      - explode: true
+        in: query
+        name: dir
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_200_response"
+          description: Repository information
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/status:
+    get:
+      description: Get detailed file status with add/del counts
+      operationId: git.status
+      parameters:
+      - explode: true
+        in: query
+        name: repoPath
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_status_200_response"
+          description: Git file status
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/head:
+    get:
+      description: Get current branch (HEAD)
+      operationId: git.head
+      parameters:
+      - explode: true
+        in: query
+        name: repoPath
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_head_200_response"
+          description: Current branch name
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/worktrees:
+    get:
+      description: List all worktrees for repository
+      operationId: git.worktrees.list
+      parameters:
+      - explode: true
+        in: query
+        name: repoPath
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktrees_list_200_response"
+          description: List of worktrees
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/worktree:
+    delete:
+      description: Delete worktree and branch
+      operationId: git.worktree.delete
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_worktree_delete_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: Worktree deleted successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+    post:
+      description: Create worktree with optional COW
+      operationId: git.worktree.create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_worktree_create_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_create_200_response"
+          description: Worktree created successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/stage:
+    post:
+      description: Stage file(s)
+      operationId: git.stage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_stage_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: File staged successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/stage-all:
+    post:
+      description: Stage all files
+      operationId: git.stageAll
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_stageAll_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: All files staged successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/unstage:
+    post:
+      description: Unstage file(s)
+      operationId: git.unstage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_stage_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: File unstaged successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/commit:
+    post:
+      description: Commit all changes
+      operationId: git.commit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_commit_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_commit_200_response"
+          description: Changes committed successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /git/discard:
+    post:
+      description: Discard file changes
+      operationId: git.discard
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/git_stage_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: Changes discarded successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /session:
+    post:
+      description: Create a new tmux session with atomic worktree creation
+      operationId: session.create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/session_create_request"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/session_create_201_response"
+          description: Session created successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /session/{id}:
+    delete:
+      description: Kill and delete session
+      operationId: session.delete
+      parameters:
+      - explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: Session deleted successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+    get:
+      description: Get session information
+      operationId: session.get
+      parameters:
+      - explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/session_get_200_response"
+          description: Session information
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+  /session/{id}/resize:
+    post:
+      description: Resize session terminal
+      operationId: session.resize
+      parameters:
+      - explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/session_resize_request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_worktree_delete_200_response"
+          description: Terminal resized successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Bad request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/git_repoInfo_400_response"
+          description: Internal server error
+components:
+  schemas:
+    session_resize_request:
+      properties:
+        cols:
+          type: number
+        rows:
+          type: number
+      required:
+      - cols
+      - rows
+    git_worktree_create_request:
+      properties:
+        repoPath:
+          type: string
+        path:
+          type: string
+        branch:
+          type: string
+        existingBranch:
+          type: string
+        useCOW:
+          type: boolean
+      required:
+      - branch
+      - path
+      - repoPath
+    git_status_200_response_files_inner:
+      example:
+        path: path
+        additions: 0.8008281904610115
+        deletions: 6.027456183070403
+        working_dir: working_dir
+        index: index
+      properties:
+        path:
+          type: string
+        index:
+          type: string
+        working_dir:
+          type: string
+        additions:
+          type: number
+        deletions:
+          type: number
+      required:
+      - index
+      - path
+      - working_dir
+    git_repoInfo_400_response:
+      example:
+        error: error
+      properties:
+        error:
+          type: string
+      required:
+      - error
+    git_worktree_create_200_response:
+      example:
+        path: path
+        success: true
+        branch: branch
+      properties:
+        success:
+          type: boolean
+        path:
+          type: string
+        branch:
+          type: string
+      required:
+      - branch
+      - path
+      - success
+    git_worktree_delete_200_response:
+      example:
+        success: true
+      properties:
+        success:
+          type: boolean
+      required:
+      - success
+    git_worktrees_list_200_response_worktrees_inner:
+      example:
+        detached: true
+        path: path
+        commit: commit
+        bare: true
+        branch: branch
+      properties:
+        path:
+          type: string
+        branch:
+          type: string
+        commit:
+          type: string
+        bare:
+          type: boolean
+        detached:
+          type: boolean
+      required:
+      - bare
+      - branch
+      - commit
+      - detached
+      - path
+    git_head_200_response:
+      example:
+        branch: branch
+      properties:
+        branch:
+          type: string
+      required:
+      - branch
+    git_worktree_delete_request:
+      properties:
+        repoPath:
+          type: string
+        path:
+          type: string
+        force:
+          type: boolean
+      required:
+      - path
+      - repoPath
+    git_status_200_response:
+      example:
+        conflicted:
+        - conflicted
+        - conflicted
+        behind: 5.962133916683182
+        current: current
+        ahead: 1.4658129805029452
+        files:
+        - path: path
+          additions: 0.8008281904610115
+          deletions: 6.027456183070403
+          working_dir: working_dir
+          index: index
+        - path: path
+          additions: 0.8008281904610115
+          deletions: 6.027456183070403
+          working_dir: working_dir
+          index: index
+        modified:
+        - modified
+        - modified
+        staged:
+        - staged
+        - staged
+        not_added:
+        - not_added
+        - not_added
+        tracking: tracking
+      properties:
+        files:
+          items:
+            $ref: "#/components/schemas/git_status_200_response_files_inner"
+          type: array
+        staged:
+          items:
+            type: string
+          type: array
+        modified:
+          items:
+            type: string
+          type: array
+        not_added:
+          items:
+            type: string
+          type: array
+        conflicted:
+          items:
+            type: string
+          type: array
+        current:
+          nullable: true
+          type: string
+        tracking:
+          nullable: true
+          type: string
+        ahead:
+          type: number
+        behind:
+          type: number
+      required:
+      - ahead
+      - behind
+      - conflicted
+      - current
+      - files
+      - modified
+      - not_added
+      - staged
+      - tracking
+    git_commit_request:
+      properties:
+        repoPath:
+          type: string
+        message:
+          type: string
+      required:
+      - message
+      - repoPath
+    git_stage_request:
+      properties:
+        repoPath:
+          type: string
+        file:
+          type: string
+      required:
+      - file
+      - repoPath
+    session_create_request:
+      properties:
+        dir:
+          type: string
+        branchName:
+          type: string
+        agentName:
+          enum:
+          - claude
+          - amp
+          - gemini
+          - codex
+          - opencode
+          - cursor
+          - copilot
+          - continue
+          - cline
+          - default
+          type: string
+      required:
+      - agentName
+      - branchName
+      - dir
+    git_stageAll_request:
+      properties:
+        repoPath:
+          type: string
+      required:
+      - repoPath
+    git_repoInfo_200_response:
+      example:
+        repoName: repoName
+        repoRoot: repoRoot
+        currentBranch: currentBranch
+      properties:
+        repoRoot:
+          type: string
+        repoName:
+          type: string
+        currentBranch:
+          type: string
+      required:
+      - currentBranch
+      - repoName
+      - repoRoot
+    git_commit_200_response:
+      example:
+        success: true
+        commit: commit
+      properties:
+        success:
+          type: boolean
+        commit:
+          type: string
+      required:
+      - commit
+      - success
+    git_worktrees_list_200_response:
+      example:
+        worktrees:
+        - detached: true
+          path: path
+          commit: commit
+          bare: true
+          branch: branch
+        - detached: true
+          path: path
+          commit: commit
+          bare: true
+          branch: branch
+      properties:
+        worktrees:
+          items:
+            $ref: "#/components/schemas/git_worktrees_list_200_response_worktrees_inner"
+          type: array
+      required:
+      - worktrees
+    session_get_200_response:
+      example:
+        cwd: cwd
+        isAlive: true
+        agent: agent
+        name: name
+        pid: 1.4658129805029452
+        id: id
+        rows: 6.027456183070403
+        cols: 0.8008281904610115
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        agent:
+          type: string
+        cwd:
+          type: string
+        cols:
+          type: number
+        rows:
+          type: number
+        pid:
+          type: number
+        isAlive:
+          type: boolean
+      required:
+      - agent
+      - cols
+      - cwd
+      - id
+      - isAlive
+      - name
+      - rows
+    health_check_200_response:
+      example:
+        status: status
+        timestamp: timestamp
+      properties:
+        status:
+          type: string
+        timestamp:
+          type: string
+      required:
+      - status
+      - timestamp
+    session_create_201_response:
+      example:
+        tmuxName: tmuxName
+        repoName: repoName
+        branchName: branchName
+        sessionId: sessionId
+        worktreePath: worktreePath
+      properties:
+        sessionId:
+          type: string
+        tmuxName:
+          type: string
+        worktreePath:
+          type: string
+        branchName:
+          type: string
+        repoName:
+          type: string
+      required:
+      - branchName
+      - repoName
+      - sessionId
+      - tmuxName
+      - worktreePath

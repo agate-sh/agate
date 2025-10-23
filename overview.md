@@ -18,4 +18,5 @@ Stage 1 targets the **Agents Panel**. We will:
 Subsequent stages bring in worktree/session management, PTY streaming, git panes, and polish. See `plans/roadmap.md` for the staged breakdown.
 
 ## Supporting Packages
-- `packages/sdk-go`: Generated Go client (OpenAPI Generator 7.16) that wraps the TypeScript server API for consumption by the Bubble Tea TUI.
+- `packages/sdk/typescript`: Generated TypeScript client (`@agate/sdk`) consumed by the Node CLI.
+- `packages/sdk/go`: Generated Go client (OpenAPI Generator 7.16) that wraps the TypeScript server API for consumption by the Bubble Tea TUI.

@@ -14,8 +14,10 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 
 - **`@agate/shared`** - Shared TypeScript types (agent configs, session state, git types, tmux types, API contracts)
 - **`@agate/server`** - Express server for managing terminal sessions via node-pty
-- **`@agate/sdk`** - Auto-generated TypeScript client SDK (from OpenAPI specs)
+- **`@agate/sdk`** - Auto-generated TypeScript client SDK (lives in `packages/sdk/typescript`)
 - **`@agate/client`** - OpenTUI-based React terminal UI
+
+The Go Bubble Tea client consumes an auto-generated Go SDK located at `packages/sdk/go`.
 
 ### Core Technologies
 
@@ -106,7 +108,7 @@ The server has 131 passing tests including unit tests for all modules and integr
 
 ## OpenAPI Specification & SDK Generation
 
-The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation from route definitions. The TypeScript SDK is auto-generated from this spec.
+The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation from route definitions. The TypeScript SDK (`@agate/sdk`) regenerates from this spec in `packages/sdk/typescript`, and the Go SDK lives in `packages/sdk/go`.
 
 ### Accessing the OpenAPI Spec
 
@@ -114,37 +116,25 @@ The server uses **Hono + hono-openapi** for automatic OpenAPI spec generation fr
 2. **Raw JSON spec**: `GET /openapi.json`
 3. **Generate to file**: `pnpm --filter @agate/server generate:openapi`
 
-### Auto-Regeneration Workflow (Dev Mode)
+### SDK Generation Workflow
 
-When running `pnpm dev` from the root, the SDK automatically stays in sync with server changes:
-
-```
-Server route modified
-  ↓ (chokidar watches packages/server/src/**/*.ts)
-OpenAPI spec regenerated
-  ↓ (chokidar watches packages/server/openapi.json)
-SDK client regenerated
-  ↓ (tsup watches src/gen/)
-SDK rebuilt with fresh types
-```
-
-**This happens automatically** - you never need to manually regenerate the SDK during development.
-
-### Manual SDK Generation
+The SDK is generated on demand via the workspace script:
 
 ```bash
-# Generate both spec and SDK
+# Generate fresh OpenAPI spec and TypeScript SDK
 pnpm --filter @agate/sdk generate
 
-# Or individually:
-pnpm --filter @agate/server generate:openapi  # Server → OpenAPI
-pnpm --filter @agate/sdk generate:sdk          # OpenAPI → SDK
+# Generate fresh OpenAPI spec and Go SDK
+pnpm --filter @agate/sdk-go generate
 ```
+
+These scripts regenerate `packages/server/openapi.json`, refresh the TypeScript client under `packages/sdk/typescript/src/gen/`, and rewrite the Go client under `packages/sdk/go/gen/`, running `go mod tidy` to keep dependencies current.
 
 ### What's NOT Committed to Git
 
 - `packages/server/openapi.json` - Regenerated from routes
-- `packages/sdk/src/gen/` - Regenerated from OpenAPI spec
+- `packages/sdk/typescript/src/gen/` - Regenerated from OpenAPI spec (ignored in git)
+- `packages/sdk/go/gen/` - Regenerated from OpenAPI spec
 
 Both are always generated from source code, so there's no risk of staleness.
 
@@ -152,7 +142,9 @@ Both are always generated from source code, so there's no risk of staleness.
 
 - `packages/server/src/server.hono.ts` - Route definitions with `describeRoute()` decorators
 - `packages/server/src/generate-openapi.ts` - Script to generate spec file
-- `packages/sdk/src/gen/` - Auto-generated SDK (types + methods)
+- `packages/sdk/typescript/src/index.ts` - Barrel export that re-exports generated helpers
+- `packages/sdk/typescript/tsup.config.ts` - Bundles the SDK for consumption
+- `packages/sdk/go/scripts/generate.sh` - Orchestrates Go SDK regeneration
 - Route files use `hono-openapi`'s `describeRoute()` and `resolver()` for type-safe API definitions
 
 ## TypeScript Configuration

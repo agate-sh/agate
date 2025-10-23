@@ -15,8 +15,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agate/server": "workspace:^",
     "@agate/sdk": "workspace:^",
+    "@agate/server": "workspace:^",
     "@agate/shared": "workspace:^",
     "chalk": "^5.3.0",
     "execa": "^9.5.2",

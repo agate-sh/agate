@@ -33,5 +33,6 @@ Goal: Ship a minimal, server-backed agents pane that can be launched via the CLI
 We will iterate on these tasks and keep the plan updated as work progresses.
 
 ## Status
-- Generated initial Go SDK under `packages/sdk-go` using OpenAPI Generator (CLI 7.16.0).
+- Generated initial Go SDK under `packages/sdk/go` using OpenAPI Generator (CLI 7.16.0).
+- TypeScript CLI uses the regenerated `@agate/sdk` package in `packages/sdk/typescript`.
 - CLI now builds and launches the Go TUI binary directly (`pnpm agate`), removing the temporary workspace package shim.

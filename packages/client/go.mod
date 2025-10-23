@@ -28,4 +28,4 @@ require (
 	golang.org/x/text v0.3.8 // indirect
 )
 
-replace agate/sdk => ../sdk-go
+replace agate/sdk => ../sdk/go

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-PACKAGE_DIR="${ROOT_DIR}/packages/sdk-go"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+PACKAGE_DIR="${ROOT_DIR}/packages/sdk/go"
 SPEC_PATH="${ROOT_DIR}/packages/server/openapi.json"
 GENERATOR="openapi-generator-cli"
 GEN_DIR="${PACKAGE_DIR}/gen"
