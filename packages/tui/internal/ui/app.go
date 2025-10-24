@@ -9,12 +9,27 @@ import (
 	"strings"
 	"time"
 
+	agateclient "agate/sdk/gen"
 	"agate/tui/internal/agents"
 	"agate/tui/internal/api"
-	agateclient "agate/sdk/gen"
+	"agate/tui/internal/ui/overlays"
+	"agate/tui/internal/ui/panes"
+	uiagents "agate/tui/internal/ui/panes/agents"
+	"agate/tui/internal/ui/theme"
+	"agate/tui/internal/ws"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	topPaddingRows     = 1
+	bottomSpacerRows   = 1
+	paneTitleRows      = 1
+	footerRows         = 1
+	bottomMarginRows   = 1
+	horizontalMargin   = 2
+	horizontalGapWidth = 2
 )
 
 type loadState int
@@ -43,6 +58,7 @@ type worktreeEntry struct {
 	Bare     bool
 	Detached bool
 	IsMain   bool
+	RepoName string
 	Session  *sessionSummary
 	IsActive bool
 }
@@ -85,126 +101,203 @@ type deleteSessionResultMsg struct {
 	err error
 }
 
+type wsConnectedMsg struct{}
+
+type wsErrorMsg struct {
+	err error
+}
+
+type wsPtyOutputMsg struct {
+	sessionID string
+	data      string
+}
+
 // Model is the Bubble Tea program model for the agents-first UI slice.
 type Model struct {
 	client   *agateclient.APIClient
 	repoPath string
 
 	state            loadState
-	agents           []agents.Config
-	selectedAgent    int
+	agentPalette     []agents.Config
 	snapshot         repoSnapshot
 	entries          []displayEntry
 	selectedIndex    int
 	lastSelectedPath string
 	err              error
+
+	agentsPane      *uiagents.Pane
+	tmuxPane        *panes.TmuxPane
+	panes           []panes.Pane
+	activePaneIndex int
+	windowWidth     int
+	windowHeight    int
+
+	leftPaneContentWidth  int
+	leftPaneContentHeight int
+	leftPaneFullWidth     int
+	tmuxPaneContentWidth  int
+	tmuxPaneContentHeight int
+	tmuxPaneFullWidth     int
+
+	deleteOverlay tea.Model
+
+	// WebSocket client for PTY streaming
+	wsClient             *ws.Client
+	wsSubscribedSessionID string
 }
 
 // NewModel constructs a model wired up to the configured API client.
 func NewModel(client *agateclient.APIClient, repoPath string) Model {
+	agentsPane := uiagents.NewPane(0)
+	agentsPane.SetActive(true)
+
+	tmuxPane := panes.NewTmuxPane(1)
+
+	// Initialize WebSocket client (port 24283 from @agate/shared AGATE_SERVER_PORT)
+	wsClient := ws.NewClient("ws://localhost:24283/ws")
+
+	// Set WebSocket client on tmux pane for input forwarding
+	tmuxPane.SetWSClient(wsClient)
+
 	return Model{
-		client:        client,
-		repoPath:      repoPath,
-		state:         stateLoading,
-		agents:        agents.All(),
-		selectedIndex: -1,
+		client:          client,
+		repoPath:        repoPath,
+		state:           stateLoading,
+		agentPalette:    agents.All(),
+		selectedIndex:   -1,
+		agentsPane:      agentsPane,
+		tmuxPane:        tmuxPane,
+		panes:           []panes.Pane{agentsPane, tmuxPane},
+		activePaneIndex: 0,
+		wsClient:        wsClient,
 	}
 }
 
-// Init kicks off loading repository data.
+// Init kicks off loading repository data and WebSocket connection.
 func (m Model) Init() tea.Cmd {
-	return fetchRepoSnapshot(m.client, m.repoPath)
+	return tea.Batch(
+		fetchRepoSnapshot(m.client, m.repoPath),
+		connectWebSocket(m.wsClient),
+		listenForWSEvents(m.wsClient),
+	)
 }
 
 // Update handles key events and async data loading.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	skipPaneUpdate := false
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.resizePanes(msg.Width, msg.Height)
 	case tea.KeyMsg:
+		// Global keys that work regardless of active pane
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "up":
-			if m.state == stateReady && len(m.entries) > 0 && m.selectedIndex > 0 {
-				m.selectedIndex--
-				m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
-			}
-		case "down":
-			if m.state == stateReady && len(m.entries) > 0 && m.selectedIndex < len(m.entries)-1 {
-				m.selectedIndex++
-				m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
-			}
-		case "left":
-			if m.selectedAgent > 0 {
-				m.selectedAgent--
-			}
-		case "right":
-			if m.selectedAgent < len(m.agents)-1 {
-				m.selectedAgent++
-			}
+		case "tab":
+			// Switch between panes
+			m.switchPane()
+			return m, nil
 		case "r":
-			if m.selectedIndex >= 0 && m.selectedIndex < len(m.entries) {
-				m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
+			if entry, ok := m.currentSelection(); ok {
+				m.lastSelectedPath = entry.Worktree.Path
 			}
 			m.state = stateLoading
 			m.err = nil
 			return m, fetchRepoSnapshot(m.client, m.repoPath)
-		case "n":
-			if m.state == stateReady && len(m.agents) > 0 {
-				agent := m.agents[m.selectedAgent]
-				repoRoot := fallback(m.snapshot.RepoRoot, m.repoPath)
-				branchSeed := m.newBranchSeed(agent.Name)
-				if m.selectedIndex >= 0 && m.selectedIndex < len(m.entries) {
-					m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
-				}
-				m.state = stateLoading
-				m.err = nil
-				return m, createSessionCmd(m.client, repoRoot, branchSeed, agent.Name)
-			}
-		case "d":
-			if m.state == stateReady && m.selectedIndex >= 0 && m.selectedIndex < len(m.entries) {
-				entry := m.entries[m.selectedIndex]
-				if entry.Worktree != nil && entry.Worktree.Session != nil {
-					sessionID := entry.Worktree.Session.ID
-					m.lastSelectedPath = ""
-					m.state = stateLoading
-					m.err = nil
-					return m, deleteSessionCmd(m.client, sessionID)
-				}
-			}
 		}
+
+		// Route keys to active pane
+		if handled, cmd := m.handlePaneKey(msg); handled {
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			skipPaneUpdate = true
+		}
+	case uiagents.CreateSessionMsg:
+		if m.state == stateReady {
+			repoRoot := fallback(msg.RepoPath, m.repoPath)
+			agentName := fallback(m.snapshot.DefaultAgent, "claude")
+			if entry, ok := m.currentSelection(); ok {
+				m.lastSelectedPath = entry.Worktree.Path
+			}
+			m.state = stateLoading
+			m.err = nil
+			return m, createSessionCmd(m.client, repoRoot, m.newBranchSeed(agentName), agentName)
+		}
+	case uiagents.DeleteSessionMsg:
+		if m.state == stateReady && msg.Worktree != nil && msg.Worktree.Session != nil {
+			// Show delete confirmation overlay
+			overlay := overlays.NewDeleteSessionOverlay(msg.Worktree, m.client)
+			overlay.SetSize(m.windowWidth, m.windowHeight)
+			m.deleteOverlay = overlay
+			return m, overlay.Init()
+		}
+	case overlays.DeleteSessionCancelledMsg:
+		// User cancelled deletion, close overlay
+		m.deleteOverlay = nil
+		return m, nil
+	case overlays.DeleteSessionSuccessMsg:
+		// Session deleted successfully, close overlay and reload
+		m.deleteOverlay = nil
+		m.lastSelectedPath = ""
+		m.state = stateLoading
+		m.err = nil
+		return m, fetchRepoSnapshot(m.client, m.repoPath)
+	case overlays.DeleteSessionErrorMsg:
+		// Session deletion failed, show error
+		m.deleteOverlay = nil
+		m.state = stateError
+		m.err = fmt.Errorf("failed to delete session: %s", msg.Error)
+		return m, nil
+	case uiagents.AttachSessionMsg:
+		if m.state == stateReady && msg.Worktree != nil && msg.Worktree.Session != nil {
+			// Subscribe to WebSocket for this session's PTY output
+			sessionID := msg.Worktree.Session.ID
+			agentName := msg.Worktree.Session.AgentName
+			agentColor := m.agentColor(agentName)
+
+			// Unsubscribe from previous session if any
+			if m.wsSubscribedSessionID != "" && m.wsSubscribedSessionID != sessionID {
+				_ = m.wsClient.Unsubscribe()
+			}
+
+			// Update tmux pane with session info and mark as subscribed
+			m.tmuxPane.SetSession(sessionID, agentName, agentColor)
+			m.tmuxPane.SetSubscribed(true)
+			m.wsSubscribedSessionID = sessionID
+
+			// Subscribe to new session and start spinner
+			return m, tea.Batch(
+				subscribeToSession(m.wsClient, sessionID),
+				startSpinner(m.tmuxPane),
+			)
+		}
+	case wsConnectedMsg:
+		// WebSocket connected successfully
+		// Continue listening for events
+		cmds = append(cmds, listenForWSEvents(m.wsClient))
+	case wsErrorMsg:
+		// WebSocket error occurred - could trigger reconnection here
+		// For now, just continue
+		cmds = append(cmds, listenForWSEvents(m.wsClient))
+	case wsPtyOutputMsg:
+		// Received PTY output from WebSocket
+		if m.tmuxPane != nil && msg.sessionID == m.wsSubscribedSessionID {
+			m.tmuxPane.AppendContent(msg.data)
+		}
+		// Continue listening for events
+		cmds = append(cmds, listenForWSEvents(m.wsClient))
 	case loadSuccessMsg:
 		m.state = stateReady
 		m.err = nil
 		m.snapshot = msg.snapshot
-		if idx := m.agentIndexByName(m.snapshot.DefaultAgent); idx >= 0 {
-			m.selectedAgent = idx
-		}
 		m.entries = buildDisplayEntries(m.snapshot)
-
-		if len(m.entries) == 0 {
-			m.selectedIndex = -1
-			m.lastSelectedPath = ""
-		} else {
-			desiredPath := m.lastSelectedPath
-			if desiredPath == "" && m.snapshot.ActiveSession != "" {
-				if entry := findEntryBySession(m.entries, m.snapshot.ActiveSession); entry != nil {
-					desiredPath = entry.Worktree.Path
-				}
-			}
-			if desiredPath != "" {
-				if idx := findEntryIndexByPath(m.entries, desiredPath); idx >= 0 {
-					m.selectedIndex = idx
-				} else {
-					m.selectedIndex = clampIndex(m.selectedIndex, len(m.entries))
-				}
-			} else {
-				m.selectedIndex = clampIndex(m.selectedIndex, len(m.entries))
-			}
-			if m.selectedIndex == -1 {
-				m.selectedIndex = 0
-			}
-			m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
-		}
+		m.reconcileSelection()
+		m.syncAgentsPaneItems()
 	case loadErrorMsg:
 		m.state = stateError
 		m.err = msg.err
@@ -212,7 +305,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.state = stateError
 			m.err = msg.err
-			return m, nil
+			break
 		}
 		if msg.resp != nil {
 			m.lastSelectedPath = filepath.Clean(msg.resp.GetWorktreePath())
@@ -222,152 +315,478 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.state = stateError
 			m.err = msg.err
-			return m, nil
+			break
 		}
 		return m, fetchRepoSnapshot(m.client, m.repoPath)
 	}
 
-	return m, nil
+	// Forward messages to overlay if active
+	if m.deleteOverlay != nil {
+		var overlayCmd tea.Cmd
+		m.deleteOverlay, overlayCmd = m.deleteOverlay.Update(msg)
+		if overlayCmd != nil {
+			cmds = append(cmds, overlayCmd)
+		}
+		// Don't update panes when overlay is active
+		return m, tea.Batch(cmds...)
+	}
+
+	if m.agentsPane != nil && !skipPaneUpdate {
+		var paneCmd tea.Cmd
+		var updated panes.Pane
+		updated, paneCmd = m.agentsPane.Update(msg)
+		if panePtr, ok := updated.(*uiagents.Pane); ok {
+			m.agentsPane = panePtr
+			if len(m.panes) > 0 {
+				m.panes[0] = panePtr
+			}
+		}
+		if paneCmd != nil {
+			cmds = append(cmds, paneCmd)
+		}
+	}
+
+	// Also update tmux pane (for spinner ticks)
+	if m.tmuxPane != nil && !skipPaneUpdate {
+		var paneCmd tea.Cmd
+		var updated panes.Pane
+		updated, paneCmd = m.tmuxPane.Update(msg)
+		if panePtr, ok := updated.(*panes.TmuxPane); ok {
+			m.tmuxPane = panePtr
+			if len(m.panes) > 1 {
+				m.panes[1] = panePtr
+			}
+		}
+		if paneCmd != nil {
+			cmds = append(cmds, paneCmd)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
 }
 
 // View renders the current UI.
 func (m Model) View() string {
-	var b strings.Builder
+	padding := lipgloss.NewStyle().Padding(1, 2)
 
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9d87ae"))
-	sectionStyle := lipgloss.NewStyle().Bold(true).Underline(true)
-	listStyle := lipgloss.NewStyle().PaddingLeft(2)
-	subsectionStyle := listStyle.PaddingLeft(0).Bold(true)
-	itemStyle := lipgloss.NewStyle().PaddingLeft(4)
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")).PaddingTop(1)
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).PaddingTop(1)
-	emptyStyle := listStyle.Foreground(lipgloss.Color("#555555"))
-
-	b.WriteString(headerStyle.Render("Agate — Agents Panel Preview"))
-	b.WriteString("\n\n")
-
+	// Base view
+	var baseView string
 	switch m.state {
 	case stateLoading:
-		b.WriteString("Loading repository data…")
+		baseView = padding.Render("Loading repository data…")
 	case stateError:
-		b.WriteString(errorStyle.Render(fmt.Sprintf("Failed to load data: %v", m.err)))
-		b.WriteString(helpStyle.Render("\nPress 'r' to retry or 'q' to quit."))
+		msg := "Failed to load data."
+		if m.err != nil {
+			msg = fmt.Sprintf("Failed to load data: %v", m.err)
+		}
+		errorStyle := padding.Copy().Foreground(lipgloss.Color("#ff5555"))
+		helpStyle := padding.Copy().Foreground(lipgloss.Color("#666666")).PaddingTop(1)
+		baseView = lipgloss.JoinVertical(
+			lipgloss.Left,
+			errorStyle.Render(msg),
+			helpStyle.Render("Press 'r' to retry or 'q' to quit."),
+		)
 	default:
-		snapshot := m.snapshot
-
-		b.WriteString(sectionStyle.Render("Repository"))
-		b.WriteString("\n")
-		b.WriteString(listStyle.Render(fmt.Sprintf("Name: %s", fallback(snapshot.RepoName, "unknown"))))
-		b.WriteString("\n")
-		b.WriteString(listStyle.Render(fmt.Sprintf("Root: %s", fallback(snapshot.RepoRoot, m.repoPath))))
-		b.WriteString("\n")
-		b.WriteString(listStyle.Render(fmt.Sprintf("Current Branch: %s", fallback(snapshot.CurrentBranch, "n/a"))))
-		if snapshot.ActiveSession != "" {
-			if entry := findEntryBySession(m.entries, snapshot.ActiveSession); entry != nil && entry.Worktree != nil && entry.Worktree.Session != nil {
-				b.WriteString("\n")
-				active := entry.Worktree
-				b.WriteString(listStyle.Render(fmt.Sprintf("Active Agent: %s on %s", active.Session.AgentName, fallback(active.Branch, humanizePath(active.Path)))))
-			}
-		}
-		b.WriteString("\n\n")
-
-		b.WriteString(sectionStyle.Render("Available Agents"))
-		b.WriteString("\n")
-		for idx, agent := range m.agents {
-			prefix := " "
-			if idx == m.selectedAgent {
-				prefix = "›"
-			}
-			line := fmt.Sprintf("%s %-12s (%s)", prefix, agent.CompanyName, agent.Name)
-			agentStyle := listStyle
-			if idx == m.selectedAgent {
-				agentStyle = agentStyle.Foreground(lipgloss.Color(agent.BorderColor)).Bold(true)
-			}
-			b.WriteString(agentStyle.Render(line))
-			b.WriteString("\n")
-		}
-
-		b.WriteString("\n")
-		b.WriteString(sectionStyle.Render("Worktrees"))
-		b.WriteString("\n")
-		if len(m.entries) == 0 {
-			b.WriteString(emptyStyle.Render("No worktrees found. Create an agent session to initialize one."))
-			b.WriteString("\n")
+		if m.agentsPane == nil {
+			baseView = padding.Render("Agents pane not available.")
 		} else {
-			mainIdx := indicesForSection(m.entries, sectionMain)
-			linkedIdx := indicesForSection(m.entries, sectionLinked)
-
-			renderSection := func(title string, indices []int, emptyMessage string) {
-				b.WriteString(subsectionStyle.Render(title))
-				b.WriteString("\n")
-				if len(indices) == 0 {
-					b.WriteString(emptyStyle.Render("   " + emptyMessage))
-					b.WriteString("\n")
-					return
-				}
-				for _, idx := range indices {
-					entry := m.entries[idx]
-					if entry.Worktree == nil {
-						continue
-					}
-					wt := entry.Worktree
-					prefix := " "
-					if wt.IsActive {
-						prefix = "•"
-					}
-					if idx == m.selectedIndex {
-						prefix = "▸"
-					}
-					branchLabel := fallback(wt.Branch, filepath.Base(wt.Path))
-					if wt.Detached {
-						branchLabel += " (detached)"
-					}
-
-					sessionLabel := "no agent"
-					color := "#9d87ae"
-					if wt.Session != nil {
-						sessionLabel = wt.Session.AgentName
-						color = m.agentColor(wt.Session.AgentName)
-						if wt.IsActive {
-							sessionLabel += " (active)"
-						}
-					} else if entry.Section == sectionLinked {
-						sessionLabel = "empty worktree"
-					}
-
-					line := fmt.Sprintf("%s %-20s — %s", prefix, branchLabel, sessionLabel)
-					lineStyle := itemStyle
-
-					if wt.IsActive {
-						lineStyle = lineStyle.Foreground(lipgloss.Color(color)).Bold(true)
-					}
-					if idx == m.selectedIndex {
-						lineStyle = lineStyle.Foreground(lipgloss.Color(color)).Bold(true)
-					}
-
-					b.WriteString(lineStyle.Render(line))
-					b.WriteString("\n")
-
-					if idx == m.selectedIndex {
-						b.WriteString(itemStyle.PaddingLeft(2).Render(humanizePath(wt.Path)))
-						b.WriteString("\n")
-						if wt.Session != nil && wt.Session.TmuxName != "" {
-							b.WriteString(itemStyle.PaddingLeft(2).Foreground(lipgloss.Color("#777777")).Render(fmt.Sprintf("tmux: %s", wt.Session.TmuxName)))
-							b.WriteString("\n")
-						}
-					}
-				}
-			}
-
-			renderSection("Main worktree", mainIdx, "No main worktree sessions.")
-			b.WriteString("\n")
-			renderSection("Linked worktrees", linkedIdx, "No linked sessions yet. Create one with 'n'.")
+			baseView = m.renderTwoColumnLayout()
 		}
-
-		b.WriteString(helpStyle.Render("\n←/→ select agent • ↑/↓ select worktree • n new session • d delete session • r reload • q quit"))
 	}
 
-	return b.String()
+	// Render overlay on top if active
+	if m.deleteOverlay != nil {
+		overlayView := m.deleteOverlay.View()
+		return lipgloss.Place(
+			m.windowWidth,
+			m.windowHeight,
+			lipgloss.Center,
+			lipgloss.Center,
+			overlayView,
+			lipgloss.WithWhitespaceChars("░"),
+			lipgloss.WithWhitespaceForeground(lipgloss.Color("#333333")),
+		)
+	}
+
+	return baseView
+}
+
+func (m Model) renderTwoColumnLayout() string {
+	// Render agents pane
+	leftPaneContent := m.agentsPane.View()
+	leftWrapped := lipgloss.NewStyle().
+		Width(m.leftPaneContentWidth).
+		MaxHeight(m.leftPaneContentHeight).
+		Render(leftPaneContent)
+	leftAligned := lipgloss.PlaceVertical(m.leftPaneContentHeight, lipgloss.Top, leftWrapped)
+	leftWithPadding := panes.ApplyPaneContentPadding(leftAligned, m.leftPaneContentWidth)
+	leftPaneWithBorder := panes.PaneBaseStyle.Render(leftWithPadding)
+
+	leftTitleView := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(theme.TextDescription)).
+		Render("Agents")
+
+	// Render tmux pane
+	var tmuxPaneWithBorder string
+	var tmuxTitleView string
+	if m.tmuxPane != nil && m.tmuxPaneContentWidth > 0 {
+		tmuxPaneContent := m.tmuxPane.View()
+		tmuxWrapped := lipgloss.NewStyle().
+			Width(m.tmuxPaneContentWidth).
+			MaxHeight(m.tmuxPaneContentHeight).
+			Render(tmuxPaneContent)
+		tmuxAligned := lipgloss.PlaceVertical(m.tmuxPaneContentHeight, lipgloss.Top, tmuxWrapped)
+		tmuxWithPadding := panes.ApplyPaneContentPadding(tmuxAligned, m.tmuxPaneContentWidth)
+		tmuxPaneWithBorder = panes.PaneBaseStyle.Render(tmuxWithPadding)
+
+		titleStyle := m.tmuxPane.GetTitleStyle()
+		tmuxTitleView = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(theme.TextDescription)).
+			Render(titleStyle.Text)
+	}
+
+	// Combine panes horizontally with gap
+	gap := strings.Repeat(" ", horizontalGapWidth)
+	panesRow := lipgloss.JoinHorizontal(lipgloss.Top, leftPaneWithBorder, gap, tmuxPaneWithBorder)
+
+	// Combine titles horizontally with gap
+	titlesRow := lipgloss.JoinHorizontal(lipgloss.Top, leftTitleView, gap, tmuxTitleView)
+
+	// Build complete layout
+	helpLine := "tab switch pane • ↑/↓ select worktree • ↵ attach • n new session • d delete session • r reload • q quit"
+	helpView := lipgloss.NewStyle().
+		PaddingTop(bottomSpacerRows).
+		Foreground(lipgloss.Color("#666666")).
+		Render(helpLine)
+
+	topPad := lipgloss.NewStyle().Height(topPaddingRows).Render("")
+	bottomPad := lipgloss.NewStyle().Height(bottomMarginRows).Render("")
+
+	return lipgloss.NewStyle().MarginLeft(horizontalMargin).Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			topPad,
+			titlesRow,
+			lipgloss.NewStyle().Height(paneTitleRows).Render(""),
+			panesRow,
+			helpView,
+			bottomPad,
+		),
+	)
+}
+
+func (m *Model) resizePanes(width, height int) {
+	if width <= 0 || height <= 0 || m.agentsPane == nil {
+		return
+	}
+
+	metrics := calculateAgentsPaneMetrics(width, height)
+	if metrics.contentWidth <= 0 || metrics.contentHeight <= 0 {
+		return
+	}
+
+	m.leftPaneContentWidth = metrics.contentWidth
+	m.leftPaneContentHeight = metrics.contentHeight
+	m.leftPaneFullWidth = metrics.fullWidth
+
+	m.agentsPane.SetSize(metrics.contentWidth, metrics.contentHeight)
+
+	// Calculate tmux pane dimensions (remaining space after agents pane)
+	if m.tmuxPane != nil {
+		tmuxMetrics := calculateTmuxPaneMetrics(width, height, m.leftPaneFullWidth)
+		m.tmuxPaneContentWidth = tmuxMetrics.contentWidth
+		m.tmuxPaneContentHeight = tmuxMetrics.contentHeight
+		m.tmuxPaneFullWidth = tmuxMetrics.fullWidth
+		m.tmuxPane.SetSize(tmuxMetrics.contentWidth, tmuxMetrics.contentHeight)
+	}
+}
+
+func (m *Model) handlePaneKey(msg tea.KeyMsg) (bool, tea.Cmd) {
+	if m.state != stateReady {
+		return false, nil
+	}
+
+	// Route to active pane
+	switch m.activePaneIndex {
+	case 0: // Agents pane
+		if m.agentsPane == nil {
+			return false, nil
+		}
+		handled, cmd := m.agentsPane.HandleKey(msg.String())
+		if handled {
+			m.syncSelectionFromPane()
+		}
+		return handled, cmd
+	case 1: // Tmux pane
+		if m.tmuxPane == nil {
+			return false, nil
+		}
+		return m.tmuxPane.HandleKey(msg.String())
+	default:
+		return false, nil
+	}
+}
+
+func (m *Model) syncSelectionFromPane() {
+	if m.agentsPane == nil {
+		m.selectedIndex = -1
+		return
+	}
+	item, ok := m.agentsPane.SelectedItem()
+	if !ok || item.EntryIndex < 0 || item.EntryIndex >= len(m.entries) {
+		m.selectedIndex = -1
+		return
+	}
+
+	m.selectedIndex = item.EntryIndex
+	if tw := m.entries[m.selectedIndex].Worktree; tw != nil {
+		m.lastSelectedPath = tw.Path
+	} else {
+		m.lastSelectedPath = ""
+	}
+}
+
+func (m *Model) currentSelection() (*displayEntry, bool) {
+	if m.selectedIndex < 0 || m.selectedIndex >= len(m.entries) {
+		return nil, false
+	}
+	entry := &m.entries[m.selectedIndex]
+	if entry.Worktree == nil {
+		return nil, false
+	}
+	return entry, true
+}
+
+func (m *Model) reconcileSelection() {
+	if len(m.entries) == 0 {
+		m.selectedIndex = -1
+		m.lastSelectedPath = ""
+		return
+	}
+
+	desiredPath := strings.TrimSpace(m.lastSelectedPath)
+	if desiredPath == "" && m.snapshot.ActiveSession != "" {
+		if entry := findEntryBySession(m.entries, m.snapshot.ActiveSession); entry != nil && entry.Worktree != nil {
+			desiredPath = entry.Worktree.Path
+		}
+	}
+
+	if desiredPath != "" {
+		if idx := findEntryIndexByPath(m.entries, desiredPath); idx >= 0 {
+			m.selectedIndex = idx
+		} else {
+			m.selectedIndex = clampIndex(m.selectedIndex, len(m.entries))
+		}
+	} else {
+		m.selectedIndex = clampIndex(m.selectedIndex, len(m.entries))
+	}
+
+	if m.selectedIndex >= 0 && m.selectedIndex < len(m.entries) && m.entries[m.selectedIndex].Worktree != nil {
+		m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
+	} else if len(m.entries) > 0 {
+		m.selectedIndex = 0
+		m.lastSelectedPath = m.entries[m.selectedIndex].Worktree.Path
+	} else {
+		m.selectedIndex = -1
+		m.lastSelectedPath = ""
+	}
+}
+
+func (m *Model) syncAgentsPaneItems() {
+	if m.agentsPane == nil {
+		return
+	}
+
+	state := buildAgentsPaneState(m.snapshot, m.entries, m.selectedIndex, m.agentColor)
+	m.agentsPane.SetState(state)
+	m.agentsPane.SelectByEntryIndex(m.selectedIndex)
+	m.syncSelectionFromPane()
+	m.resizePanes(m.windowWidth, m.windowHeight)
+}
+
+func buildAgentsPaneState(snapshot repoSnapshot, entries []displayEntry, selectedIndex int, colorForAgent func(string) string) uiagents.PaneState {
+	repoName := fallback(snapshot.RepoName, "unknown")
+	repoPath := fallback(snapshot.RepoRoot, "")
+
+	repoState := uiagents.RepoState{
+		Name:            repoName,
+		Path:            repoPath,
+		IsCurrentRepo:   true,
+		MainEmptyHint:   "No main session",
+		LinkedEmptyHint: "No linked sessions. Press n to create one.",
+	}
+
+	mainIndices := indicesForSection(entries, sectionMain)
+	if len(mainIndices) > 0 {
+		if info := toWorktreeInfo(entries[mainIndices[0]], mainIndices[0], repoName, colorForAgent); info != nil {
+			repoState.MainWorktree = info
+		}
+	}
+
+	linkedIndices := indicesForSection(entries, sectionLinked)
+	for _, idx := range linkedIndices {
+		if info := toWorktreeInfo(entries[idx], idx, repoName, colorForAgent); info != nil {
+			repoState.LinkedWorktrees = append(repoState.LinkedWorktrees, info)
+		}
+	}
+
+	return uiagents.PaneState{
+		Repos:              []uiagents.RepoState{repoState},
+		SelectedEntryIndex: selectedIndex,
+	}
+}
+
+func toWorktreeInfo(entry displayEntry, idx int, repoName string, colorForAgent func(string) string) *uiagents.WorktreeInfo {
+	if entry.Worktree == nil {
+		return nil
+	}
+
+	wt := entry.Worktree
+	name := filepath.Base(wt.Path)
+	info := &uiagents.WorktreeInfo{
+		RepoName:   repoName,
+		Name:       name,
+		Path:       wt.Path,
+		Branch:     wt.Branch,
+		IsMain:     wt.IsMain,
+		IsActive:   wt.IsActive,
+		EntryIndex: idx,
+	}
+
+	if wt.Session != nil {
+		session := toPaneSession(wt.Session, colorForAgent)
+		info.Session = session
+		if session != nil {
+			info.AgentColor = session.AgentColor
+		}
+	}
+
+	return info
+}
+
+func toPaneSession(summary *sessionSummary, colorForAgent func(string) string) *uiagents.SessionInfo {
+	if summary == nil {
+		return nil
+	}
+
+	return &uiagents.SessionInfo{
+		ID:         summary.ID,
+		AgentName:  summary.AgentName,
+		AgentColor: colorForAgent(summary.AgentName),
+		TmuxName:   summary.TmuxName,
+	}
+}
+
+type agentsPaneMetrics struct {
+	contentWidth  int
+	contentHeight int
+	fullWidth     int
+}
+
+func calculateAgentsPaneMetrics(totalWidth, totalHeight int) agentsPaneMetrics {
+	metrics := agentsPaneMetrics{}
+	if totalWidth <= 0 || totalHeight <= 0 {
+		return metrics
+	}
+
+	chromeHeight := topPaddingRows + bottomSpacerRows + paneTitleRows + footerRows + bottomMarginRows
+	availableHeight := totalHeight - chromeHeight
+	frameHeight := panes.PaneBaseStyle.GetVerticalFrameSize()
+	minPaneHeight := frameHeight + 1
+	if availableHeight < minPaneHeight {
+		availableHeight = minPaneHeight
+	}
+	contentHeight := availableHeight - frameHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	totalHorizontalMargins := horizontalMargin*2 + horizontalGapWidth*2
+	usableWidth := totalWidth - totalHorizontalMargins
+	if usableWidth < 0 {
+		usableWidth = 0
+	}
+
+	frameWidth := panes.PaneBaseStyle.GetHorizontalFrameSize()
+	contentPaddingWidth := panes.PaneContentHorizontalPadding() * 2
+	// Calculate chrome for 2 panes (agents + tmux) not 3
+	totalChromeWidth := (frameWidth + contentPaddingWidth) * 2
+	availableContentWidth := usableWidth - totalChromeWidth
+	if availableContentWidth < 0 {
+		availableContentWidth = 0
+	}
+
+	// Agents pane should be ~30% of content width
+	leftContentWidth := int(float64(availableContentWidth) * 0.30)
+	const minContentWidth = 30
+	if leftContentWidth < minContentWidth {
+		if availableContentWidth >= minContentWidth {
+			leftContentWidth = minContentWidth
+		} else {
+			leftContentWidth = availableContentWidth
+		}
+	}
+
+	metrics.contentWidth = leftContentWidth
+	metrics.contentHeight = contentHeight
+	metrics.fullWidth = panes.PaneFullWidth(leftContentWidth)
+
+	return metrics
+}
+
+type tmuxPaneMetrics struct {
+	contentWidth  int
+	contentHeight int
+	fullWidth     int
+}
+
+func calculateTmuxPaneMetrics(totalWidth, totalHeight int, leftPaneFullWidth int) tmuxPaneMetrics {
+	metrics := tmuxPaneMetrics{}
+	if totalWidth <= 0 || totalHeight <= 0 {
+		return metrics
+	}
+
+	// Calculate content height (same as agents pane)
+	chromeHeight := topPaddingRows + bottomSpacerRows + paneTitleRows + footerRows + bottomMarginRows
+	availableHeight := totalHeight - chromeHeight
+	frameHeight := panes.PaneBaseStyle.GetVerticalFrameSize()
+	minPaneHeight := frameHeight + 1
+	if availableHeight < minPaneHeight {
+		availableHeight = minPaneHeight
+	}
+	contentHeight := availableHeight - frameHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Calculate tmux pane width (remaining space after agents pane)
+	totalHorizontalMargins := horizontalMargin * 2
+	usableWidth := totalWidth - totalHorizontalMargins
+	if usableWidth < 0 {
+		usableWidth = 0
+	}
+
+	// Remaining width = usable width - left pane full width - horizontal gap
+	remainingWidth := usableWidth - leftPaneFullWidth - horizontalGapWidth
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+
+	// Subtract frame and padding from remaining width to get content width
+	frameWidth := panes.PaneBaseStyle.GetHorizontalFrameSize()
+	contentPaddingWidth := panes.PaneContentHorizontalPadding() * 2
+	tmuxContentWidth := remainingWidth - frameWidth - contentPaddingWidth
+	if tmuxContentWidth < 0 {
+		tmuxContentWidth = 0
+	}
+
+	metrics.contentWidth = tmuxContentWidth
+	metrics.contentHeight = contentHeight
+	metrics.fullWidth = panes.PaneFullWidth(tmuxContentWidth)
+
+	return metrics
 }
 
 // Start launches the Bubble Tea program.
@@ -383,7 +802,7 @@ func Start() error {
 	}
 
 	model := NewModel(client, repoPath)
-	program := tea.NewProgram(model)
+	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()
 	return err
 }
@@ -429,17 +848,14 @@ func fetchRepoSnapshot(client *agateclient.APIClient, repoPath string) tea.Cmd {
 			return loadErrorMsg{err: fmt.Errorf("git repo info: %w", err)}
 		}
 
-		workResp, _, err := client.DefaultAPI.GitWorktreesList(ctx).RepoPath(repoInfo.GetRepoRoot()).Execute()
-		if err != nil {
-			return loadErrorMsg{err: fmt.Errorf("git worktrees: %w", err)}
-		}
-
 		sessionResp, err := api.ListSessions(ctx, client)
 		if err != nil {
 			return loadErrorMsg{err: err}
 		}
 
-		sessionByPath := map[string]*sessionSummary{}
+		// Only create worktree entries for sessions (don't show all git worktrees)
+		worktrees := make([]worktreeEntry, 0, len(sessionResp.GetSessions()))
+
 		for _, sess := range sessionResp.GetSessions() {
 			createdAt, _ := time.Parse(time.RFC3339, sess.GetCreatedAt())
 			lastAccessed, _ := time.Parse(time.RFC3339, sess.GetLastAccessed())
@@ -453,36 +869,17 @@ func fetchRepoSnapshot(client *agateclient.APIClient, repoPath string) tea.Cmd {
 				CreatedAt:    createdAt,
 				LastAccessed: lastAccessed,
 			}
-			sessionByPath[filepath.Clean(summary.WorktreePath)] = summary
-		}
 
-		worktrees := make([]worktreeEntry, 0, len(workResp.GetWorktrees())+len(sessionByPath))
-		for _, wt := range workResp.GetWorktrees() {
-			path := filepath.Clean(wt.GetPath())
+			// Create worktree entry for this session
+			isMain := !strings.Contains(sess.GetWorktreePath(), "/.agate/worktrees/")
 			entry := worktreeEntry{
-				Path:     path,
-				Branch:   wt.GetBranch(),
-				Commit:   wt.GetCommit(),
-				Bare:     wt.GetBare(),
-				Detached: wt.GetDetached(),
-				IsMain:   wt.GetIsMain(),
-			}
-			if summary, ok := sessionByPath[path]; ok {
-				entry.Session = summary
-				delete(sessionByPath, path)
-			}
-			worktrees = append(worktrees, entry)
-		}
-
-		// Include persisted sessions whose worktrees are missing from git output (stale or detached)
-		for _, summary := range sessionByPath {
-			entry := worktreeEntry{
-				Path:     filepath.Clean(summary.WorktreePath),
-				Branch:   summary.Branch,
+				Path:     filepath.Clean(sess.GetWorktreePath()),
+				Branch:   sess.GetBranch(),
 				Commit:   "",
 				Bare:     false,
 				Detached: false,
-				IsMain:   !strings.Contains(summary.WorktreePath, "/.agate/worktrees/"),
+				IsMain:   isMain,
+				RepoName: sess.GetRepoName(),
 				Session:  summary,
 			}
 			worktrees = append(worktrees, entry)
@@ -527,21 +924,12 @@ func humanizePath(path string) string {
 }
 
 func (m Model) agentColor(agentName string) string {
-	for _, cfg := range m.agents {
+	for _, cfg := range m.agentPalette {
 		if strings.EqualFold(cfg.Name, agentName) {
 			return cfg.BorderColor
 		}
 	}
 	return "#9d87ae"
-}
-
-func (m Model) agentIndexByName(agentName string) int {
-	for idx, cfg := range m.agents {
-		if strings.EqualFold(cfg.Name, agentName) {
-			return idx
-		}
-	}
-	return -1
 }
 
 func indicesForSection(entries []displayEntry, section sectionType) []int {
@@ -651,4 +1039,59 @@ func (m Model) newBranchSeed(agentName string) string {
 	}
 	timestamp := time.Now().Format("20060102-150405")
 	return fmt.Sprintf("feat/%s-%s", agentSlug, timestamp)
+}
+
+// connectWebSocket connects to the WebSocket server
+func connectWebSocket(client *ws.Client) tea.Cmd {
+	return func() tea.Msg {
+		if err := client.ConnectWithRetry(3); err != nil {
+			return wsErrorMsg{err: err}
+		}
+		return wsConnectedMsg{}
+	}
+}
+
+// listenForWSEvents listens for WebSocket events and converts them to Bubble Tea messages
+func listenForWSEvents(client *ws.Client) tea.Cmd {
+	return func() tea.Msg {
+		// Block waiting for next event from WebSocket
+		event := <-client.Events()
+
+		switch event.Type {
+		case ws.EventPtyOutput:
+			return wsPtyOutputMsg{
+				sessionID: event.SessionID,
+				data:      event.Data,
+			}
+		default:
+			// Unknown event type, continue listening
+			return nil
+		}
+	}
+}
+
+// subscribeToSession subscribes to a session's PTY output
+func subscribeToSession(client *ws.Client, sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := client.Subscribe(sessionID); err != nil {
+			return wsErrorMsg{err: err}
+		}
+		return nil
+	}
+}
+
+// startSpinner starts the spinner for the tmux pane loading state
+func startSpinner(pane *panes.TmuxPane) tea.Cmd {
+	if pane == nil {
+		return nil
+	}
+	return pane.TickCmd()
+}
+
+// switchPane switches focus between panes
+func (m *Model) switchPane() {
+	m.activePaneIndex = (m.activePaneIndex + 1) % len(m.panes)
+	for i, pane := range m.panes {
+		pane.SetActive(i == m.activePaneIndex)
+	}
 }

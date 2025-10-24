@@ -8,6 +8,8 @@ Agate is a terminal multiplexer built for managing CLI agents (Claude, Gemini, C
 
 **Current state:** The Go implementation now lives in `packages/tui/` (functional), and a new TypeScript implementation is being built in `packages/` using a pnpm monorepo.
 
+The code in `go/` is the version of our product we are porting over to this new architecture - this is our "legacy" implemnation. You should attempt to follow the logic in `go/pkg/gui` as closely as possible when rebuilding our `packages/tui/` code
+
 ## Architecture
 
 The TypeScript implementation uses a **monorepo structure with 4 packages**:
@@ -15,9 +17,8 @@ The TypeScript implementation uses a **monorepo structure with 4 packages**:
 - **`@agate/shared`** - Shared TypeScript types (agent configs, session state, git types, tmux types, API contracts)
 - **`@agate/server`** - Express server for managing terminal sessions via node-pty
 - **`@agate/sdk`** - Auto-generated TypeScript client SDK (lives in `packages/sdk/typescript`)
-- **`@agate/client`** - OpenTUI-based React terminal UI
 
-The Go Bubble Tea client consumes an auto-generated Go SDK located at `packages/sdk/go`.
+The Go Bubble Tea client in `packages/tui` consumes an auto-generated Go SDK located at `packages/sdk/go`.
 
 ### Core Technologies
 
@@ -90,6 +91,20 @@ pnpm test         # Run tests
 ```
 
 **IMPORTANT:** When developing, always use `pnpm dev` from the **root directory** to ensure `@agate/shared` types are automatically rebuilt when modified. Running individual package dev commands will cause type import errors.
+
+## Go TUI Testing Workflow
+
+When exercising the Go client under `packages/tui/`, run it inside tmux so the Bubble Tea alt-screen behaves exactly like the legacy app:
+
+1. Start the TypeScript server (`pnpm dev`) so the SDK-backed endpoints are live.
+2. Launch the TUI in a dedicated tmux session (from anywhere):
+
+   ```bash
+   tmux new-session -d -s agate-tui 'cd /path/to/agate/packages/tui && go run ./cmd/agate'
+   tmux attach -t agate-tui
+   ```
+
+3. The client now owns the full terminal without scrollback. Detach with `ctrl+b d` when you need to return, and kill the session via `tmux kill-session -t agate-tui` when finished.
 
 ## Testing
 
