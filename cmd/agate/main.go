@@ -392,74 +392,12 @@ func (m *model) updateGitPane() tea.Cmd {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
-		startInitialMainSession(m.sessionManager, m.subprocess),
 		tea.EnterAltScreen,
 		m.loadingState.TickCmd(),
-		listenForBranchUpdates(m.sessionManager),
 	)
 }
 
-func startInitialMainSession(sessionMgr *session.Manager, agentName string) tea.Cmd {
-	return func() tea.Msg {
-		// Only create main session if we're in a git repository
-		if sessionMgr == nil || sessionMgr.GetWorktreeManager() == nil {
-			return nil
-		}
 
-		worktreeManager := sessionMgr.GetWorktreeManager()
-		if !worktreeManager.IsGitRepo() {
-			return nil
-		}
-
-		// Get the main worktree info
-		mainWorktree, err := worktreeManager.GetMainWorktreeInfo()
-		if err != nil {
-			debug.DebugLog("Failed to get main worktree info: %v", err)
-			return nil
-		}
-
-		// Check if main session already exists
-		existingSession := sessionMgr.GetMainSession(mainWorktree.RepoName)
-		if existingSession != nil {
-			debug.DebugLog("Main session already exists for repo: %s", mainWorktree.RepoName)
-			// Switch to existing main session
-			sessionMgr.SwitchToSession(existingSession.WorktreeKey)
-			return tmuxSessionStartedMsg{session: existingSession}
-		}
-
-		// Create new main session
-		sess, err := sessionMgr.GetOrCreateSession(mainWorktree, agentName)
-		if err != nil {
-			debug.DebugLog("Failed to create main session: %v", err)
-			return errMsg{err}
-		}
-
-		// Set as active session
-		sessionMgr.SwitchToSession(sess.WorktreeKey)
-
-		debug.DebugLog("Created main session for repo: %s", mainWorktree.RepoName)
-		return tmuxSessionStartedMsg{session: sess}
-	}
-}
-
-func listenForBranchUpdates(sessionMgr *session.Manager) tea.Cmd {
-	if sessionMgr == nil {
-		return nil
-	}
-
-	updates := sessionMgr.BranchUpdates()
-	if updates == nil {
-		return nil
-	}
-
-	return func() tea.Msg {
-		update, ok := <-updates
-		if !ok {
-			return nil
-		}
-		return branchUpdateMsg{update: update}
-	}
-}
 
 func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 	return func() tea.Msg {
@@ -500,10 +438,6 @@ func combineCmds(cmds ...tea.Cmd) tea.Cmd {
 
 type tmuxSessionStartedMsg struct {
 	session *session.Session
-}
-
-type branchUpdateMsg struct {
-	update session.BranchUpdate
 }
 
 type tmuxOutputMsg struct {
@@ -631,22 +565,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return loadingTimeoutMsg{}
 			}),
 		)
-
-	case branchUpdateMsg:
-		var cmds []tea.Cmd
-		if m.sessionManager != nil && msg.update.Worktree != nil {
-			if m.sessionManager.ApplyBranchUpdate(msg.update) {
-				if m.repoPane != nil {
-					if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-						agentsPane.Refresh()
-						agentsPane.SelectWorktreeByPath(msg.update.Worktree.Path)
-					}
-				}
-				cmds = append(cmds, m.updateGitPane())
-			}
-		}
-		cmds = append(cmds, listenForBranchUpdates(m.sessionManager))
-		return m, combineCmds(cmds...)
 
 	case tmuxOutputMsg:
 		// Update tmux pane content

@@ -109,7 +109,6 @@ func (m *Manager) LoadSessions() error {
 
 		// Store in sessions map
 		m.sessions[worktreeKey] = session
-		m.ensureHeadWatcher(session)
 		restoredCount++
 		debug.DebugLog("LoadSessions: Successfully restored session: %s (tmux: %s, agent: %s)",
 			session.ID, session.GetTmuxSessionName(), session.Agent.Name)

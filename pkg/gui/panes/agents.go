@@ -42,18 +42,17 @@ type AgentsPane struct {
 
 // AgentListItem implements list.Item interface for agent sessions
 type AgentListItem struct {
-	Type         string // "repo_header", "section_header", "main_session", "linked_session", "empty_message"
-	RepoName     string
-	RepoPath     string // Full path to repository
-	Worktree     *git.WorktreeInfo
-	Index        int // Index in original repo list
-	IsSelected   bool
-	SectionTitle string // For section headers: "Main worktree" or "Linked worktrees"
+	Type       string // "repo_header", "session", "empty_message"
+	RepoName   string
+	RepoPath   string // Full path to repository
+	Worktree   *git.WorktreeInfo
+	Index      int // Index in original repo list
+	IsSelected bool
 }
 
 // FilterValue implements list.Item
 func (i AgentListItem) FilterValue() string {
-	if (i.Type == "main_session" || i.Type == "linked_session") && i.Worktree != nil {
+	if i.Type == "session" && i.Worktree != nil {
 		return i.Worktree.Name
 	}
 	return i.RepoName
@@ -228,38 +227,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			}
 		}
 
-	case "section_header":
-		// Section headers with Nerd Font icons
-		var icon string
-		if workItem.SectionTitle == "Main worktree" {
-			icon = icons.Home.NerdFont
-		} else if workItem.SectionTitle == "Linked worktrees" {
-			icon = icons.Link.NerdFont
-		}
-		iconStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(icon)
-		sectionStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription)).Render(workItem.SectionTitle)
-
-		if workItem.SectionTitle == "Linked worktrees" && hoveredRepoName == workItem.RepoName {
-			hintText := components.RenderShortcut("n", "new agent", components.ShortcutDefault, "")
-			leftContent := icon + "  " + workItem.SectionTitle
-			leftWidth := lipgloss.Width(leftContent)
-			hintWidth := lipgloss.Width(hintText)
-			availableSpace := innerWidth - leftWidth - hintWidth
-			if availableSpace < 1 {
-				availableSpace = 1
-			}
-			spacing := strings.Repeat(" ", availableSpace)
-			lineStyled = iconStyled + "  " + sectionStyled + spacing + hintText
-		} else {
-			lineStyled = iconStyled + "  " + sectionStyled
-		}
-
-	case "gap":
-		// Empty line for spacing
-		linePlain = ""
-		lineStyled = ""
-
-	case "main_session":
+	case "session":
 		if workItem.Worktree == nil {
 			return
 		}
@@ -273,28 +241,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		} else {
 			branchIcon = icons.GitRepo.NerdFont
 		}
-		linePlain = "   " + branchIcon + "  " + label
-		if highlight {
-			lineStyled = linePlain
-		} else {
-			lineStyled = d.styles.normalItem.Render(linePlain)
-		}
-
-	case "linked_session":
-		if workItem.Worktree == nil {
-			return
-		}
-		label := workItem.Worktree.Branch
-		if strings.TrimSpace(label) == "" {
-			label = workItem.Worktree.Name
-		}
-		var branchIcon string
-		if workItem.IsSelected {
-			branchIcon = icons.Ready.NerdFont
-		} else {
-			branchIcon = icons.GitRepo.NerdFont
-		}
-		linePlain = "   " + branchIcon + "  " + label
+		linePlain = "  " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
 		} else {
@@ -303,32 +250,27 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	case "empty_message":
 		// Show empty state message
-		if workItem.SectionTitle == "main" {
-			linePlain = "   No main session"
-		} else {
-			linePlain = "   No agents"
-		}
+		linePlain = "  No agents"
 		lineStyled = d.styles.mustedText.Render(linePlain)
+
+	case "gap":
+		// Empty line for spacing
+		linePlain = ""
+		lineStyled = ""
 
 	default:
 		return
 	}
 
 	// Handle hint text - only when pane is active and hovering a session item
-	if hint == "" && d.isActive && highlight && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+	if hint == "" && d.isActive && highlight && workItem.Type == "session" {
 		// Use the same logic as the orange bar - workItem.IsSelected indicates active/selected
 		if workItem.IsSelected {
-			// Hovering a row that is already selected (has highlight bar) - show "enter to open"
-			hint = " ↵ to attach"
-			if workItem.Type == "linked_session" {
-				hint = " ↵ to attach, d to delete"
-			}
+			// Hovering a row that is already selected (has highlight bar) - show "enter to attach, d to delete"
+			hint = " ↵ to attach, d to delete"
 		} else {
-			// Hovering a row that is not selected (no highlight bar) - show "enter to select"
-			hint = " ↵ to select"
-			if workItem.Type == "linked_session" {
-				hint = " ↵ to select, d to delete"
-			}
+			// Hovering a row that is not selected (no highlight bar) - show "enter to select, d to delete"
+			hint = " ↵ to select, d to delete"
 		}
 	}
 
@@ -343,7 +285,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 		if hint != "" {
 			// For selected session items with hints, we need custom rendering for agent color
-			if workItem.IsSelected && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+			if workItem.IsSelected && workItem.Type == "session" {
 				// Render hint
 				hintStyle := lipgloss.NewStyle().
 					Background(lipgloss.Color(theme.RowHighlight)).
@@ -369,7 +311,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 				iconStyled := lipgloss.NewStyle().
 					Background(lipgloss.Color(theme.RowHighlight)).
 					Foreground(lipgloss.Color(agentColor)).
-					Render("   " + branchIcon + "  ")
+					Render("  " + branchIcon + "  ")
 				labelStyled := lipgloss.NewStyle().
 					Background(lipgloss.Color(theme.RowHighlight)).
 					Foreground(lipgloss.Color(theme.TextPrimary)).
@@ -403,7 +345,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			}
 		} else {
 			// If this is a selected session item, render with agent color
-			if workItem.IsSelected && (workItem.Type == "main_session" || workItem.Type == "linked_session") {
+			if workItem.IsSelected && workItem.Type == "session" {
 				// Extract label
 				label := workItem.Worktree.Branch
 				if strings.TrimSpace(label) == "" {
@@ -416,7 +358,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 				iconStyled := lipgloss.NewStyle().
 					Background(lipgloss.Color(theme.RowHighlight)).
 					Foreground(lipgloss.Color(agentColor)).
-					Render("   " + branchIcon + "  ")
+					Render("  " + branchIcon + "  ")
 				labelStyled := lipgloss.NewStyle().
 					Background(lipgloss.Color(theme.RowHighlight)).
 					Foreground(lipgloss.Color(theme.TextPrimary)).
@@ -641,11 +583,11 @@ func (r *AgentsPane) View() string {
 
 	// Also check if we have sessions but still showing empty items after building
 	if currentSessionCount > 0 && len(r.items) > 0 {
-		// Count actual session items (not headers/gaps)
+		// Count actual session items
 		sessionItemCount := 0
 		for _, item := range r.items {
 			if agentItem, ok := item.(AgentListItem); ok {
-				if agentItem.Type == "main_session" || agentItem.Type == "linked_session" {
+				if agentItem.Type == "session" {
 					sessionItemCount++
 				}
 			}
@@ -706,7 +648,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 					// Update the list's delegate
 					r.list.SetDelegate(r.delegate)
 					r.rebuildListPreservingSelection(currentIndex)
-				} else if (workItem.Type == "main_session" || workItem.Type == "linked_session") && workItem.Worktree != nil {
+				} else if workItem.Type == "session" && workItem.Worktree != nil {
 					// Check if this worktree is already selected
 					if r.isActiveWorktree(workItem.Worktree) {
 						// Already selected - attach to tmux session
@@ -731,8 +673,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		// Delete selected session
 		if len(r.items) > 0 {
 			selectedItem := r.list.SelectedItem()
-			if workItem, ok := selectedItem.(AgentListItem); ok && workItem.Type == "linked_session" && workItem.Worktree != nil {
-				// Only allow deletion of linked worktree sessions, not main sessions
+			if workItem, ok := selectedItem.(AgentListItem); ok && workItem.Type == "session" && workItem.Worktree != nil {
 				if r.sessionManager != nil {
 					if session := r.sessionManager.GetSessionForWorktree(workItem.Worktree); session != nil {
 						// Return a command to trigger the delete confirmation dialog
@@ -836,7 +777,7 @@ func (r *AgentsPane) GetSelectedWorktree() *git.WorktreeInfo {
 
 	selectedItem := r.list.SelectedItem()
 	if workItem, ok := selectedItem.(AgentListItem); ok {
-		if (workItem.Type == "main_session" || workItem.Type == "linked_session") && workItem.Worktree != nil {
+		if workItem.Type == "session" && workItem.Worktree != nil {
 			clone := *workItem.Worktree
 			return &clone
 		}
@@ -879,7 +820,7 @@ func (r *AgentsPane) SelectWorktreeByPath(worktreePath string) bool {
 
 	for idx, item := range r.items {
 		workItem, ok := item.(AgentListItem)
-		if !ok || (workItem.Type != "main_session" && workItem.Type != "linked_session") || workItem.Worktree == nil {
+		if !ok || workItem.Type != "session" || workItem.Worktree == nil {
 			continue
 		}
 
@@ -948,14 +889,12 @@ func (r *AgentsPane) SnapshotItems() []AgentListItem {
 // SelectSessionAfterDeletion selects the appropriate session after deletion with priority:
 // 1. Session above if available
 // 2. Session below if available
-// 3. Main worktree as fallback
 func (r *AgentsPane) SelectSessionAfterDeletion(deletedSession *session.Session, previousItems []AgentListItem) bool {
 	if deletedSession == nil || deletedSession.Worktree == nil {
 		return false
 	}
 
 	deletedPath := filepath.Clean(deletedSession.Worktree.Path)
-	deletedRepoName := deletedSession.Worktree.RepoName
 	deletedWasActive := r.isActiveWorktree(deletedSession.Worktree)
 
 	git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: deleted=%s, wasActive=%v", deletedPath, deletedWasActive)
@@ -968,7 +907,7 @@ func (r *AgentsPane) SelectSessionAfterDeletion(deletedSession *session.Session,
 	plan, found := determineDeletionSelectionPlan(deletedSession, searchItems)
 	if !found {
 		git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: deleted item not found in previous list")
-		return r.focusMainWorktreeAfterDeletion(deletedRepoName, deletedWasActive)
+		return false
 	}
 
 	git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: deletedIdx=%d, aboveIdx=%d, belowIdx=%d",
@@ -984,8 +923,8 @@ func (r *AgentsPane) SelectSessionAfterDeletion(deletedSession *session.Session,
 		}
 	}
 
-	git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: no selectable candidates, focusing main worktree")
-	return r.focusMainWorktreeAfterDeletion(deletedRepoName, deletedWasActive)
+	git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: no selectable candidates")
+	return false
 }
 
 func (r *AgentsPane) selectSessionCandidate(candidate *git.WorktreeInfo, makeActive bool) bool {
@@ -1016,26 +955,6 @@ func (r *AgentsPane) selectSessionCandidate(candidate *git.WorktreeInfo, makeAct
 	return true
 }
 
-func (r *AgentsPane) focusMainWorktreeAfterDeletion(repoName string, makeActive bool) bool {
-	idx := r.findMainSessionIndex(repoName)
-	if idx == -1 {
-		return false
-	}
-
-	if makeActive {
-		if workItem, ok := r.items[idx].(AgentListItem); ok && workItem.Worktree != nil {
-			r.setActiveWorktree(workItem.Worktree)
-			if r.sessionManager != nil {
-				if _, err := r.sessionManager.SwitchToSession(worktreeKey(workItem.Worktree)); err != nil {
-					git.DebugLog("[AgentsPane] focusMainWorktreeAfterDeletion: failed to switch active session: %v", err)
-				}
-			}
-		}
-	}
-
-	r.rebuildListPreservingSelection(idx)
-	return true
-}
 
 func (r *AgentsPane) findSessionIndexByPath(targetPath, repoName string) int {
 	if strings.TrimSpace(targetPath) == "" {
@@ -1048,30 +967,13 @@ func (r *AgentsPane) findSessionIndexByPath(targetPath, repoName string) int {
 		if !ok || workItem.Worktree == nil {
 			continue
 		}
-		if workItem.Type != "main_session" && workItem.Type != "linked_session" {
+		if workItem.Type != "session" {
 			continue
 		}
 		if repoName != "" && workItem.RepoName != repoName {
 			continue
 		}
 		if filepath.Clean(workItem.Worktree.Path) == cleanTarget {
-			return idx
-		}
-	}
-	return -1
-}
-
-func (r *AgentsPane) findMainSessionIndex(repoName string) int {
-	trimmed := strings.TrimSpace(repoName)
-	for idx, item := range r.items {
-		workItem, ok := item.(AgentListItem)
-		if !ok {
-			continue
-		}
-		if workItem.Type != "main_session" {
-			continue
-		}
-		if trimmed == "" || strings.EqualFold(strings.TrimSpace(workItem.RepoName), trimmed) {
 			return idx
 		}
 	}
@@ -1104,7 +1006,7 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 		if item.Worktree == nil {
 			continue
 		}
-		if item.Type != "main_session" && item.Type != "linked_session" {
+		if item.Type != "session" {
 			continue
 		}
 		if filepath.Clean(item.Worktree.Path) == deletedPath {
@@ -1117,14 +1019,12 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 		return plan, false
 	}
 
-	deletedItem := &items[plan.deletedIdx]
-
 	for idx := plan.deletedIdx - 1; idx >= 0; idx-- {
 		candidate := &items[idx]
 		if candidate.RepoName != deletedRepoName {
 			continue
 		}
-		if (candidate.Type == "main_session" || candidate.Type == "linked_session") && candidate.Worktree != nil {
+		if candidate.Type == "session" && candidate.Worktree != nil {
 			plan.aboveIdx = idx
 			break
 		}
@@ -1135,19 +1035,13 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 		if candidate.RepoName != deletedRepoName {
 			continue
 		}
-		if (candidate.Type == "main_session" || candidate.Type == "linked_session") && candidate.Worktree != nil {
+		if candidate.Type == "session" && candidate.Worktree != nil {
 			plan.belowIdx = idx
 			break
 		}
 	}
 
 	preferBelowFirst := false
-	if deletedItem.Type == "linked_session" && plan.aboveIdx != -1 && plan.belowIdx != -1 {
-		aboveItem := &items[plan.aboveIdx]
-		if aboveItem.Type == "main_session" {
-			preferBelowFirst = true
-		}
-	}
 
 	appendCandidate := func(idx int) {
 		if idx == -1 {
@@ -1171,29 +1065,6 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 	return plan, true
 }
 
-// FocusMainWorktree ensures the main worktree row for the given repo is selected.
-func (r *AgentsPane) FocusMainWorktree(repoName string) {
-	if len(r.items) == 0 {
-		return
-	}
-
-	repoName = strings.TrimSpace(repoName)
-	if repoName == "" {
-		return
-	}
-
-	for idx, item := range r.items {
-		workItem, ok := item.(AgentListItem)
-		if !ok {
-			continue
-		}
-		if workItem.Type == "main_session" && strings.EqualFold(strings.TrimSpace(workItem.RepoName), repoName) {
-			r.list.Select(idx)
-			r.updateHoveredMainWorktree()
-			return
-		}
-	}
-}
 
 // HasWorktrees returns whether there are any sessions available
 func (r *AgentsPane) HasWorktrees() bool {
@@ -1292,8 +1163,7 @@ func (r *AgentsPane) buildItemList() {
 		r.expandedRepos[repoNames[0]] = true
 	}
 
-	for idx, repoName := range repoNames {
-		isLastRepo := idx == len(repoNames)-1
+	for _, repoName := range repoNames {
 		// Add repository header
 		var mainRepoPath string
 		if r.sessionManager != nil && repoName == r.currentRepo {
@@ -1314,63 +1184,23 @@ func (r *AgentsPane) buildItemList() {
 
 		// Only add sessions if repository is expanded
 		if r.expandedRepos[repoName] {
-			// Get main and linked sessions for this repository
-			mainSession := r.sessionManager.GetMainSession(repoName)
-			linkedSessions := r.sessionManager.GetLinkedSessions(repoName)
+			// Get all sessions for this repository
+			sessions := r.groupedSessions[repoName]
 
-			// Add "Main worktree" section header
-			r.items = append(r.items, AgentListItem{
-				Type:         "section_header",
-				RepoName:     repoName,
-				SectionTitle: "Main worktree",
-			})
-
-			// Add main worktree session
-			if mainSession != nil && mainSession.Worktree != nil {
-				worktreeCopy := *mainSession.Worktree
-				r.items = append(r.items, AgentListItem{
-					Type:       "main_session",
-					RepoName:   repoName,
-					Worktree:   &worktreeCopy,
-					IsSelected: r.isActiveWorktree(&worktreeCopy),
-				})
-			} else {
-				// Show placeholder if no main session
-				r.items = append(r.items, AgentListItem{
-					Type:         "empty_message",
-					RepoName:     repoName,
-					SectionTitle: "main",
-				})
-			}
-
-			// Add gap between sections
-			r.items = append(r.items, AgentListItem{
-				Type:     "gap",
-				RepoName: repoName,
-			})
-
-			// Add "Linked worktrees" section header
-			r.items = append(r.items, AgentListItem{
-				Type:         "section_header",
-				RepoName:     repoName,
-				SectionTitle: "Linked worktrees",
-			})
-
-			// Add linked worktree sessions
-			if len(linkedSessions) > 0 {
-				// Sort linked sessions by branch name
-				sort.Slice(linkedSessions, func(i, j int) bool {
-					if linkedSessions[i].Worktree != nil && linkedSessions[j].Worktree != nil {
-						return linkedSessions[i].Worktree.Branch < linkedSessions[j].Worktree.Branch
+			if len(sessions) > 0 {
+				// Sort sessions by branch name
+				sort.Slice(sessions, func(i, j int) bool {
+					if sessions[i].Worktree != nil && sessions[j].Worktree != nil {
+						return sessions[i].Worktree.Branch < sessions[j].Worktree.Branch
 					}
-					return linkedSessions[i].Name < linkedSessions[j].Name
+					return sessions[i].Name < sessions[j].Name
 				})
 
-				for _, sess := range linkedSessions {
+				for _, sess := range sessions {
 					if sess.Worktree != nil {
 						worktreeCopy := *sess.Worktree
 						r.items = append(r.items, AgentListItem{
-							Type:       "linked_session",
+							Type:       "session",
 							RepoName:   repoName,
 							Worktree:   &worktreeCopy,
 							IsSelected: r.isActiveWorktree(&worktreeCopy),
@@ -1378,21 +1208,18 @@ func (r *AgentsPane) buildItemList() {
 					}
 				}
 			} else {
-				// No linked worktrees - add placeholder
+				// No sessions - add placeholder
 				r.items = append(r.items, AgentListItem{
-					Type:         "empty_message",
-					RepoName:     repoName,
-					SectionTitle: "linked",
-				})
-			}
-
-			// Add buffer gap before the next repository
-			if !isLastRepo {
-				r.items = append(r.items, AgentListItem{
-					Type:     "gap",
+					Type:     "empty_message",
 					RepoName: repoName,
 				})
 			}
+
+			// Add gap after expanded repo for visual separation
+			r.items = append(r.items, AgentListItem{
+				Type:     "gap",
+				RepoName: repoName,
+			})
 		}
 	}
 
@@ -1494,8 +1321,8 @@ func (r *AgentsPane) isSelectableItem(index int) bool {
 		return false
 	}
 
-	// Gap items, section headers, and "No agents" messages are not selectable
-	if item.Type == "gap" || item.Type == "empty_message" || item.Type == "section_header" {
+	// Gap items and "No agents" messages are not selectable
+	if item.Type == "empty_message" || item.Type == "gap" {
 		return false
 	}
 
@@ -1516,7 +1343,7 @@ func (r *AgentsPane) jumpToActiveSession() {
 	// Find the active session in the list
 	for idx, item := range r.items {
 		if workItem, ok := item.(AgentListItem); ok {
-			if (workItem.Type == "main_session" || workItem.Type == "linked_session") &&
+			if workItem.Type == "session" &&
 				workItem.Worktree != nil &&
 				workItem.Worktree.Path == activeSession.Worktree.Path {
 				// Ensure this item is selectable
