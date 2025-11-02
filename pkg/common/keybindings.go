@@ -2,6 +2,17 @@ package common
 
 import (
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+var (
+	// sessionShiftTabSequences captures the escape sequences emitted by common
+	// terminals (including Ghostty, iTerm2, kitty, and xterm) when pressing
+	// Shift+Tab. This keeps the navigation working even when the terminal sends
+	// raw escape codes instead of Bubble Tea's named key.
+	sessionShiftTabSequences = []string{
+		"\x1b[Z", // Shift+Tab (reverse tab)
+	}
 )
 
 // GlobalKeyMap defines global keybindings that work across all panes
@@ -27,8 +38,8 @@ type GlobalKeyMap struct {
 
 	// Two-level navigation system
 	TabNextPane key.Binding // Tab - cycle between top-level panes (Agents ↔ Session)
-	NextSubPane key.Binding // Ctrl+] - cycle forward within session sub-panes (Tmux → Git → Shell)
-	PrevSubPane key.Binding // Ctrl+[ - cycle backward within session sub-panes (Shell → Git → Tmux)
+	NextSubPane key.Binding // Shift+Tab - toggle session sub-panes (Tmux ↔ Git)
+	PrevSubPane key.Binding // (unused placeholder for future backwards navigation)
 
 	// Repository and session management - conceptually belong to repos pane
 	// but are globally accessible for convenience
@@ -86,12 +97,11 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("tab", "cycle pane"),
 	),
 	NextSubPane: key.NewBinding(
-		key.WithKeys("ctrl+]"),
-		key.WithHelp("ctrl+]", "next sub-pane"),
+		key.WithKeys(append([]string{"shift+tab"}, sessionShiftTabSequences...)...),
+		key.WithHelp("shift+tab", "toggle session tab"),
 	),
 	PrevSubPane: key.NewBinding(
-		key.WithKeys("ctrl+["),
-		key.WithHelp("ctrl+[", "prev sub-pane"),
+		key.WithDisabled(),
 	),
 
 	// Repository and Session management
@@ -184,14 +194,14 @@ func (k *GlobalKeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Keybindings},                     // Global
-		{k.TabNextPane, k.NextSubPane, k.PrevSubPane}, // Two-level navigation
-		{k.Up, k.Down},                              // List navigation
-		{k.NewSession, k.AttachAgent, k.Commit},     // Quick actions (n, a, c)
-		{k.AddRepo},                                 // Repository
-		{k.DetachTmux},                              // Session
-		{k.Filter, k.ClearFilter},                   // Filtering
-		{k.Confirm, k.Cancel},                       // Dialogs
+		{k.Quit, k.Keybindings},                 // Global
+		{k.TabNextPane, k.NextSubPane},          // Pane navigation
+		{k.Up, k.Down},                          // List navigation
+		{k.NewSession, k.AttachAgent, k.Commit}, // Quick actions (n, a, c)
+		{k.AddRepo},                             // Repository
+		{k.DetachTmux},                          // Session
+		{k.Filter, k.ClearFilter},               // Filtering
+		{k.Confirm, k.Cancel},                   // Dialogs
 	}
 }
 
@@ -205,7 +215,6 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 		"Pane Navigation": {
 			k.TabNextPane,
 			k.NextSubPane,
-			k.PrevSubPane,
 		},
 		"List Navigation": {
 			k.Up,
@@ -251,4 +260,21 @@ func (k *GlobalKeyMap) DisableDialogKeys() {
 func (k *GlobalKeyMap) EnableDialogKeys() {
 	k.Confirm.SetEnabled(true)
 	k.Cancel.SetEnabled(true)
+}
+
+// IsNextSubPaneKey reports whether the provided key message should trigger a
+// transition to the next session sub-pane. This explicitly handles common
+// escape sequences for Shift+Tab emitted by popular terminals.
+func IsNextSubPaneKey(msg tea.KeyMsg) bool {
+	return key.Matches(msg, GlobalKeys.NextSubPane) || matchesSequence(msg, sessionShiftTabSequences)
+}
+
+func matchesSequence(msg tea.KeyMsg, sequences []string) bool {
+	keyStr := msg.String()
+	for _, seq := range sequences {
+		if keyStr == seq {
+			return true
+		}
+	}
+	return false
 }

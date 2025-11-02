@@ -47,12 +47,12 @@ const (
 // String method is now in layout package
 
 type model struct {
-	layout         *layout.Layout   // Layout manager for pane dimensions
-	sessionManager *session.Manager // Session manager for all worktree/tmux coordination
-	stateManager   *state.Manager   // Thread-safe state manager
-	ready          bool
-	focus          layout.FocusState // Hierarchical focus state
-	err            error
+	layout              *layout.Layout   // Layout manager for pane dimensions
+	sessionManager      *session.Manager // Session manager for all worktree/tmux coordination
+	stateManager        *state.Manager   // Thread-safe state manager
+	ready               bool
+	focus               layout.FocusState // Hierarchical focus state
+	err                 error
 	subprocess          string                               // Command to run in tmux pane
 	mode                sessionMode                          // Current interaction mode
 	shortcutOverlay     *common.ShortcutOverlay              // Manages contextual shortcuts
@@ -80,10 +80,9 @@ type model struct {
 	showCommitOverlay   bool                                 // Whether showing commit overlay
 
 	// Panes using the new Pane interface
-	repoPane  components.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
-	tmuxPane  components.Pane // Tmux terminal pane
-	gitPane   components.Pane // Git file status pane
-	shellPane components.Pane // Shell pane
+	repoPane components.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
+	tmuxPane components.Pane // Tmux terminal pane
+	gitPane  components.Pane // Git file status pane
 }
 
 func initialModel(subprocess string) model {
@@ -176,14 +175,13 @@ func initialModel(subprocess string) model {
 	// Initialize all panes using the new Pane interface
 	gitPane := panes.NewGitPane()
 	tmuxPane := panes.NewAgentTmuxPane(loadingState)
-	shellPane := panes.NewShellTmuxPane()
 	repoPane := panes.NewAgentsPane(sessionManager)
 
 	m := model{
-		layout:              layout.NewLayout(0, 0),                           // Will be updated on first WindowSizeMsg
-		sessionManager:      sessionManager,                                   // Session manager for coordination
-		stateManager:        stateManager,                                     // State manager for persistence
-		focus:               layout.NewSessionFocus(0, layout.SubPaneTmux), // Focus on tmux pane initially
+		layout:              layout.NewLayout(0, 0),  // Will be updated on first WindowSizeMsg
+		sessionManager:      sessionManager,          // Session manager for coordination
+		stateManager:        stateManager,            // State manager for persistence
+		focus:               layout.NewAgentsFocus(), // Always start with focus on Agents pane
 		subprocess:          subprocess,
 		mode:                modePreview, // Start in preview mode
 		shortcutOverlay:     shortcutOverlay,
@@ -205,10 +203,9 @@ func initialModel(subprocess string) model {
 		toast:               components.NewToast(), // Toast notification manager
 
 		// Initialize panes
-		repoPane:  repoPane,
-		tmuxPane:  tmuxPane,
-		gitPane:   gitPane,
-		shellPane: shellPane,
+		repoPane: repoPane,
+		tmuxPane: tmuxPane,
+		gitPane:  gitPane,
 	}
 
 	// Initialize Git pane content if repo pane has items
@@ -233,9 +230,6 @@ func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 	}
 	if m.gitPane != nil {
 		m.gitPane.SetActive(targetPane.IsGitFocus())
-	}
-	if m.shellPane != nil {
-		m.shellPane.SetActive(targetPane.IsShellFocus())
 	}
 
 	// Set the new focus
@@ -274,18 +268,6 @@ func (m *model) getCurrentTmuxSession() *tmux.TmuxSession {
 	return activeSession.TmuxSession
 }
 
-// getCurrentShellTmuxSession returns the active shell tmux session from the session manager
-func (m *model) getCurrentShellTmuxSession() *tmux.TmuxSession {
-	if m.sessionManager == nil {
-		return nil
-	}
-	activeSession := m.sessionManager.GetActiveSession()
-	if activeSession == nil {
-		return nil
-	}
-	return activeSession.ShellTmuxSession
-}
-
 // switchToSessionForWorktree switches to the session associated with the given worktree
 // and returns a command to immediately refresh the tmux content
 func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
@@ -317,14 +299,6 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 		if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
 			tmuxPane.SetSession(sess.TmuxSession)
 			debug.DebugLog("Updated tmux pane with session %s", sess.TmuxSession.GetSessionName())
-		}
-	}
-
-	// Update shell pane with the session
-	if m.shellPane != nil {
-		if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
-			shellPane.SetSession(sess.ShellTmuxSession)
-			debug.DebugLog("Updated shell pane with session")
 		}
 	}
 
@@ -399,8 +373,6 @@ func (m model) Init() tea.Cmd {
 	)
 }
 
-
-
 func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 	return func() tea.Msg {
 		// Capture tmux pane content with ANSI codes preserved
@@ -466,19 +438,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout.Update(msg.Width, msg.Height)
 		m.ready = true
 
+		// Calculate grid layout based on pinned sessions
+		if m.sessionManager != nil {
+			pinnedSessions := m.sessionManager.GetPinnedSessions()
+			m.layout.CalculateGridLayout(len(pinnedSessions))
+		}
+
 		// Set the active pane based on current focus
 		if m.repoPane != nil {
 			m.repoPane.SetActive(m.focus.IsAgentsFocus())
-		}
-		// Tmux pane is active whenever we're on ANY session sub-pane (shows agent badge)
-		if m.tmuxPane != nil {
-			m.tmuxPane.SetActive(m.focus.PaneType == layout.PaneTypeSession)
-		}
-		if m.gitPane != nil {
-			m.gitPane.SetActive(m.focus.IsGitFocus())
-		}
-		if m.shellPane != nil {
-			m.shellPane.SetActive(m.focus.IsShellFocus())
+			// Update repo pane size (always uses left dimensions)
+			leftWidth, leftHeight := m.layout.GetLeftDimensions()
+			m.repoPane.SetSize(leftWidth, leftHeight)
 		}
 
 		// Update component sizes
@@ -488,34 +459,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update debug overlay size
 		if m.debugOverlay != nil {
 			m.debugOverlay.SetSize(msg.Width, msg.Height)
-		}
-
-		// Update tmux session size if it exists
-		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
-			if contentWidth, contentHeight := m.layout.GetTmuxDimensions(); contentWidth > 0 && contentHeight > 0 {
-				if err := currentTmux.SetDetachedSize(contentWidth, contentHeight); err != nil {
-					debug.DebugLog("Failed to resize tmux session to %dx%d: %v", contentWidth, contentHeight, err)
-					// Continue - terminal will work with previous size
-				}
-			}
-		}
-
-		// Update repo pane size
-		if m.repoPane != nil {
-			leftWidth, leftHeight := m.layout.GetLeftDimensions()
-			m.repoPane.SetSize(leftWidth, leftHeight)
-		}
-
-		// Update TmuxPane size
-		if m.tmuxPane != nil {
-			tmuxWidth, tmuxHeight := m.layout.GetTmuxDimensions()
-			m.tmuxPane.SetSize(tmuxWidth, tmuxHeight)
-		}
-
-		// Update GitPane size
-		if m.gitPane != nil {
-			gitWidth, gitHeight := m.layout.GetGitDimensions()
-			m.gitPane.SetSize(gitWidth, gitHeight)
 		}
 
 		// Update Git pane content after all components are sized
@@ -534,13 +477,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
 				tmuxPane.SetLoading(true)
 				tmuxPane.SetSession(activeSession.TmuxSession)
-			}
-		}
-
-		// Initialize shell pane with session
-		if m.shellPane != nil {
-			if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
-				shellPane.SetSession(activeSession.ShellTmuxSession)
 			}
 		}
 
@@ -733,13 +669,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				// Update shell pane with new session
-				if m.shellPane != nil {
-					if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
-						shellPane.SetSession(newSession.ShellTmuxSession)
-					}
-				}
-
 				// Switch focus to tmux pane
 				m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 				// Update footer focus
@@ -809,6 +738,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case panes.PinErrorMsg:
+		// Show error toast for pin failure (max 4 limit)
+		if msg.Error != nil {
+			cmd := m.toast.Show(msg.Error.Error(), 0)
+			return m, cmd
+		}
+		return m, nil
+
 	case panes.AttachToSessionMsg:
 		// User wants to attach to a tmux session from the agents pane
 		if msg.Session != nil && msg.Session.TmuxSession != nil {
@@ -820,10 +757,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
 				tmuxPane.SetSession(msg.Session.TmuxSession)
 			}
-			if shellPane, ok := m.shellPane.(*panes.ShellTmuxPane); ok {
-				shellPane.SetSession(msg.Session.ShellTmuxSession)
-			}
-
 			m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 			m.footer.SetFocus(m.focus.String())
 			m.shortcutOverlay.SetFocus(m.focus.String())
@@ -1185,24 +1118,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Process detached message immediately
 					return m.Update(tmuxDetachedMsg{})
 				}
-			case m.focus.IsShellFocus():
-				// Enter key attaches to shell tmux session when shell pane is focused
-				if currentShellTmux := m.getCurrentShellTmuxSession(); currentShellTmux != nil {
-					// Update UI to show attached mode
-					m.footer.SetMode("attached")
-					m.shortcutOverlay.SetMode("attached")
-					// Block directly in Update like Claude Squad - don't return to event loop during attachment
-					detachCh, err := currentShellTmux.Attach()
-					if err != nil {
-						return m, func() tea.Msg { return errMsg{err} }
-					}
-					// Block until detachment like Claude Squad does
-					<-detachCh
-					// Process detached message immediately
-					return m.Update(tmuxDetachedMsg{})
-				}
 			}
-			// Enter key now handles attachment for tmux and shell panes
+			// Enter key now handles attachment for tmux pane
 
 		case msg.String() == "d":
 			// 'd' key handling - delegate to the agents pane for session deletion
@@ -1362,48 +1279,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		// OpenInEditor is now handled by GitPane's HandleKey method directly
-		// No separate global keybinding needed
+			// OpenInEditor is now handled by GitPane's HandleKey method directly
+			// No separate global keybinding needed
 
-		case key.Matches(msg, common.GlobalKeys.TabNextPane):
-			// Tab key cycles between top-level panes: Agents ↔ Session
-			if m.focus.IsAgentsFocus() {
-				// Switch from Agents to Session (tmux sub-pane)
-				return m.switchToPane(layout.NewSessionFocus(0, layout.SubPaneTmux))
-			} else {
-				// Switch from any Session sub-pane back to Agents
-				return m.switchToPane(layout.NewAgentsFocus())
-			}
-
-		case key.Matches(msg, common.GlobalKeys.NextSubPane):
-			// Ctrl+] cycles forward within session sub-panes: Tmux → Git → Shell → Tmux
+		case common.IsNextSubPaneKey(msg):
+			// Shift+Tab toggles within session sub-panes: Tmux ↔ Git
 			if m.focus.PaneType == layout.PaneTypeSession {
 				var nextSubPane layout.SubPane
 				switch m.focus.SessionSubPane {
 				case layout.SubPaneTmux:
 					nextSubPane = layout.SubPaneGit
 				case layout.SubPaneGit:
-					nextSubPane = layout.SubPaneShell
-				case layout.SubPaneShell:
 					nextSubPane = layout.SubPaneTmux
 				}
 				return m.switchToPane(layout.NewSessionFocus(m.focus.SessionIndex, nextSubPane))
 			}
 			return m, nil
 
-		case key.Matches(msg, common.GlobalKeys.PrevSubPane):
-			// Ctrl+[ cycles backward within session sub-panes: Shell → Git → Tmux → Shell
-			if m.focus.PaneType == layout.PaneTypeSession {
-				var prevSubPane layout.SubPane
-				switch m.focus.SessionSubPane {
-				case layout.SubPaneTmux:
-					prevSubPane = layout.SubPaneShell
-				case layout.SubPaneGit:
-					prevSubPane = layout.SubPaneTmux
-				case layout.SubPaneShell:
-					prevSubPane = layout.SubPaneGit
+		case key.Matches(msg, common.GlobalKeys.TabNextPane):
+			// Tab key cycles through: Agents → Session[0] → Session[1] → ... → Agents
+			if m.sessionManager == nil {
+				return m, nil
+			}
+
+			pinnedSessions := m.sessionManager.GetPinnedSessions()
+			numSessions := len(pinnedSessions)
+
+			if numSessions == 0 {
+				// No pinned sessions, stay on Agents
+				return m, nil
+			}
+
+			if m.focus.IsAgentsFocus() {
+				// Switch from Agents to first Session
+				return m.switchToPane(layout.NewSessionFocus(0, layout.SubPaneTmux))
+			} else if m.focus.PaneType == layout.PaneTypeSession {
+				// Currently on a session, cycle to next or wrap to Agents
+				nextSessionIndex := m.focus.SessionIndex + 1
+				if nextSessionIndex >= numSessions {
+					// Wrap back to Agents
+					return m.switchToPane(layout.NewAgentsFocus())
+				} else {
+					// Go to next session
+					return m.switchToPane(layout.NewSessionFocus(nextSessionIndex, layout.SubPaneTmux))
 				}
-				return m.switchToPane(layout.NewSessionFocus(m.focus.SessionIndex, prevSubPane))
 			}
 			return m, nil
 
@@ -1509,52 +1428,159 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
-	// Render titles using the new Pane interface
-	leftTitle := m.renderPaneTitle(m.repoPane)
-	tmuxTitle := m.renderPaneTitle(m.tmuxPane)
-	gitTitle := m.renderPaneTitle(m.gitPane)
-	shellTitle := m.renderPaneTitle(m.shellPane)
+	// Get pinned sessions for grid rendering
+	var panesWithPadding string
 
-	// Render pane content using the new Pane interface
-	leftPaneContent := m.repoPane.View()
+	if m.sessionManager == nil {
+		return "No session manager"
+	}
 
-	// Render all panes using the layout system
-	leftPane, tmuxPane, gitPane, shellPane := m.layout.RenderPanes(
-		leftPaneContent,
-		m.tmuxPane.View(),
-		m.gitPane.View(),
-		m.shellPane.View(),
-		m.focus,
-		false, // isLoading - handled by tmux pane internally now
-		m.loadingState,
-	)
+	pinnedSessions := m.sessionManager.GetPinnedSessions()
 
-	// Add padding to titles
-	leftTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(leftTitle)
-	tmuxTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(tmuxTitle)
-	gitTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(gitTitle)
-	shellTitleWithPadding := lipgloss.NewStyle().PaddingLeft(1).Render(shellTitle)
+	if len(pinnedSessions) == 0 {
+		// No pinned sessions - render agents pane + placeholder
+		agentsContent := m.repoPane.View()
 
-	// Add titles above panes
-	leftWithTitle := lipgloss.JoinVertical(lipgloss.Left, leftTitleWithPadding, leftPane)
-	tmuxWithTitle := lipgloss.JoinVertical(lipgloss.Left, tmuxTitleWithPadding, tmuxPane)
-	gitWithTitle := lipgloss.JoinVertical(lipgloss.Left, gitTitleWithPadding, gitPane)
-	shellWithTitle := lipgloss.JoinVertical(lipgloss.Left, shellTitleWithPadding, shellPane)
+		// Calculate layout dimensions
+		chromeHeight := layout.TopPaddingRows + layout.BottomSpacerRows + layout.PaneTitleRows + layout.FooterRows + layout.BottomMarginRows
+		availableHeight := m.layout.GetHeight() - chromeHeight
+		leftWidth, leftHeight := m.layout.GetLeftDimensions()
+		frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
+		contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
 
-	// Stack the right panes vertically
-	rightPanes := lipgloss.JoinVertical(lipgloss.Top, gitWithTitle, shellWithTitle)
+		// Render agents pane
+		agentsStyle := components.PaneBaseStyle
+		if m.focus.IsAgentsFocus() {
+			agentsStyle = agentsStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		}
 
-	gap := strings.Repeat(" ", layout.HorizontalGapWidth)
-	// Join all panes horizontally with consistent gutters
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftWithTitle, gap, tmuxWithTitle, gap, rightPanes)
+		leftFullWidth := leftWidth + contentPaddingWidth
 
-	// Add top/bottom padding and outer horizontal margins
-	panesWithPadding := lipgloss.NewStyle().
-		PaddingTop(layout.TopPaddingRows).
-		PaddingBottom(layout.BottomSpacerRows).
-		PaddingLeft(layout.HorizontalMargin).
-		PaddingRight(layout.HorizontalMargin).
-		Render(panes)
+		if lipgloss.Width(agentsContent) < leftFullWidth {
+			agentsContent = components.ApplyPaneContentPadding(agentsContent, leftWidth)
+		}
+
+		agentsWrapped := lipgloss.NewStyle().
+			Width(leftFullWidth).
+			MaxHeight(leftHeight).
+			Render(agentsContent)
+		agentsContentAligned := lipgloss.PlaceVertical(leftHeight, lipgloss.Top, agentsWrapped)
+		agentsPane := agentsStyle.
+			Height(availableHeight).
+			Render(agentsContentAligned)
+
+		// Create placeholder pane for right section
+		totalHorizontalMargins := layout.HorizontalMargin*2 + layout.HorizontalGapWidth
+		usableWidth := m.layout.GetWidth() - totalHorizontalMargins
+		rightWidth := usableWidth - leftWidth - contentPaddingWidth - frameHeight
+
+		placeholderText := "No pinned sessions\n\nPress ↵ on a session in the Agents pane to pin it"
+		placeholderContentHeight := availableHeight - frameHeight
+		placeholderContent := lipgloss.Place(
+			rightWidth,
+			placeholderContentHeight,
+			lipgloss.Center,
+			lipgloss.Center,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(placeholderText),
+		)
+
+		// Render placeholder with border (same height as agents pane)
+		placeholder := components.PaneBaseStyle.
+			Height(availableHeight).
+			Render(placeholderContent)
+
+		// Join agents pane and placeholder
+		gap := lipgloss.NewStyle().Width(layout.HorizontalGapWidth).Render("")
+		panes := lipgloss.JoinHorizontal(lipgloss.Top, agentsPane, gap, placeholder)
+
+		// Add padding
+		panesWithPadding = lipgloss.NewStyle().
+			PaddingTop(layout.TopPaddingRows).
+			PaddingBottom(layout.BottomSpacerRows).
+			PaddingLeft(layout.HorizontalMargin).
+			PaddingRight(layout.HorizontalMargin).
+			Render(panes)
+	} else {
+		// Calculate grid layout
+		m.layout.CalculateGridLayout(len(pinnedSessions))
+
+		// Build SessionPaneContent for each pinned session
+		sessionContents := make([]layout.SessionPaneContent, len(pinnedSessions))
+		for i, sess := range pinnedSessions {
+			branchName := "Session"
+			if sess.Worktree != nil && sess.Worktree.Branch != "" {
+				branchName = sess.Worktree.Branch
+			}
+
+			// Determine the grid cell and size tmux panes accordingly
+			contentWidth := 0
+			contentHeight := 0
+			if cell := m.layout.GetGridCell(i); cell != nil {
+				tabsForSizing := []components.Tab{
+					{Name: branchName},
+					{Name: "Git"},
+				}
+				sizingPane := components.NewTabbedPane(tabsForSizing)
+				sizingPane.SetSize(cell.Width, cell.Height)
+				contentWidth, contentHeight = sizingPane.ContentSize()
+			}
+
+			if contentWidth > 0 && contentHeight > 0 {
+				if sess.TmuxSession != nil {
+					if err := sess.TmuxSession.SetDetachedSize(contentWidth, contentHeight); err != nil {
+						debug.DebugLog("Failed to resize tmux session %s to %dx%d: %v", sess.ID, contentWidth, contentHeight, err)
+					}
+				}
+			}
+
+			// Get actual tmux content (after ensuring size matches the grid cell)
+			tmuxContent := ""
+			if sess.TmuxSession != nil {
+				captured, err := sess.TmuxSession.CapturePaneContent()
+				if err == nil {
+					tmuxContent = captured
+				}
+			}
+
+			// Get actual git files
+			gitContent := ""
+			if sess.Worktree != nil {
+				fileStatus := git.GetFileStatuses(sess.Worktree.Path)
+				if fileStatus == nil || fileStatus.IsClean {
+					gitContent = "No changes"
+				} else {
+					var gitLines []string
+					for _, file := range fileStatus.Files {
+						gitLines = append(gitLines, file.FilePath)
+					}
+					gitContent = strings.Join(gitLines, "\n")
+				}
+			}
+
+			// Determine active tab based on focus
+			activeTab := 0 // Default to Tmux
+			if m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i {
+				switch m.focus.SessionSubPane {
+				case layout.SubPaneTmux:
+					activeTab = 0
+				case layout.SubPaneGit:
+					activeTab = 1
+				}
+			}
+
+			sessionContents[i] = layout.SessionPaneContent{
+				TmuxContent: tmuxContent,
+				GitContent:  gitContent,
+				BranchName:  branchName,
+				AgentColor:  app.GetCurrentAgentColor(),
+				IsFocused:   m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i,
+				ActiveTab:   activeTab,
+			}
+		}
+
+		// Render grid panes
+		panesWithPadding = m.layout.RenderGridPanes(m.repoPane.View(), sessionContents, m.focus)
+	}
 
 	// Add footer at the bottom
 	var bottomComponents []string

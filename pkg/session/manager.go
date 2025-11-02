@@ -2,7 +2,6 @@ package session
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,17 +10,17 @@ import (
 	"agate/pkg/app"
 	"agate/pkg/config"
 	"agate/pkg/git"
-	"agate/pkg/naming"
 	"agate/pkg/tmux"
 )
 
 // Manager is a singleton that manages all sessions
 type Manager struct {
-	sessions      map[string]*Session  // WorktreeKey -> Session
-	activeSession *Session             // Currently active session
-	worktreeMgr   *git.WorktreeManager // Default Git worktree manager (launch repo)
-	worktreeMap   map[string]*git.WorktreeManager
-	stateMgr      StateManager // Thread-safe state persistence
+	sessions       map[string]*Session  // WorktreeKey -> Session
+	activeSession  *Session             // Currently active session
+	pinnedSessions []string             // Ordered list of pinned session IDs (max 4)
+	worktreeMgr    *git.WorktreeManager // Default Git worktree manager (launch repo)
+	worktreeMap    map[string]*git.WorktreeManager
+	stateMgr       StateManager // Thread-safe state persistence
 }
 
 // StateManager defines the interface for state persistence
@@ -31,6 +30,7 @@ type StateManager interface {
 	GetSessionMappings() map[string]config.PersistedSession
 	SetActiveSession(sessionKey string) error
 	GetActiveSession() string
+	GetPinnedSessions() []string
 	UpdateSessions(fn func(*config.SessionState) error) error
 	GetLastWorktreeForRepo(repoName string) *config.WorktreeRef
 }
@@ -83,34 +83,17 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 		return nil, fmt.Errorf("failed to start tmux session: %w", err)
 	}
 
-	// Create shell tmux session with user's preferred shell
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	// Generate shell session name using naming generator
-	nameGen := naming.NewGenerator()
-	shellSessionName := nameGen.GenerateShellSessionName(sessionName)
-	shellTmuxSession := tmux.NewTmuxSession(shellSessionName, shell)
-	err = shellTmuxSession.Start(worktree.Path)
-	if err != nil {
-		// Clean up agent tmux session if shell session fails
-		tmuxSession.Kill()
-		return nil, fmt.Errorf("failed to start shell tmux session: %w", err)
-	}
-
 	// Create session
 	session := &Session{
-		ID:               worktreeKey + "_" + agentName,
-		Name:             sessionName,
-		WorktreeKey:      worktreeKey,
-		TmuxSession:      tmuxSession,
-		ShellTmuxSession: shellTmuxSession,
-		Worktree:         worktree,
-		Agent:            agentConfig,
-		CreatedAt:        time.Now(),
-		LastAccessed:     time.Now(),
-		IsActive:         false,
+		ID:           worktreeKey + "_" + agentName,
+		Name:         sessionName,
+		WorktreeKey:  worktreeKey,
+		TmuxSession:  tmuxSession,
+		Worktree:     worktree,
+		Agent:        agentConfig,
+		CreatedAt:    time.Now(),
+		LastAccessed: time.Now(),
+		IsActive:     false,
 	}
 
 	// Store session
@@ -212,14 +195,6 @@ func (m *Manager) DeleteSession(worktreeKey string) error {
 		if err := session.TmuxSession.Kill(); err != nil {
 			debug.DebugLog("Failed to kill tmux session: %v", err)
 			// Continue with deletion even if tmux kill fails
-		}
-	}
-
-	// Kill shell tmux session
-	if session.ShellTmuxSession != nil {
-		if err := session.ShellTmuxSession.Kill(); err != nil {
-			debug.DebugLog("Failed to kill shell tmux session: %v", err)
-			// Continue with deletion even if shell kill fails
 		}
 	}
 
@@ -368,4 +343,88 @@ func (m *Manager) CleanupOrphanedSessions() {
 // GetWorktreeManager returns the worktree manager
 func (m *Manager) GetWorktreeManager() *git.WorktreeManager {
 	return m.worktreeMgr
+}
+
+// PinSession pins a session to the grid display (max 4 sessions)
+func (m *Manager) PinSession(sessionID string) error {
+	// Check if already pinned
+	for _, id := range m.pinnedSessions {
+		if id == sessionID {
+			debug.DebugLog("Session %s is already pinned", sessionID)
+			return nil // Already pinned, not an error
+		}
+	}
+
+	// Check if we've reached the max limit
+	if len(m.pinnedSessions) >= 4 {
+		return fmt.Errorf("cannot pin more than 4 sessions (currently have %d pinned)", len(m.pinnedSessions))
+	}
+
+	// Verify the session exists
+	found := false
+	for _, session := range m.sessions {
+		if session.ID == sessionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+
+	// Add to pinned sessions
+	m.pinnedSessions = append(m.pinnedSessions, sessionID)
+	debug.DebugLog("Pinned session %s (total pinned: %d)", sessionID, len(m.pinnedSessions))
+
+	// Persist the change
+	if err := m.PersistSessions(); err != nil {
+		debug.DebugLog("Failed to persist pinned session %s: %v", sessionID, err)
+		// Don't fail the pin operation if persistence fails
+	}
+
+	return nil
+}
+
+// UnpinSession removes a session from the pinned list
+func (m *Manager) UnpinSession(sessionID string) {
+	for i, id := range m.pinnedSessions {
+		if id == sessionID {
+			// Remove from slice
+			m.pinnedSessions = append(m.pinnedSessions[:i], m.pinnedSessions[i+1:]...)
+			debug.DebugLog("Unpinned session %s (remaining pinned: %d)", sessionID, len(m.pinnedSessions))
+
+			// Persist the change
+			if err := m.PersistSessions(); err != nil {
+				debug.DebugLog("Failed to persist after unpinning session %s: %v", sessionID, err)
+				// Don't fail the unpin operation if persistence fails
+			}
+			return
+		}
+	}
+	debug.DebugLog("Session %s was not pinned", sessionID)
+}
+
+// GetPinnedSessions returns an ordered list of pinned sessions
+func (m *Manager) GetPinnedSessions() []*Session {
+	result := make([]*Session, 0, len(m.pinnedSessions))
+	for _, sessionID := range m.pinnedSessions {
+		// Find the session by ID
+		for _, session := range m.sessions {
+			if session.ID == sessionID {
+				result = append(result, session)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// IsPinned checks if a session is currently pinned
+func (m *Manager) IsPinned(sessionID string) bool {
+	for _, id := range m.pinnedSessions {
+		if id == sessionID {
+			return true
+		}
+	}
+	return false
 }

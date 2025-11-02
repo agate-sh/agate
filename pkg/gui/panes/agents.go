@@ -42,12 +42,14 @@ type AgentsPane struct {
 
 // AgentListItem implements list.Item interface for agent sessions
 type AgentListItem struct {
-	Type       string // "repo_header", "session", "empty_message"
+	Type       string // "repo_header", "session", "empty_message", "pinned_header"
 	RepoName   string
 	RepoPath   string // Full path to repository
 	Worktree   *git.WorktreeInfo
-	Index      int // Index in original repo list
+	SessionID  string // Session ID for pinned sessions
+	Index      int    // Index in original repo list
 	IsSelected bool
+	IsPinned   bool
 }
 
 // FilterValue implements list.Item
@@ -236,7 +238,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			label = workItem.Worktree.Name
 		}
 		var branchIcon string
-		if workItem.IsSelected {
+		if workItem.IsPinned {
+			branchIcon = icons.Pin.NerdFont
+		} else if workItem.IsSelected {
 			branchIcon = icons.Ready.NerdFont
 		} else {
 			branchIcon = icons.GitRepo.NerdFont
@@ -246,6 +250,15 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			lineStyled = linePlain
 		} else {
 			lineStyled = d.styles.normalItem.Render(linePlain)
+		}
+
+	case "pinned_header":
+		// Render "Pinned" header
+		linePlain = "Pinned"
+		if highlight {
+			lineStyled = linePlain
+		} else {
+			lineStyled = d.styles.repoHeader.Render(linePlain)
 		}
 
 	case "empty_message":
@@ -264,13 +277,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	// Handle hint text - only when pane is active and hovering a session item
 	if hint == "" && d.isActive && highlight && workItem.Type == "session" {
-		// Use the same logic as the orange bar - workItem.IsSelected indicates active/selected
-		if workItem.IsSelected {
-			// Hovering a row that is already selected (has highlight bar) - show "enter to attach, d to delete"
-			hint = " ↵ to attach, d to delete"
+		// Show pin/unpin hint
+		if workItem.IsPinned {
+			hint = " ↵ to unpin, d to delete"
 		} else {
-			// Hovering a row that is not selected (no highlight bar) - show "enter to select, d to delete"
-			hint = " ↵ to select, d to delete"
+			hint = " ↵ to pin, d to delete"
 		}
 	}
 
@@ -304,7 +315,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 				if strings.TrimSpace(label) == "" {
 					label = workItem.Worktree.Name
 				}
-				branchIcon := icons.Ready.NerdFont
+				var branchIcon string
+				if workItem.IsPinned {
+					branchIcon = icons.Pin.NerdFont
+				} else {
+					branchIcon = icons.Ready.NerdFont
+				}
 
 				// Render parts with proper styling
 				agentColor := app.GetCurrentAgentColor()
@@ -351,7 +367,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 				if strings.TrimSpace(label) == "" {
 					label = workItem.Worktree.Name
 				}
-				branchIcon := icons.Ready.NerdFont
+				var branchIcon string
+				if workItem.IsPinned {
+					branchIcon = icons.Pin.NerdFont
+				} else {
+					branchIcon = icons.Ready.NerdFont
+				}
 
 				// Render parts with proper styling
 				agentColor := app.GetCurrentAgentColor()
@@ -635,7 +656,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		r.MoveDown()
 		return true, nil
 	case "enter":
-		// Toggle repository expansion or attach to tmux session
+		// Pin/unpin sessions, or toggle repository expansion
 		if len(r.items) > 0 {
 			currentIndex := r.list.Index()
 			selectedItem := r.list.SelectedItem()
@@ -648,22 +669,23 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 					// Update the list's delegate
 					r.list.SetDelegate(r.delegate)
 					r.rebuildListPreservingSelection(currentIndex)
-				} else if workItem.Type == "session" && workItem.Worktree != nil {
-					// Check if this worktree is already selected
-					if r.isActiveWorktree(workItem.Worktree) {
-						// Already selected - attach to tmux session
-						if r.sessionManager != nil {
-							if session := r.sessionManager.GetSessionForWorktree(workItem.Worktree); session != nil && session.TmuxSession != nil {
-								// Return a command that triggers tmux attachment
+				} else if workItem.Type == "session" && workItem.Worktree != nil && workItem.SessionID != "" {
+					// Pin/unpin the session
+					if r.sessionManager != nil {
+						if workItem.IsPinned {
+							// Unpin the session
+							r.sessionManager.UnpinSession(workItem.SessionID)
+							r.rebuildListPreservingSelection(currentIndex)
+						} else {
+							// Try to pin the session
+							if err := r.sessionManager.PinSession(workItem.SessionID); err != nil {
+								// Return error toast message
 								return true, func() tea.Msg {
-									return AttachToSessionMsg{Session: session}
+									return PinErrorMsg{Error: err}
 								}
 							}
+							r.rebuildListPreservingSelection(currentIndex)
 						}
-					} else {
-						// Not selected yet - select it
-						r.setActiveWorktree(workItem.Worktree)
-						r.rebuildListPreservingSelection(currentIndex)
 					}
 				}
 			}
@@ -1126,6 +1148,37 @@ func (r *AgentsPane) buildItemList() {
 	}
 	r.items = nil
 
+	// Add "Pinned" section at the top if there are pinned sessions
+	if r.sessionManager != nil {
+		pinnedSessions := r.sessionManager.GetPinnedSessions()
+		if len(pinnedSessions) > 0 {
+			// Add "Pinned" header
+			r.items = append(r.items, AgentListItem{
+				Type: "pinned_header",
+			})
+
+			// Add pinned sessions
+			for _, sess := range pinnedSessions {
+				if sess.Worktree != nil {
+					worktreeCopy := *sess.Worktree
+					r.items = append(r.items, AgentListItem{
+						Type:       "session",
+						RepoName:   sess.Worktree.RepoName,
+						Worktree:   &worktreeCopy,
+						SessionID:  sess.ID,
+						IsSelected: r.isActiveWorktree(&worktreeCopy),
+						IsPinned:   true,
+					})
+				}
+			}
+
+			// Add gap after pinned section
+			r.items = append(r.items, AgentListItem{
+				Type: "gap",
+			})
+		}
+	}
+
 	// Get sorted repository names (current repo first)
 	repoNames := make([]string, 0, len(r.groupedSessions))
 	for repoName := range r.groupedSessions {
@@ -1199,11 +1252,18 @@ func (r *AgentsPane) buildItemList() {
 				for _, sess := range sessions {
 					if sess.Worktree != nil {
 						worktreeCopy := *sess.Worktree
+						// Check if this session is pinned
+						isPinned := false
+						if r.sessionManager != nil {
+							isPinned = r.sessionManager.IsPinned(sess.ID)
+						}
 						r.items = append(r.items, AgentListItem{
 							Type:       "session",
 							RepoName:   repoName,
 							Worktree:   &worktreeCopy,
+							SessionID:  sess.ID,
 							IsSelected: r.isActiveWorktree(&worktreeCopy),
+							IsPinned:   isPinned,
 						})
 					}
 				}
@@ -1422,4 +1482,9 @@ type DeleteSessionRequestMsg struct {
 // AttachToSessionMsg is sent when the user wants to attach to a tmux session
 type AttachToSessionMsg struct {
 	Session *session.Session
+}
+
+// PinErrorMsg is sent when there's an error pinning a session
+type PinErrorMsg struct {
+	Error error
 }

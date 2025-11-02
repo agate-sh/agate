@@ -56,6 +56,12 @@ var (
 		Fallback: "🔗",      // Unicode link emoji
 	}
 
+	// Pin icon for pinned sessions
+	Pin = Icon{
+		NerdFont: "\uf08d", // Nerd Font pushpin icon
+		Fallback: "📌",      // Unicode pushpin emoji
+	}
+
 	// Git status icons for individual files
 	GitModified = Icon{
 		NerdFont: "\U000f1500", // Nerd Font square with dot icon (exact GitHub Desktop style)

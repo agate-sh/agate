@@ -8,6 +8,7 @@ import (
 type SessionState struct {
 	SessionMappings map[string]PersistedSession `json:"session_mappings"` // WorktreeKey -> PersistedSession
 	ActiveSession   string                      `json:"active_session"`   // Currently active session key
+	PinnedSessions  []string                    `json:"pinned_sessions"`  // Ordered list of pinned session IDs (max 4)
 	DefaultAgent    string                      `json:"default_agent"`    // Default agent for new sessions
 }
 
@@ -85,6 +86,18 @@ func SetActiveSession(sessionKey string) error {
 
 	state.Sessions.ActiveSession = sessionKey
 	return SaveState(state)
+}
+
+// GetPinnedSessions returns the list of pinned session IDs
+func GetPinnedSessions() ([]string, error) {
+	state, err := LoadState()
+	if err != nil {
+		return nil, err
+	}
+	if state.Sessions.PinnedSessions == nil {
+		return []string{}, nil
+	}
+	return state.Sessions.PinnedSessions, nil
 }
 
 // GetDefaultAgent returns the default agent for new sessions

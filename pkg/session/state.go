@@ -56,6 +56,10 @@ func (m *Manager) PersistSessions() error {
 			debug.DebugLog("PersistSessions: No active session to persist")
 		}
 
+		// Update pinned sessions
+		s.PinnedSessions = m.pinnedSessions
+		debug.DebugLog("PersistSessions: Persisted %d pinned sessions", len(m.pinnedSessions))
+
 		debug.DebugLog("PersistSessions: Successfully persisted %d sessions", len(s.SessionMappings))
 		return nil
 	})
@@ -137,6 +141,27 @@ func (m *Manager) LoadSessions() error {
 			debug.DebugLog("LoadSessions: Active session key %s not found in restored sessions", activeSessionKey)
 		}
 	}
+
+	// Restore pinned sessions
+	pinnedSessionIDs := m.stateMgr.GetPinnedSessions()
+	m.pinnedSessions = make([]string, 0, len(pinnedSessionIDs))
+	for _, sessionID := range pinnedSessionIDs {
+		// Verify the session still exists
+		found := false
+		for _, session := range m.sessions {
+			if session.ID == sessionID {
+				found = true
+				break
+			}
+		}
+		if found {
+			m.pinnedSessions = append(m.pinnedSessions, sessionID)
+			debug.DebugLog("LoadSessions: Restored pinned session: %s", sessionID)
+		} else {
+			debug.DebugLog("LoadSessions: Pinned session %s not found in restored sessions, skipping", sessionID)
+		}
+	}
+	debug.DebugLog("LoadSessions: Restored %d pinned sessions (out of %d persisted)", len(m.pinnedSessions), len(pinnedSessionIDs))
 
 	debug.DebugLog("LoadSessions: Session restoration complete")
 	return nil

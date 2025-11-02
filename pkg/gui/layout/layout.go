@@ -21,12 +21,11 @@ type SubPane int
 const (
 	SubPaneTmux SubPane = iota
 	SubPaneGit
-	SubPaneShell
 )
 
 type FocusState struct {
 	PaneType       PaneType
-	SessionIndex   int     // 0-3 for pinned sessions
+	SessionIndex   int // 0-3 for pinned sessions
 	SessionSubPane SubPane
 }
 
@@ -41,8 +40,6 @@ func (f FocusState) String() string {
 			return "tmux"
 		case SubPaneGit:
 			return "git"
-		case SubPaneShell:
-			return "shell"
 		default:
 			return "unknown"
 		}
@@ -75,13 +72,8 @@ func (f FocusState) IsGitFocus() bool {
 	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneGit
 }
 
-// IsShellFocus checks if focus is on a shell sub-pane
-func (f FocusState) IsShellFocus() bool {
-	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneShell
-}
-
 const (
-	TopPaddingRows     = 1
+	TopPaddingRows     = 2
 	BottomSpacerRows   = 1
 	PaneTitleRows      = 1
 	FooterRows         = 1
@@ -90,28 +82,37 @@ const (
 	HorizontalGapWidth = 2
 )
 
+// GridCell represents the dimensions and position of a session pane in the grid
+type GridCell struct {
+	Width  int
+	Height int
+	Row    int // 0 or 1
+	Col    int // 0 or 1
+}
+
 // Layout manages the pane layout and dimensions for the UI
 type Layout struct {
 	width  int
 	height int
 
 	// Content dimensions (without borders)
-	leftContentWidth  int
-	tmuxContentWidth  int
-	gitContentWidth   int
-	shellContentWidth int
-	contentHeight     int
+	leftContentWidth int
+	tmuxContentWidth int
+	gitContentWidth  int
+	contentHeight    int
 
 	// Full pane dimensions (with borders)
 	leftWidth  int
 	tmuxWidth  int
 	gitWidth   int
-	shellWidth int
 	paneHeight int
 
 	// Split pane heights for right section
-	gitPaneHeight   int
-	shellPaneHeight int
+	gitPaneHeight int
+
+	// Grid layout for pinned sessions (up to 4)
+	gridCells       []GridCell
+	numGridSessions int
 }
 
 // NewLayout creates a new layout with the given terminal dimensions
@@ -162,20 +163,15 @@ func (l *Layout) calculate() {
 		availableContentWidth = 0
 	}
 
-	// Split content: 25% left, 50% tmux, 25% right
+	// Split content: 25% left, 50% tmux, 25% git
 	l.leftContentWidth = int(float64(availableContentWidth) * 0.25)
 	l.tmuxContentWidth = int(float64(availableContentWidth) * 0.50)
-	rightSectionWidth := availableContentWidth - l.leftContentWidth - l.tmuxContentWidth
-
-	// Git and Shell share the right section width
-	l.gitContentWidth = rightSectionWidth
-	l.shellContentWidth = rightSectionWidth
+	l.gitContentWidth = availableContentWidth - l.leftContentWidth - l.tmuxContentWidth
 
 	// Calculate full pane widths (with borders)
 	l.leftWidth = l.leftContentWidth + contentPaddingWidth + frameWidth
 	l.tmuxWidth = l.tmuxContentWidth + contentPaddingWidth + frameWidth
 	l.gitWidth = l.gitContentWidth + contentPaddingWidth + frameWidth
-	l.shellWidth = l.shellContentWidth + contentPaddingWidth + frameWidth
 
 	// Calculate heights
 	l.paneHeight = availableHeight
@@ -184,39 +180,16 @@ func (l *Layout) calculate() {
 		l.contentHeight = 1
 	}
 
-	// RIGHT SECTION CALCULATION - Different from left/tmux because it has 2 titles + 2 panes
-	// The right section total height (git + shell + their titles) must equal left/tmux total height
-	//
-	// Left/Tmux structure: 1 title + 1 pane = availableHeight + title
-	// Right structure: 2 titles + 2 panes = availableHeight + title (to match left/tmux)
-	//
-	// So: rightContentHeight = availableHeight - 1 title line (since we need to account for the extra title)
-	rightContentHeight := availableHeight - PaneTitleRows
-
-	// Split the remaining content height between git and shell panes
-	halfHeight := rightContentHeight / 2
-	l.gitPaneHeight = halfHeight
-	l.shellPaneHeight = rightContentHeight - halfHeight
-
-	// Ensure minimum heights for right column panes
-	const minRightPaneHeight = 3
-	if l.gitPaneHeight < minRightPaneHeight {
-		l.gitPaneHeight = minRightPaneHeight
-		l.shellPaneHeight = rightContentHeight - minRightPaneHeight
-	}
-	if l.shellPaneHeight < minRightPaneHeight {
-		l.shellPaneHeight = minRightPaneHeight
-		l.gitPaneHeight = rightContentHeight - minRightPaneHeight
-	}
+	// Git pane uses full available height
+	l.gitPaneHeight = availableHeight
 }
 
 // RenderPanes renders all panes with the given content
-func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focus FocusState, isLoading bool, loadingState *tmux.LoadingState) (string, string, string, string) {
+func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent string, focus FocusState, isLoading bool, loadingState *tmux.LoadingState) (string, string, string) {
 	// Determine which panes are focused
 	leftStyle := components.PaneBaseStyle
 	tmuxStyle := components.PaneBaseStyle
 	gitStyle := components.PaneBaseStyle
-	shellStyle := components.PaneBaseStyle
 
 	// Apply focus styling - only the actively focused pane gets colored border
 	if focus.IsAgentsFocus() {
@@ -225,8 +198,6 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	} else if focus.IsGitFocus() {
 		gitStyle = gitStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
-	} else if focus.IsShellFocus() {
-		shellStyle = shellStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	}
 
 	// Correct approach: Apply Width() first, then PlaceVertical
@@ -241,7 +212,6 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	leftFullWidth := l.leftContentWidth + horizontalPadding
 	tmuxFullWidth := l.tmuxContentWidth + horizontalPadding
 	gitFullWidth := l.gitContentWidth + horizontalPadding
-	shellFullWidth := l.shellContentWidth + horizontalPadding
 
 	// Inner widths without padding
 	tmuxContentWidth := l.tmuxContentWidth
@@ -255,9 +225,6 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 	}
 	if lipgloss.Width(gitContent) < gitFullWidth {
 		gitContent = components.ApplyPaneContentPadding(gitContent, l.gitContentWidth)
-	}
-	if lipgloss.Width(shellContent) < shellFullWidth {
-		shellContent = components.ApplyPaneContentPadding(shellContent, l.shellContentWidth)
 	}
 
 	leftWrapped := lipgloss.NewStyle().
@@ -305,20 +272,7 @@ func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent 
 		Height(l.gitPaneHeight - 2).
 		Render(gitContentAligned)
 
-	shellContentHeight := l.shellPaneHeight - frameHeight
-	if shellContentHeight < 1 {
-		shellContentHeight = 1
-	}
-	shellWrapped := lipgloss.NewStyle().
-		Width(shellFullWidth).
-		MaxHeight(shellContentHeight).
-		Render(shellContent)
-	shellContentAligned := lipgloss.PlaceVertical(shellContentHeight, lipgloss.Top, shellWrapped)
-	shellPane := shellStyle.
-		Height(l.shellPaneHeight - 2).
-		Render(shellContentAligned)
-
-	return leftPane, tmuxPane, gitPane, shellPane
+	return leftPane, tmuxPane, gitPane
 }
 
 // GetTmuxDimensions returns the content dimensions for the tmux pane
@@ -341,16 +295,6 @@ func (l *Layout) GetGitDimensions() (width, height int) {
 	return l.gitContentWidth, gitContentHeight
 }
 
-// GetShellDimensions returns the content dimensions for the shell pane
-func (l *Layout) GetShellDimensions() (width, height int) {
-	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
-	shellContentHeight := l.shellPaneHeight - frameHeight
-	if shellContentHeight < 1 {
-		shellContentHeight = 1
-	}
-	return l.shellContentWidth, shellContentHeight
-}
-
 // GetWidth returns the layout width
 func (l *Layout) GetWidth() int {
 	return l.width
@@ -359,6 +303,274 @@ func (l *Layout) GetWidth() int {
 // GetHeight returns the layout height
 func (l *Layout) GetHeight() int {
 	return l.height
+}
+
+// CalculateGridLayout calculates grid cell dimensions for n pinned sessions (1-4)
+func (l *Layout) CalculateGridLayout(numSessions int) {
+	if numSessions < 1 || numSessions > 4 {
+		l.gridCells = nil
+		l.numGridSessions = 0
+		return
+	}
+
+	l.numGridSessions = numSessions
+
+	// Calculate available space for the right section (sessions grid)
+	chromeHeight := TopPaddingRows + BottomSpacerRows + PaneTitleRows + FooterRows + BottomMarginRows
+	availableHeight := l.height - chromeHeight
+
+	totalHorizontalMargins := HorizontalMargin*2 + HorizontalGapWidth
+	usableWidth := l.width - totalHorizontalMargins
+	if usableWidth < 0 {
+		usableWidth = 0
+	}
+
+	// Calculate left pane width (25% of usable width)
+	frameWidth := components.PaneBaseStyle.GetHorizontalFrameSize()
+	contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
+
+	totalChromeWidth := (frameWidth + contentPaddingWidth) * 2 // left pane + right section
+	availableContentWidth := usableWidth - totalChromeWidth
+	if availableContentWidth < 0 {
+		availableContentWidth = 0
+	}
+
+	leftContentWidth := int(float64(availableContentWidth) * 0.25)
+	rightContentWidth := availableContentWidth - leftContentWidth
+	if rightContentWidth < 0 {
+		rightContentWidth = 0
+	}
+
+	// Update left pane dimensions
+	l.leftContentWidth = leftContentWidth
+	l.leftWidth = l.leftContentWidth + contentPaddingWidth + frameWidth
+
+	// Calculate the full width (including chrome) available for the grid section
+	rightFullWidth := usableWidth - l.leftWidth
+	if rightFullWidth < 0 {
+		rightFullWidth = 0
+	}
+
+	// Calculate grid cell dimensions based on number of sessions
+	l.gridCells = make([]GridCell, numSessions)
+
+	switch numSessions {
+	case 1:
+		// Full right side
+		l.gridCells[0] = GridCell{
+			Width:  rightFullWidth,
+			Height: availableHeight,
+			Row:    0,
+			Col:    0,
+		}
+
+	case 2:
+		// Horizontal split (left/right columns)
+		halfWidth := rightFullWidth / 2
+		l.gridCells[0] = GridCell{
+			Width:  halfWidth,
+			Height: availableHeight,
+			Row:    0,
+			Col:    0,
+		}
+		l.gridCells[1] = GridCell{
+			Width:  rightFullWidth - halfWidth,
+			Height: availableHeight,
+			Row:    0,
+			Col:    1,
+		}
+
+	case 3:
+		// Top row: 2 columns, Bottom row: spans full width
+		halfWidth := rightFullWidth / 2
+		halfHeight := availableHeight / 2
+
+		l.gridCells[0] = GridCell{
+			Width:  halfWidth,
+			Height: halfHeight,
+			Row:    0,
+			Col:    0,
+		}
+		l.gridCells[1] = GridCell{
+			Width:  rightFullWidth - halfWidth,
+			Height: halfHeight,
+			Row:    0,
+			Col:    1,
+		}
+		l.gridCells[2] = GridCell{
+			Width:  rightFullWidth,
+			Height: availableHeight - halfHeight,
+			Row:    1,
+			Col:    0,
+		}
+
+	case 4:
+		// 2x2 grid
+		halfWidth := rightFullWidth / 2
+		halfHeight := availableHeight / 2
+
+		l.gridCells[0] = GridCell{
+			Width:  halfWidth,
+			Height: halfHeight,
+			Row:    0,
+			Col:    0,
+		}
+		l.gridCells[1] = GridCell{
+			Width:  rightFullWidth - halfWidth,
+			Height: halfHeight,
+			Row:    0,
+			Col:    1,
+		}
+		l.gridCells[2] = GridCell{
+			Width:  halfWidth,
+			Height: availableHeight - halfHeight,
+			Row:    1,
+			Col:    0,
+		}
+		l.gridCells[3] = GridCell{
+			Width:  rightFullWidth - halfWidth,
+			Height: availableHeight - halfHeight,
+			Row:    1,
+			Col:    1,
+		}
+	}
+}
+
+// GetGridCell returns the grid cell dimensions for a specific session index
+func (l *Layout) GetGridCell(index int) *GridCell {
+	if index < 0 || index >= len(l.gridCells) {
+		return nil
+	}
+	return &l.gridCells[index]
+}
+
+// GetNumGridSessions returns the number of grid sessions currently laid out
+func (l *Layout) GetNumGridSessions() int {
+	return l.numGridSessions
+}
+
+// SessionPaneContent contains the content for a single session pane (tabbed tmux/git)
+type SessionPaneContent struct {
+	TmuxContent string
+	GitContent  string
+	BranchName  string
+	AgentColor  string
+	IsFocused   bool
+	ActiveTab   int // 0 = tmux, 1 = git
+}
+
+// RenderGridPanes renders agents pane + grid of session panes
+func (l *Layout) RenderGridPanes(agentsContent string, sessions []SessionPaneContent, focus FocusState) string {
+	if l.numGridSessions == 0 || len(sessions) == 0 {
+		// No sessions - just render empty state or single session fallback
+		return ""
+	}
+
+	// Calculate dimensions
+	chromeHeight := TopPaddingRows + BottomSpacerRows + PaneTitleRows + FooterRows + BottomMarginRows
+	availableHeight := l.height - chromeHeight
+	frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
+	contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
+
+	// Render agents pane (left)
+	agentsStyle := components.PaneBaseStyle
+	if focus.IsAgentsFocus() {
+		agentsStyle = agentsStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+	}
+
+	leftContentHeight := availableHeight - frameHeight
+	if leftContentHeight < 1 {
+		leftContentHeight = 1
+	}
+	leftFullWidth := l.leftContentWidth + contentPaddingWidth
+
+	if lipgloss.Width(agentsContent) < leftFullWidth {
+		agentsContent = components.ApplyPaneContentPadding(agentsContent, l.leftContentWidth)
+	}
+
+	agentsWrapped := lipgloss.NewStyle().
+		Width(leftFullWidth).
+		MaxHeight(leftContentHeight).
+		Render(agentsContent)
+	agentsContentAligned := lipgloss.PlaceVertical(leftContentHeight, lipgloss.Top, agentsWrapped)
+	agentPaneHeight := availableHeight - components.PaneContentVerticalPadding()*2
+	if agentPaneHeight < 1 {
+		agentPaneHeight = availableHeight
+	}
+	agentsPane := agentsStyle.
+		Height(agentPaneHeight).
+		Render(agentsContentAligned)
+
+	// Render each session pane with tabbed interface
+	renderedCells := make([]string, len(sessions))
+	for i, session := range sessions {
+		if i >= len(l.gridCells) {
+			break
+		}
+
+		cell := l.gridCells[i]
+
+		// Use branch name as first tab label
+		branchTabName := session.BranchName
+		if branchTabName == "" {
+			branchTabName = "Session"
+		}
+
+		// Create tabbed pane with branch/git tabs
+		tabs := []components.Tab{
+			{Name: branchTabName, Content: session.TmuxContent},
+			{Name: "Git", Content: session.GitContent},
+		}
+
+		tabbedPane := components.NewTabbedPane(tabs)
+		// Set the tabbed pane size to cell dimensions
+		tabbedPane.SetSize(cell.Width, cell.Height)
+		tabbedPane.SetActiveTab(session.ActiveTab)
+
+		// Apply agent color to border if focused
+		borderColor := theme.BorderMuted
+		if session.IsFocused {
+			borderColor = session.AgentColor
+		}
+		tabbedPane.SetBorderColor(borderColor)
+
+		renderedCells[i] = tabbedPane.View()
+	}
+
+	// Arrange cells in grid based on layout pattern
+	var rightSection string
+	switch l.numGridSessions {
+	case 1:
+		// Full right side
+		rightSection = renderedCells[0]
+
+	case 2:
+		// Horizontal split (left/right columns)
+		rightSection = lipgloss.JoinHorizontal(lipgloss.Top, renderedCells[0], renderedCells[1])
+
+	case 3:
+		// Top row: 2 columns, Bottom row: full width
+		topRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedCells[0], renderedCells[1])
+		rightSection = lipgloss.JoinVertical(lipgloss.Top, topRow, renderedCells[2])
+
+	case 4:
+		// 2x2 grid
+		topRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedCells[0], renderedCells[1])
+		bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedCells[2], renderedCells[3])
+		rightSection = lipgloss.JoinVertical(lipgloss.Top, topRow, bottomRow)
+	}
+
+	// Join agents pane and grid
+	gap := lipgloss.NewStyle().Width(HorizontalGapWidth).Render("")
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, agentsPane, gap, rightSection)
+
+	// Add padding
+	return lipgloss.NewStyle().
+		PaddingTop(TopPaddingRows).
+		PaddingBottom(BottomSpacerRows).
+		PaddingLeft(HorizontalMargin).
+		PaddingRight(HorizontalMargin).
+		Render(panes)
 }
 
 // RightGapHeight returns the vertical gap between git and shell panes

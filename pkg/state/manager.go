@@ -289,6 +289,20 @@ func (m *Manager) GetActiveSession() string {
 	return result
 }
 
+// GetPinnedSessions returns the list of pinned session IDs.
+func (m *Manager) GetPinnedSessions() []string {
+	var result []string
+	m.ReadSessions(func(s *config.SessionState) error {
+		if s.PinnedSessions == nil {
+			result = []string{}
+		} else {
+			result = s.PinnedSessions
+		}
+		return nil
+	})
+	return result
+}
+
 // SetDefaultAgent sets the default agent for new sessions.
 func (m *Manager) SetDefaultAgent(agent string) error {
 	return m.UpdateSessions(func(s *config.SessionState) error {

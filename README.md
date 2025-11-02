@@ -60,6 +60,7 @@ agate codex
 ### Controls
 
 - **Tab**: Switch focus between panes
+- **Shift+Tab**: Toggle between session tabs (tmux ↔ git)
 - **q**: Quit (when left pane is focused)
 - **Ctrl+D**: Open debug overlay (debug builds only)
 - **All standard terminal keys**: Supported in the right pane (arrows, backspace, etc.)

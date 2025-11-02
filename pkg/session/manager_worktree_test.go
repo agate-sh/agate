@@ -25,6 +25,7 @@ func (f *fakeStateManager) GetSessionMappings() map[string]config.PersistedSessi
 }
 func (f *fakeStateManager) SetActiveSession(string) error { return nil }
 func (f *fakeStateManager) GetActiveSession() string      { return "" }
+func (f *fakeStateManager) GetPinnedSessions() []string   { return []string{} }
 func (f *fakeStateManager) UpdateSessions(fn func(*config.SessionState) error) error {
 	if fn != nil {
 		return fn(&config.SessionState{})
