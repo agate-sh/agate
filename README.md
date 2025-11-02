@@ -1,5 +1,7 @@
  # Agate
 
+<!-- This is a comment added to the README -->
+
 A terminal multiplexer built for managing CLI agents with an information-dense, intuitive interface.
 
 ![Agate Terminal Multiplexer](https://agate.sh/screenshot.png)
