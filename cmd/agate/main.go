@@ -47,12 +47,12 @@ const (
 // String method is now in layout package
 
 type model struct {
-	layout              *layout.Layout   // Layout manager for pane dimensions
-	sessionManager      *session.Manager // Session manager for all worktree/tmux coordination
-	stateManager        *state.Manager   // Thread-safe state manager
-	ready               bool
-	focused             layout.FocusState // Current focused pane
-	err                 error
+	layout         *layout.Layout   // Layout manager for pane dimensions
+	sessionManager *session.Manager // Session manager for all worktree/tmux coordination
+	stateManager   *state.Manager   // Thread-safe state manager
+	ready          bool
+	focus          layout.FocusState // Hierarchical focus state
+	err            error
 	subprocess          string                               // Command to run in tmux pane
 	mode                sessionMode                          // Current interaction mode
 	shortcutOverlay     *common.ShortcutOverlay              // Manages contextual shortcuts
@@ -136,14 +136,15 @@ func initialModel(subprocess string) model {
 
 	// Create shortcut overlay using static GlobalKeys
 	shortcutOverlay := common.NewShortcutOverlay(common.GlobalKeys)
-	shortcutOverlay.SetFocus(layout.FocusTmux.String()) // Start with tmux pane focused
-	shortcutOverlay.SetMode("preview")                  // Start in preview mode
+	initialFocus := layout.NewSessionFocus(0, layout.SubPaneTmux)
+	shortcutOverlay.SetFocus(initialFocus.String()) // Start with tmux pane focused
+	shortcutOverlay.SetMode("preview")              // Start in preview mode
 
 	// Create footer and help components
 	footer := common.NewFooter()
 	footer.SetShortcutOverlay(shortcutOverlay)
-	footer.SetFocus(layout.FocusTmux.String()) // Start with tmux pane focused
-	footer.SetMode("preview")                  // Start in preview mode
+	footer.SetFocus(initialFocus.String()) // Start with tmux pane focused
+	footer.SetMode("preview")              // Start in preview mode
 
 	// Initialize worktree components
 	var worktreeList *overlays.WorktreeList
@@ -179,10 +180,10 @@ func initialModel(subprocess string) model {
 	repoPane := panes.NewAgentsPane(sessionManager)
 
 	m := model{
-		layout:              layout.NewLayout(0, 0), // Will be updated on first WindowSizeMsg
-		sessionManager:      sessionManager,         // Session manager for coordination
-		stateManager:        stateManager,           // State manager for persistence
-		focused:             layout.FocusTmux,       // Focus on tmux pane initially
+		layout:              layout.NewLayout(0, 0),                           // Will be updated on first WindowSizeMsg
+		sessionManager:      sessionManager,                                   // Session manager for coordination
+		stateManager:        stateManager,                                     // State manager for persistence
+		focus:               layout.NewSessionFocus(0, layout.SubPaneTmux), // Focus on tmux pane initially
 		subprocess:          subprocess,
 		mode:                modePreview, // Start in preview mode
 		shortcutOverlay:     shortcutOverlay,
@@ -224,27 +225,28 @@ func initialModel(subprocess string) model {
 func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 	// Update all panes' active state
 	if m.repoPane != nil {
-		m.repoPane.SetActive(targetPane == layout.FocusAgents)
+		m.repoPane.SetActive(targetPane.IsAgentsFocus())
 	}
+	// Tmux pane is active whenever we're on ANY session sub-pane (shows agent badge)
 	if m.tmuxPane != nil {
-		m.tmuxPane.SetActive(targetPane == layout.FocusTmux)
+		m.tmuxPane.SetActive(targetPane.PaneType == layout.PaneTypeSession)
 	}
 	if m.gitPane != nil {
-		m.gitPane.SetActive(targetPane == layout.FocusGit)
+		m.gitPane.SetActive(targetPane.IsGitFocus())
 	}
 	if m.shellPane != nil {
-		m.shellPane.SetActive(targetPane == layout.FocusShell)
+		m.shellPane.SetActive(targetPane.IsShellFocus())
 	}
 
 	// Set the new focus
-	m.focused = targetPane
+	m.focus = targetPane
 
 	// Update footer and shortcut overlay
-	m.footer.SetFocus(m.focused.String())
-	m.shortcutOverlay.SetFocus(m.focused.String())
+	m.footer.SetFocus(m.focus.String())
+	m.shortcutOverlay.SetFocus(m.focus.String())
 
 	// Special handling for repos & worktrees pane
-	if targetPane == layout.FocusAgents && m.repoPane != nil {
+	if targetPane.IsAgentsFocus() && m.repoPane != nil {
 		// Refresh repo pane when focusing
 		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
 			if err := repoPane.Refresh(); err != nil {
@@ -466,16 +468,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Set the active pane based on current focus
 		if m.repoPane != nil {
-			m.repoPane.SetActive(m.focused == layout.FocusAgents)
+			m.repoPane.SetActive(m.focus.IsAgentsFocus())
 		}
+		// Tmux pane is active whenever we're on ANY session sub-pane (shows agent badge)
 		if m.tmuxPane != nil {
-			m.tmuxPane.SetActive(m.focused == layout.FocusTmux)
+			m.tmuxPane.SetActive(m.focus.PaneType == layout.PaneTypeSession)
 		}
 		if m.gitPane != nil {
-			m.gitPane.SetActive(m.focused == layout.FocusGit)
+			m.gitPane.SetActive(m.focus.IsGitFocus())
 		}
 		if m.shellPane != nil {
-			m.shellPane.SetActive(m.focused == layout.FocusShell)
+			m.shellPane.SetActive(m.focus.IsShellFocus())
 		}
 
 		// Update component sizes
@@ -597,7 +600,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case autoAttachMsg:
 		// Auto-attach to the tmux session after it's ready
-		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focused == layout.FocusTmux {
+		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focus.IsTmuxFocus() {
 			// Block directly in Update like Claude Squad
 			detachCh, err := currentTmux.Attach()
 			if err != nil {
@@ -616,7 +619,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeDialog = nil
 
 		// Auto-attach to the tmux session
-		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focused == layout.FocusTmux {
+		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focus.IsTmuxFocus() {
 			// Clear screen first
 			fmt.Print("\033[2J\033[H")
 			// Block directly in Update like Claude Squad
@@ -652,7 +655,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		debug.DebugLog("[tmuxDetachedMsg] About to call switchToPane(FocusAgents)")
 		// Return focus to the agents pane (which will automatically jump to the active agent's row)
-		m, _ = m.switchToPane(layout.FocusAgents)
+		m, _ = m.switchToPane(layout.NewAgentsFocus())
 		debug.DebugLog("[tmuxDetachedMsg] Returned from switchToPane(FocusAgents)")
 
 		// Immediately resize the tmux session to current window dimensions
@@ -738,10 +741,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Switch focus to tmux pane
-				m.focused = layout.FocusTmux
+				m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 				// Update footer focus
-				m.footer.SetFocus(layout.FocusTmux.String())
-				m.shortcutOverlay.SetFocus(layout.FocusTmux.String())
+				m.footer.SetFocus(m.focus.String())
+				m.shortcutOverlay.SetFocus(m.focus.String())
 
 				// Start monitoring the new session
 				if newSession.TmuxSession != nil {
@@ -771,7 +774,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Auto-attach to the newly created session's tmux
 		if msg.Worktree != nil {
 			newSession := m.sessionManager.GetSessionForWorktree(msg.Worktree)
-			if newSession != nil && newSession.TmuxSession != nil && m.focused == layout.FocusTmux {
+			if newSession != nil && newSession.TmuxSession != nil && m.focus.IsTmuxFocus() {
 				// Clear screen first
 				fmt.Print("\033[2J\033[H")
 				// Block directly in Update like Claude Squad
@@ -821,9 +824,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				shellPane.SetSession(msg.Session.ShellTmuxSession)
 			}
 
-			m.focused = layout.FocusTmux
-			m.footer.SetFocus(layout.FocusTmux.String())
-			m.shortcutOverlay.SetFocus(layout.FocusTmux.String())
+			m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
+			m.footer.SetFocus(m.focus.String())
+			m.shortcutOverlay.SetFocus(m.focus.String())
 			m.footer.SetMode("attached")
 			m.shortcutOverlay.SetMode("attached")
 
@@ -1141,8 +1144,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.String() == "enter":
 			// Enter key handling - delegate to the active pane
-			switch m.focused {
-			case layout.FocusAgents:
+			switch {
+			case m.focus.IsAgentsFocus():
 				// Let the repo pane handle enter key for toggling expansion
 				if m.repoPane != nil {
 					debug.DebugLog("Enter key pressed in Agents pane")
@@ -1158,7 +1161,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, combinedCmd
 					}
 				}
-			case layout.FocusGit:
+			case m.focus.IsGitFocus():
 				// Let the git pane handle enter key for opening files
 				if m.gitPane != nil {
 					handled, cmd := m.gitPane.HandleKey("enter")
@@ -1166,7 +1169,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, cmd
 					}
 				}
-			case layout.FocusTmux:
+			case m.focus.IsTmuxFocus():
 				// Enter key attaches to agent tmux session when tmux pane is focused
 				if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
 					// Update UI to show attached mode
@@ -1182,7 +1185,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Process detached message immediately
 					return m.Update(tmuxDetachedMsg{})
 				}
-			case layout.FocusShell:
+			case m.focus.IsShellFocus():
 				// Enter key attaches to shell tmux session when shell pane is focused
 				if currentShellTmux := m.getCurrentShellTmuxSession(); currentShellTmux != nil {
 					// Update UI to show attached mode
@@ -1203,14 +1206,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.String() == "d":
 			// 'd' key handling - delegate to the agents pane for session deletion
-			if m.focused == layout.FocusAgents && m.repoPane != nil {
+			if m.focus.IsAgentsFocus() && m.repoPane != nil {
 				handled, cmd := m.repoPane.HandleKey("d")
 				if handled {
 					return m, cmd
 				}
 			}
 			// Also handle 'd' in git pane for discarding files
-			if m.focused == layout.FocusGit && m.gitPane != nil {
+			if m.focus.IsGitFocus() && m.gitPane != nil {
 				handled, cmd := m.gitPane.HandleKey("d")
 				if handled {
 					// Refresh git pane after discard
@@ -1331,12 +1334,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, common.GlobalKeys.Up):
 			// Navigate up in focused pane
-			switch m.focused {
-			case layout.FocusAgents:
+			switch {
+			case m.focus.IsAgentsFocus():
 				if m.repoPane != nil {
 					m.repoPane.MoveUp()
 				}
-			case layout.FocusGit:
+			case m.focus.IsGitFocus():
 				if m.gitPane != nil {
 					m.gitPane.MoveUp()
 					return m, nil
@@ -1346,12 +1349,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, common.GlobalKeys.Down):
 			// Navigate down in focused pane
-			switch m.focused {
-			case layout.FocusAgents:
+			switch {
+			case m.focus.IsAgentsFocus():
 				if m.repoPane != nil {
 					m.repoPane.MoveDown()
 				}
-			case layout.FocusGit:
+			case m.focus.IsGitFocus():
 				if m.gitPane != nil {
 					m.gitPane.MoveDown()
 					return m, nil
@@ -1362,21 +1365,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// OpenInEditor is now handled by GitPane's HandleKey method directly
 		// No separate global keybinding needed
 
-		case key.Matches(msg, common.GlobalKeys.FocusPaneRepos):
-			// Switch to repos & worktrees pane (0)
-			return m.switchToPane(layout.FocusAgents)
+		case key.Matches(msg, common.GlobalKeys.TabNextPane):
+			// Tab key cycles between top-level panes: Agents ↔ Session
+			if m.focus.IsAgentsFocus() {
+				// Switch from Agents to Session (tmux sub-pane)
+				return m.switchToPane(layout.NewSessionFocus(0, layout.SubPaneTmux))
+			} else {
+				// Switch from any Session sub-pane back to Agents
+				return m.switchToPane(layout.NewAgentsFocus())
+			}
 
-		case key.Matches(msg, common.GlobalKeys.FocusPaneTmux):
-			// Switch to tmux pane (1)
-			return m.switchToPane(layout.FocusTmux)
+		case key.Matches(msg, common.GlobalKeys.NextSubPane):
+			// Ctrl+] cycles forward within session sub-panes: Tmux → Git → Shell → Tmux
+			if m.focus.PaneType == layout.PaneTypeSession {
+				var nextSubPane layout.SubPane
+				switch m.focus.SessionSubPane {
+				case layout.SubPaneTmux:
+					nextSubPane = layout.SubPaneGit
+				case layout.SubPaneGit:
+					nextSubPane = layout.SubPaneShell
+				case layout.SubPaneShell:
+					nextSubPane = layout.SubPaneTmux
+				}
+				return m.switchToPane(layout.NewSessionFocus(m.focus.SessionIndex, nextSubPane))
+			}
+			return m, nil
 
-		case key.Matches(msg, common.GlobalKeys.FocusPaneGit):
-			// Switch to git pane (2)
-			return m.switchToPane(layout.FocusGit)
-
-		case key.Matches(msg, common.GlobalKeys.FocusPaneShell):
-			// Switch to shell pane (3)
-			return m.switchToPane(layout.FocusShell)
+		case key.Matches(msg, common.GlobalKeys.PrevSubPane):
+			// Ctrl+[ cycles backward within session sub-panes: Shell → Git → Tmux → Shell
+			if m.focus.PaneType == layout.PaneTypeSession {
+				var prevSubPane layout.SubPane
+				switch m.focus.SessionSubPane {
+				case layout.SubPaneTmux:
+					prevSubPane = layout.SubPaneShell
+				case layout.SubPaneGit:
+					prevSubPane = layout.SubPaneTmux
+				case layout.SubPaneShell:
+					prevSubPane = layout.SubPaneGit
+				}
+				return m.switchToPane(layout.NewSessionFocus(m.focus.SessionIndex, prevSubPane))
+			}
+			return m, nil
 
 		default:
 			// Handle other key combinations if needed
@@ -1384,7 +1413,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Handle mouse events when right pane is focused
-		if currentTmux := m.getCurrentTmuxSession(); m.focused == layout.FocusTmux && currentTmux != nil {
+		if currentTmux := m.getCurrentTmuxSession(); m.focus.IsTmuxFocus() && currentTmux != nil {
 			switch msg.Action {
 			case tea.MouseActionPress:
 				if msg.Button == tea.MouseButtonWheelUp {
@@ -1495,7 +1524,7 @@ func (m model) View() string {
 		m.tmuxPane.View(),
 		m.gitPane.View(),
 		m.shellPane.View(),
-		m.focused,
+		m.focus,
 		false, // isLoading - handled by tmux pane internally now
 		m.loadingState,
 	)

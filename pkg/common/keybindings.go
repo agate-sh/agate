@@ -25,11 +25,10 @@ type GlobalKeyMap struct {
 	Up   key.Binding // ↑, k - move up in active pane
 	Down key.Binding // ↓, j - move down in active pane
 
-	// Pane switching - always global for quick navigation
-	FocusPaneRepos key.Binding // 0 - focus agents pane
-	FocusPaneTmux  key.Binding // 1 - focus tmux pane
-	FocusPaneGit   key.Binding // 2 - focus git pane
-	FocusPaneShell key.Binding // 3 - focus shell pane
+	// Two-level navigation system
+	TabNextPane key.Binding // Tab - cycle between top-level panes (Agents ↔ Session)
+	NextSubPane key.Binding // Ctrl+] - cycle forward within session sub-panes (Tmux → Git → Shell)
+	PrevSubPane key.Binding // Ctrl+[ - cycle backward within session sub-panes (Shell → Git → Tmux)
 
 	// Repository and session management - conceptually belong to repos pane
 	// but are globally accessible for convenience
@@ -81,22 +80,18 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("↓/j", "move down"),
 	),
 
-	// Direct pane switching (zero-based indexing)
-	FocusPaneRepos: key.NewBinding(
-		key.WithKeys("0"),
-		key.WithHelp("0", "focus agents"),
+	// Two-level navigation system
+	TabNextPane: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "cycle pane"),
 	),
-	FocusPaneTmux: key.NewBinding(
-		key.WithKeys("1"),
-		key.WithHelp("1", "focus tmux"),
+	NextSubPane: key.NewBinding(
+		key.WithKeys("ctrl+]"),
+		key.WithHelp("ctrl+]", "next sub-pane"),
 	),
-	FocusPaneGit: key.NewBinding(
-		key.WithKeys("2"),
-		key.WithHelp("2", "focus git"),
-	),
-	FocusPaneShell: key.NewBinding(
-		key.WithKeys("3"),
-		key.WithHelp("3", "focus shell"),
+	PrevSubPane: key.NewBinding(
+		key.WithKeys("ctrl+["),
+		key.WithHelp("ctrl+[", "prev sub-pane"),
 	),
 
 	// Repository and Session management
@@ -189,14 +184,14 @@ func (k *GlobalKeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Keybindings},                                       // Global
-		{k.FocusPaneRepos, k.FocusPaneTmux, k.FocusPaneGit, k.FocusPaneShell}, // Direct pane switching
-		{k.Up, k.Down},                                                // Navigation
-		{k.NewSession, k.AttachAgent, k.Commit},                       // Quick actions (n, a, c)
-		{k.AddRepo},                                                   // Repository
-		{k.DetachTmux},                                                // Session
-		{k.Filter, k.ClearFilter},                                     // Filtering
-		{k.Confirm, k.Cancel},                                         // Dialogs
+		{k.Quit, k.Keybindings},                     // Global
+		{k.TabNextPane, k.NextSubPane, k.PrevSubPane}, // Two-level navigation
+		{k.Up, k.Down},                              // List navigation
+		{k.NewSession, k.AttachAgent, k.Commit},     // Quick actions (n, a, c)
+		{k.AddRepo},                                 // Repository
+		{k.DetachTmux},                              // Session
+		{k.Filter, k.ClearFilter},                   // Filtering
+		{k.Confirm, k.Cancel},                       // Dialogs
 	}
 }
 
@@ -207,15 +202,14 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.Quit,
 			k.Keybindings,
 		},
-		"Navigation": {
+		"Pane Navigation": {
+			k.TabNextPane,
+			k.NextSubPane,
+			k.PrevSubPane,
+		},
+		"List Navigation": {
 			k.Up,
 			k.Down,
-		},
-		"Direct Pane Switching": {
-			k.FocusPaneRepos,
-			k.FocusPaneTmux,
-			k.FocusPaneGit,
-			k.FocusPaneShell,
 		},
 		"Quick Actions": {
 			k.NewSession,

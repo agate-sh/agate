@@ -9,29 +9,75 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type FocusState int
+type PaneType int
 
 const (
-	FocusAgents FocusState = iota
-	FocusTmux
-	FocusGit
-	FocusShell
+	PaneTypeAgents PaneType = iota
+	PaneTypeSession
 )
+
+type SubPane int
+
+const (
+	SubPaneTmux SubPane = iota
+	SubPaneGit
+	SubPaneShell
+)
+
+type FocusState struct {
+	PaneType       PaneType
+	SessionIndex   int     // 0-3 for pinned sessions
+	SessionSubPane SubPane
+}
 
 // String returns the string representation of the focus state
 func (f FocusState) String() string {
-	switch f {
-	case FocusAgents:
+	switch f.PaneType {
+	case PaneTypeAgents:
 		return "agents"
-	case FocusTmux:
-		return "tmux"
-	case FocusGit:
-		return "git"
-	case FocusShell:
-		return "shell"
+	case PaneTypeSession:
+		switch f.SessionSubPane {
+		case SubPaneTmux:
+			return "tmux"
+		case SubPaneGit:
+			return "git"
+		case SubPaneShell:
+			return "shell"
+		default:
+			return "unknown"
+		}
 	default:
 		return "unknown"
 	}
+}
+
+// Helper functions to create focus states
+func NewAgentsFocus() FocusState {
+	return FocusState{PaneType: PaneTypeAgents, SessionIndex: 0, SessionSubPane: SubPaneTmux}
+}
+
+func NewSessionFocus(sessionIndex int, subPane SubPane) FocusState {
+	return FocusState{PaneType: PaneTypeSession, SessionIndex: sessionIndex, SessionSubPane: subPane}
+}
+
+// IsAgentsFocus checks if focus is on the agents pane
+func (f FocusState) IsAgentsFocus() bool {
+	return f.PaneType == PaneTypeAgents
+}
+
+// IsTmuxFocus checks if focus is on a tmux sub-pane
+func (f FocusState) IsTmuxFocus() bool {
+	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneTmux
+}
+
+// IsGitFocus checks if focus is on a git sub-pane
+func (f FocusState) IsGitFocus() bool {
+	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneGit
+}
+
+// IsShellFocus checks if focus is on a shell sub-pane
+func (f FocusState) IsShellFocus() bool {
+	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneShell
 }
 
 const (
@@ -165,22 +211,21 @@ func (l *Layout) calculate() {
 }
 
 // RenderPanes renders all panes with the given content
-func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focused FocusState, isLoading bool, loadingState *tmux.LoadingState) (string, string, string, string) {
+func (l *Layout) RenderPanes(leftContent, tmuxContent, gitContent, shellContent string, focus FocusState, isLoading bool, loadingState *tmux.LoadingState) (string, string, string, string) {
 	// Determine which panes are focused
 	leftStyle := components.PaneBaseStyle
 	tmuxStyle := components.PaneBaseStyle
 	gitStyle := components.PaneBaseStyle
 	shellStyle := components.PaneBaseStyle
 
-	// Apply focus styling - all active panes use agent color
-	switch focused {
-	case FocusAgents:
+	// Apply focus styling - only the actively focused pane gets colored border
+	if focus.IsAgentsFocus() {
 		leftStyle = leftStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
-	case FocusTmux:
+	} else if focus.IsTmuxFocus() {
 		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
-	case FocusGit:
+	} else if focus.IsGitFocus() {
 		gitStyle = gitStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
-	case FocusShell:
+	} else if focus.IsShellFocus() {
 		shellStyle = shellStyle.BorderForeground(lipgloss.Color(app.GetCurrentAgentColor()))
 	}
 
