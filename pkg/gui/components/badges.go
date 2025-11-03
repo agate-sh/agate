@@ -11,12 +11,14 @@ import (
 
 // RenderChangeCountBadge returns a muted, rounded notification badge.
 func RenderChangeCountBadge(count int) string {
+	if count == 0 {
+		return ""
+	}
+
 	bg := theme.RowHighlight
 	fg := theme.TextMuted
-	if count > 0 {
-		bg = theme.SeparatorColor
-		fg = theme.TextDescription
-	}
+	bg = theme.SeparatorColor
+	fg = theme.TextDescription
 
 	display := fmt.Sprintf("%d", count)
 	if count > 99 {

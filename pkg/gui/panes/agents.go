@@ -180,8 +180,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	switch workItem.Type {
 	case "repo_header":
 		repoName := workItem.RepoName
-		folderIcon := icons.GetFolder()
-		displayName := folderIcon + " " + repoName
+		displayName := repoName
 		var arrow string
 		if d.expandedRepos != nil && d.expandedRepos[repoName] {
 			arrow = "▼"
@@ -239,7 +238,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if limit <= 0 {
 			limit = session.MaxPinnedSessions
 		}
-		label := fmt.Sprintf("%s Pinned", icons.Pin.Get())
+		label := "Pinned"
 		countPlain := fmt.Sprintf("(%d/%d)", workItem.PinnedCount, limit)
 		linePlain = label + " " + countPlain
 		if highlight {
