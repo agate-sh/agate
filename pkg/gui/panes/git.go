@@ -16,9 +16,9 @@ import (
 
 // GitPane manages the display of Git file status information
 type GitPane struct {
-	*components.BasePane     // Embedded BasePane for common functionality
-	fileList         *components.GitFileList
-	repoPath         string
+	*components.BasePane // Embedded BasePane for common functionality
+	fileList             *components.GitFileList
+	repoPath             string
 }
 
 // gitRefreshMsg is sent when the git pane needs to refresh
@@ -29,7 +29,7 @@ type GitRefreshMsg struct{}
 func NewGitPane() *GitPane {
 	fileList := components.NewGitFileList("", true) // Show summary
 	return &GitPane{
-		BasePane: components.NewBasePane(2, "Git"), // Pane index 2
+		BasePane: components.NewBasePane(2, "Changes"), // Pane index 2
 		fileList: fileList,
 	}
 }
@@ -173,7 +173,7 @@ func (g *GitPane) openSelectedFile() tea.Cmd {
 
 // GetTitle returns the dynamic title for the git pane
 func (g *GitPane) GetTitle() string {
-	return "Git"
+	return "Changes"
 }
 
 // GetTitleStyle returns the title style for the git pane
@@ -185,10 +185,17 @@ func (g *GitPane) GetTitleStyle() components.TitleStyle {
 		shortcuts = "(2)"
 	}
 
+	label := "Changes"
+	changeCount := g.changeCount()
+	badge := components.RenderChangeCountBadge(changeCount)
+	if badge != "" {
+		label = label + " " + badge
+	}
+
 	return components.TitleStyle{
 		Type:      "plain",
 		Color:     "",
-		Text:      "Git",
+		Text:      label,
 		Shortcuts: shortcuts,
 	}
 }
@@ -215,4 +222,15 @@ func (g *GitPane) View() string {
 		return ""
 	}
 	return g.fileList.View()
+}
+
+func (g *GitPane) changeCount() int {
+	if g.fileList == nil {
+		return 0
+	}
+	status := g.fileList.GetFileStatus()
+	if status == nil || status.IsClean {
+		return 0
+	}
+	return len(status.Files)
 }

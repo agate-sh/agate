@@ -3,6 +3,7 @@ package components
 
 import (
 	"agate/pkg/gui/theme"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -37,8 +38,9 @@ var (
 
 // Tab represents a single tab with name and content
 type Tab struct {
-	Name    string
-	Content string
+	Name     string
+	Content  string
+	Trailing string
 }
 
 // TabbedPane represents a tabbed interface component
@@ -213,7 +215,35 @@ func (t *TabbedPane) layoutMetrics() (string, lipgloss.Style, int, int) {
 			tabContentWidth = 1
 		}
 		style = style.Width(tabContentWidth)
-		renderedTabs = append(renderedTabs, style.Render(tab.Name))
+
+		var content string
+		trailing := tab.Trailing
+		if trailing == "" {
+			content = lipgloss.NewStyle().
+				Width(tabContentWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(tab.Name)
+		} else {
+			trailingWidth := lipgloss.Width(trailing)
+			gapWidth := 1
+			mainWidth := tabContentWidth - trailingWidth - gapWidth
+			if mainWidth < 1 {
+				mainWidth = 1
+			}
+
+			main := lipgloss.NewStyle().
+				Width(mainWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(tab.Name)
+			gap := strings.Repeat(" ", gapWidth)
+			trailingRendered := lipgloss.NewStyle().
+				Width(trailingWidth).
+				AlignHorizontal(lipgloss.Right).
+				Render(trailing)
+			content = main + gap + trailingRendered
+		}
+
+		renderedTabs = append(renderedTabs, style.Render(content))
 	}
 
 	// Join tabs horizontally and measure actual dimensions

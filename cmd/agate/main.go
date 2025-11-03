@@ -14,6 +14,7 @@ import (
 	"agate/pkg/config"
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/gui/layout"
 	"agate/pkg/gui/overlays"
 	"agate/pkg/gui/panes"
@@ -1517,8 +1518,8 @@ func (m model) View() string {
 			contentHeight := 0
 			if cell := m.layout.GetGridCell(i); cell != nil {
 				tabsForSizing := []components.Tab{
-					{Name: branchName},
-					{Name: "Git"},
+					{Name: icons.GetGitRepo() + " " + branchName},
+					{Name: "Changes"},
 				}
 				sizingPane := components.NewTabbedPane(tabsForSizing)
 				sizingPane.SetSize(cell.Width, cell.Height)
@@ -1544,16 +1545,19 @@ func (m model) View() string {
 
 			// Get actual git files
 			gitContent := ""
+			changeCount := 0
 			if sess.Worktree != nil {
 				fileStatus := git.GetFileStatuses(sess.Worktree.Path)
 				if fileStatus == nil || fileStatus.IsClean {
 					gitContent = "No changes"
+					changeCount = 0
 				} else {
 					var gitLines []string
 					for _, file := range fileStatus.Files {
 						gitLines = append(gitLines, file.FilePath)
 					}
 					gitContent = strings.Join(gitLines, "\n")
+					changeCount = len(fileStatus.Files)
 				}
 			}
 
@@ -1569,12 +1573,13 @@ func (m model) View() string {
 			}
 
 			sessionContents[i] = layout.SessionPaneContent{
-				TmuxContent: tmuxContent,
-				GitContent:  gitContent,
-				BranchName:  branchName,
-				AgentColor:  app.GetCurrentAgentColor(),
-				IsFocused:   m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i,
-				ActiveTab:   activeTab,
+				TmuxContent:  tmuxContent,
+				GitContent:   gitContent,
+				BranchName:   branchName,
+				AgentColor:   app.GetCurrentAgentColor(),
+				IsFocused:    m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i,
+				ActiveTab:    activeTab,
+				ChangesCount: changeCount,
 			}
 		}
 

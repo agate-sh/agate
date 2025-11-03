@@ -1,7 +1,6 @@
 package panes
 
 import (
-	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
@@ -42,14 +41,15 @@ type AgentsPane struct {
 
 // AgentListItem implements list.Item interface for agent sessions
 type AgentListItem struct {
-	Type       string // "repo_header", "session", "empty_message", "pinned_header"
-	RepoName   string
-	RepoPath   string // Full path to repository
-	Worktree   *git.WorktreeInfo
-	SessionID  string // Session ID for pinned sessions
-	Index      int    // Index in original repo list
-	IsSelected bool
-	IsPinned   bool
+	Type        string // "repo_header", "session", "empty_message", "pinned_header", "pinned_empty"
+	RepoName    string
+	RepoPath    string // Full path to repository
+	Worktree    *git.WorktreeInfo
+	SessionID   string // Session ID for pinned sessions
+	Index       int    // Index in original repo list
+	IsPinned    bool
+	PinnedCount int
+	PinnedLimit int
 }
 
 // FilterValue implements list.Item
@@ -158,6 +158,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	rightPad := strings.Repeat(" ", paddingRight)
 
 	highlight := selected && d.isActive
+	if workItem.Type == "pinned_header" {
+		highlight = false
+	}
 
 	var linePlain string
 	var lineStyled string
@@ -177,6 +180,8 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	switch workItem.Type {
 	case "repo_header":
 		repoName := workItem.RepoName
+		folderIcon := icons.GetFolder()
+		displayName := folderIcon + " " + repoName
 		var arrow string
 		if d.expandedRepos != nil && d.expandedRepos[repoName] {
 			arrow = "▼"
@@ -191,41 +196,25 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			shortcutStyled = components.RenderShortcut("n", "new agent", components.ShortcutDefault, "")
 		}
 
-		leftContentWidth := lipgloss.Width(repoName)
-		arrowWidth := lipgloss.Width(arrow)
-		hintWidth := 0
-		gapWidth := 0
+		linePlain = displayName + " " + arrow
 		if showShortcut {
-			hintWidth = lipgloss.Width(shortcutPlain)
-			gapWidth = 1
+			linePlain += "  " + shortcutPlain
 		}
-		availableSpace := innerWidth - leftContentWidth - arrowWidth - hintWidth - gapWidth
-		if availableSpace < 1 {
-			availableSpace = 1
-		}
-		spacing := strings.Repeat(" ", availableSpace)
-
-		linePlain = repoName + spacing
-		if showShortcut {
-			linePlain += shortcutPlain + " "
-		}
-		linePlain += arrow
 
 		if highlight {
 			lineStyled = linePlain
 		} else {
-			spacingStyled := strings.Repeat(" ", availableSpace)
-			arrowStyled := d.styles.repoCurrent.Render(arrow)
 			var nameStyled string
 			if repoName == d.currentRepo {
-				nameStyled = d.styles.repoCurrent.Render(repoName)
+				nameStyled = d.styles.repoCurrent.Render(displayName)
 			} else {
-				nameStyled = d.styles.repoHeader.Render(repoName)
+				nameStyled = d.styles.repoHeader.Render(displayName)
 			}
+			arrowStyled := d.styles.repoCurrent.Render(arrow)
 			if showShortcut {
-				lineStyled = nameStyled + spacingStyled + shortcutStyled + " " + arrowStyled
+				lineStyled = nameStyled + " " + arrowStyled + "  " + shortcutStyled
 			} else {
-				lineStyled = nameStyled + spacingStyled + arrowStyled
+				lineStyled = nameStyled + " " + arrowStyled
 			}
 		}
 
@@ -237,14 +226,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		if strings.TrimSpace(label) == "" {
 			label = workItem.Worktree.Name
 		}
-		var branchIcon string
-		if workItem.IsPinned {
-			branchIcon = icons.Pin.NerdFont
-		} else if workItem.IsSelected {
-			branchIcon = icons.Ready.NerdFont
-		} else {
-			branchIcon = icons.GitRepo.NerdFont
-		}
+		branchIcon := icons.GetGitRepo()
 		linePlain = "  " + branchIcon + "  " + label
 		if highlight {
 			lineStyled = linePlain
@@ -253,13 +235,25 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 	case "pinned_header":
-		// Render "Pinned" header
-		linePlain = "Pinned"
+		limit := workItem.PinnedLimit
+		if limit <= 0 {
+			limit = session.MaxPinnedSessions
+		}
+		label := fmt.Sprintf("%s Pinned", icons.Pin.Get())
+		countPlain := fmt.Sprintf("(%d/%d)", workItem.PinnedCount, limit)
+		linePlain = label + " " + countPlain
 		if highlight {
 			lineStyled = linePlain
 		} else {
-			lineStyled = d.styles.repoHeader.Render(linePlain)
+			countStyled := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.TextDescription)).
+				Render(countPlain)
+			lineStyled = d.styles.repoHeader.Render(label) + " " + countStyled
 		}
+
+	case "pinned_empty":
+		linePlain = "  No pinned sessions"
+		lineStyled = d.styles.mustedText.Render(linePlain)
 
 	case "empty_message":
 		// Show empty state message
@@ -287,7 +281,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	contentWidth := innerWidth
 	var body string
-	activeHighlight := highlight || workItem.IsSelected
+	activeHighlight := highlight
 	if activeHighlight {
 		bodyStyle := d.styles.selectedItem
 		if workItem.Type == "repo_header" {
@@ -295,111 +289,19 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 		if hint != "" {
-			// For selected session items with hints, we need custom rendering for agent color
-			if workItem.IsSelected && workItem.Type == "session" {
-				// Render hint
-				hintStyle := lipgloss.NewStyle().
-					Background(lipgloss.Color(theme.RowHighlight)).
-					Foreground(lipgloss.Color(theme.TextMuted))
-				hintRendered := hintStyle.Render(hint)
-				hintWidth := lipgloss.Width(hintRendered)
-
-				// Calculate available width for content (excluding hint)
-				available := contentWidth - hintWidth
-				if available < 0 {
-					available = 0
-				}
-
-				// Extract label from linePlain: "   <icon>  <label>"
-				label := workItem.Worktree.Branch
-				if strings.TrimSpace(label) == "" {
-					label = workItem.Worktree.Name
-				}
-				var branchIcon string
-				if workItem.IsPinned {
-					branchIcon = icons.Pin.NerdFont
-				} else {
-					branchIcon = icons.Ready.NerdFont
-				}
-
-				// Render parts with proper styling
-				agentColor := app.GetCurrentAgentColor()
-				iconStyled := lipgloss.NewStyle().
-					Background(lipgloss.Color(theme.RowHighlight)).
-					Foreground(lipgloss.Color(agentColor)).
-					Render("  " + branchIcon + "  ")
-				labelStyled := lipgloss.NewStyle().
-					Background(lipgloss.Color(theme.RowHighlight)).
-					Foreground(lipgloss.Color(theme.TextPrimary)).
-					Render(label)
-
-				contentRendered := iconStyled + labelStyled
-				renderedWidth := lipgloss.Width(contentRendered)
-
-				// Pad content to available width
-				if renderedWidth < available {
-					padding := lipgloss.NewStyle().
-						Background(lipgloss.Color(theme.RowHighlight)).
-						Render(strings.Repeat(" ", available-renderedWidth))
-					contentRendered += padding
-				}
-
-				// Combine content + hint
-				body = contentRendered + hintRendered
-			} else {
-				// Use shared utility for hint rendering
-				// Note: We pass paddingCount=0 because we handle padding separately in agents pane
-				body = components.RenderRowWithHint(
-					linePlain,
-					hint,
-					contentWidth,
-					0, // No padding - we handle borders/padding separately
-					theme.RowHighlight,
-					theme.TextPrimary,
-					theme.TextMuted,
-				)
-			}
+			// Use shared utility for hint rendering
+			// Note: We pass paddingCount=0 because we handle padding separately in agents pane
+			body = components.RenderRowWithHint(
+				linePlain,
+				hint,
+				contentWidth,
+				0, // No padding - we handle borders/padding separately
+				theme.RowHighlight,
+				theme.TextPrimary,
+				theme.TextMuted,
+			)
 		} else {
-			// If this is a selected session item, render with agent color
-			if workItem.IsSelected && workItem.Type == "session" {
-				// Extract label
-				label := workItem.Worktree.Branch
-				if strings.TrimSpace(label) == "" {
-					label = workItem.Worktree.Name
-				}
-				var branchIcon string
-				if workItem.IsPinned {
-					branchIcon = icons.Pin.NerdFont
-				} else {
-					branchIcon = icons.Ready.NerdFont
-				}
-
-				// Render parts with proper styling
-				agentColor := app.GetCurrentAgentColor()
-				iconStyled := lipgloss.NewStyle().
-					Background(lipgloss.Color(theme.RowHighlight)).
-					Foreground(lipgloss.Color(agentColor)).
-					Render("  " + branchIcon + "  ")
-				labelStyled := lipgloss.NewStyle().
-					Background(lipgloss.Color(theme.RowHighlight)).
-					Foreground(lipgloss.Color(theme.TextPrimary)).
-					Render(label)
-
-				contentRendered := iconStyled + labelStyled
-				renderedWidth := lipgloss.Width(contentRendered)
-
-				// Pad to full width
-				if renderedWidth < contentWidth {
-					padding := lipgloss.NewStyle().
-						Background(lipgloss.Color(theme.RowHighlight)).
-						Render(strings.Repeat(" ", contentWidth-renderedWidth))
-					contentRendered += padding
-				}
-
-				body = contentRendered
-			} else {
-				body = bodyStyle.Width(contentWidth).Render(linePlain)
-			}
+			body = bodyStyle.Width(contentWidth).Render(linePlain)
 		}
 	} else {
 		body = lipgloss.NewStyle().Width(contentWidth).Render(lineStyled)
@@ -977,7 +879,6 @@ func (r *AgentsPane) selectSessionCandidate(candidate *git.WorktreeInfo, makeAct
 	return true
 }
 
-
 func (r *AgentsPane) findSessionIndexByPath(targetPath, repoName string) int {
 	if strings.TrimSpace(targetPath) == "" {
 		return -1
@@ -1087,7 +988,6 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 	return plan, true
 }
 
-
 // HasWorktrees returns whether there are any sessions available
 func (r *AgentsPane) HasWorktrees() bool {
 	return len(r.groupedSessions) > 0
@@ -1134,6 +1034,9 @@ func (r *AgentsPane) Refresh() error {
 
 	// Update the list with new items
 	r.list.SetItems(r.items)
+	if !r.isSelectableItem(r.list.Index()) {
+		r.moveDown()
+	}
 
 	return nil
 }
@@ -1148,36 +1051,41 @@ func (r *AgentsPane) buildItemList() {
 	}
 	r.items = nil
 
-	// Add "Pinned" section at the top if there are pinned sessions
+	var pinnedSessions []*session.Session
 	if r.sessionManager != nil {
-		pinnedSessions := r.sessionManager.GetPinnedSessions()
-		if len(pinnedSessions) > 0 {
-			// Add "Pinned" header
-			r.items = append(r.items, AgentListItem{
-				Type: "pinned_header",
-			})
+		pinnedSessions = r.sessionManager.GetPinnedSessions()
+	}
+	pinnedCount := len(pinnedSessions)
 
-			// Add pinned sessions
-			for _, sess := range pinnedSessions {
-				if sess.Worktree != nil {
-					worktreeCopy := *sess.Worktree
-					r.items = append(r.items, AgentListItem{
-						Type:       "session",
-						RepoName:   sess.Worktree.RepoName,
-						Worktree:   &worktreeCopy,
-						SessionID:  sess.ID,
-						IsSelected: r.isActiveWorktree(&worktreeCopy),
-						IsPinned:   true,
-					})
-				}
+	r.items = append(r.items, AgentListItem{
+		Type:        "pinned_header",
+		PinnedCount: pinnedCount,
+		PinnedLimit: session.MaxPinnedSessions,
+	})
+
+	if pinnedCount == 0 {
+		r.items = append(r.items, AgentListItem{
+			Type: "pinned_empty",
+		})
+	} else {
+		for _, sess := range pinnedSessions {
+			if sess.Worktree != nil {
+				worktreeCopy := *sess.Worktree
+				r.items = append(r.items, AgentListItem{
+					Type:      "session",
+					RepoName:  sess.Worktree.RepoName,
+					Worktree:  &worktreeCopy,
+					SessionID: sess.ID,
+					IsPinned:  true,
+				})
 			}
-
-			// Add gap after pinned section
-			r.items = append(r.items, AgentListItem{
-				Type: "gap",
-			})
 		}
 	}
+
+	// Gap after pinned section
+	r.items = append(r.items, AgentListItem{
+		Type: "gap",
+	})
 
 	// Get sorted repository names (current repo first)
 	repoNames := make([]string, 0, len(r.groupedSessions))
@@ -1258,12 +1166,11 @@ func (r *AgentsPane) buildItemList() {
 							isPinned = r.sessionManager.IsPinned(sess.ID)
 						}
 						r.items = append(r.items, AgentListItem{
-							Type:       "session",
-							RepoName:   repoName,
-							Worktree:   &worktreeCopy,
-							SessionID:  sess.ID,
-							IsSelected: r.isActiveWorktree(&worktreeCopy),
-							IsPinned:   isPinned,
+							Type:      "session",
+							RepoName:  repoName,
+							Worktree:  &worktreeCopy,
+							SessionID: sess.ID,
+							IsPinned:  isPinned,
 						})
 					}
 				}
@@ -1381,8 +1288,8 @@ func (r *AgentsPane) isSelectableItem(index int) bool {
 		return false
 	}
 
-	// Gap items and "No agents" messages are not selectable
-	if item.Type == "empty_message" || item.Type == "gap" {
+	// Headers, gap items, and empty messages are not selectable
+	if item.Type == "pinned_header" || item.Type == "empty_message" || item.Type == "gap" {
 		return false
 	}
 

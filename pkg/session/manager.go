@@ -13,11 +13,13 @@ import (
 	"agate/pkg/tmux"
 )
 
+const MaxPinnedSessions = 4
+
 // Manager is a singleton that manages all sessions
 type Manager struct {
 	sessions       map[string]*Session  // WorktreeKey -> Session
 	activeSession  *Session             // Currently active session
-	pinnedSessions []string             // Ordered list of pinned session IDs (max 4)
+	pinnedSessions []string             // Ordered list of pinned session IDs (max MaxPinnedSessions)
 	worktreeMgr    *git.WorktreeManager // Default Git worktree manager (launch repo)
 	worktreeMap    map[string]*git.WorktreeManager
 	stateMgr       StateManager // Thread-safe state persistence
@@ -55,7 +57,6 @@ func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manage
 
 	return mgr
 }
-
 
 // CreateSession creates a new session for the given worktree and agent
 func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*Session, error) {
@@ -110,7 +111,6 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 
 	return session, nil
 }
-
 
 // GetOrCreateSession returns existing session or creates a new one
 func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName string) (*Session, error) {
@@ -226,7 +226,6 @@ func (m *Manager) DeleteSession(worktreeKey string) error {
 	return nil
 }
 
-
 // ListSessions returns all sessions
 func (m *Manager) ListSessions() []*Session {
 	sessions := make([]*Session, 0, len(m.sessions))
@@ -317,7 +316,6 @@ func (m *Manager) GetWorktreeManagerForRepo(repoName string) (*git.WorktreeManag
 	return manager, nil
 }
 
-
 // RestoreSessions attempts to reconnect to existing tmux sessions on startup
 func (m *Manager) RestoreSessions() error {
 	return m.LoadSessions()
@@ -356,8 +354,8 @@ func (m *Manager) PinSession(sessionID string) error {
 	}
 
 	// Check if we've reached the max limit
-	if len(m.pinnedSessions) >= 4 {
-		return fmt.Errorf("cannot pin more than 4 sessions (currently have %d pinned)", len(m.pinnedSessions))
+	if len(m.pinnedSessions) >= MaxPinnedSessions {
+		return fmt.Errorf("cannot pin more than %d sessions (currently have %d pinned)", MaxPinnedSessions, len(m.pinnedSessions))
 	}
 
 	// Verify the session exists

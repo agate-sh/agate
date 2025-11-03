@@ -3,8 +3,11 @@ package layout
 import (
 	"agate/pkg/app"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/gui/theme"
 	"agate/pkg/tmux"
+	"runtime"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -451,12 +454,13 @@ func (l *Layout) GetNumGridSessions() int {
 
 // SessionPaneContent contains the content for a single session pane (tabbed tmux/git)
 type SessionPaneContent struct {
-	TmuxContent string
-	GitContent  string
-	BranchName  string
-	AgentColor  string
-	IsFocused   bool
-	ActiveTab   int // 0 = tmux, 1 = git
+	TmuxContent  string
+	GitContent   string
+	BranchName   string
+	AgentColor   string
+	IsFocused    bool
+	ActiveTab    int // 0 = tmux, 1 = git
+	ChangesCount int
 }
 
 // RenderGridPanes renders agents pane + grid of session panes
@@ -510,19 +514,7 @@ func (l *Layout) RenderGridPanes(agentsContent string, sessions []SessionPaneCon
 
 		cell := l.gridCells[i]
 
-		// Use branch name as first tab label
-		branchTabName := session.BranchName
-		if branchTabName == "" {
-			branchTabName = "Session"
-		}
-
-		// Create tabbed pane with branch/git tabs
-		tabs := []components.Tab{
-			{Name: branchTabName, Content: session.TmuxContent},
-			{Name: "Git", Content: session.GitContent},
-		}
-
-		tabbedPane := components.NewTabbedPane(tabs)
+		tabbedPane := components.NewTabbedPane(buildSessionTabs(session))
 		// Set the tabbed pane size to cell dimensions
 		tabbedPane.SetSize(cell.Width, cell.Height)
 		tabbedPane.SetActiveTab(session.ActiveTab)
@@ -571,6 +563,60 @@ func (l *Layout) RenderGridPanes(agentsContent string, sessions []SessionPaneCon
 		PaddingLeft(HorizontalMargin).
 		PaddingRight(HorizontalMargin).
 		Render(panes)
+}
+
+func buildSessionTabs(session SessionPaneContent) []components.Tab {
+	branchLabel := icons.GetGitRepo() + " " + defaultBranchLabel(session.BranchName)
+	changesLabel := "Changes"
+
+	badge := components.RenderChangeCountBadge(session.ChangesCount)
+	if badge != "" {
+		changesLabel = changesLabel + " " + badge
+	}
+
+	shortcut := renderTabShortcut()
+	branchTrailing := ""
+	changesTrailing := ""
+	if shortcut != "" {
+		if session.ActiveTab == 0 {
+			changesTrailing = shortcut
+		} else {
+			branchTrailing = shortcut
+		}
+	}
+
+	return []components.Tab{
+		{Name: branchLabel, Content: session.TmuxContent, Trailing: branchTrailing},
+		{Name: changesLabel, Content: session.GitContent, Trailing: changesTrailing},
+	}
+}
+
+func defaultBranchLabel(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return "Session"
+	}
+	return name
+}
+
+func renderTabShortcut() string {
+	modifier := optionKeyIcon()
+	if modifier == "" {
+		return ""
+	}
+
+	shortcut := modifier + " + tab"
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.InfoStatus)).
+		Bold(true).
+		Render(shortcut)
+}
+
+func optionKeyIcon() string {
+	if runtime.GOOS == "darwin" {
+		return "⌥"
+	}
+	// Use Alternate key symbol for non-mac platforms
+	return "⎇"
 }
 
 // RightGapHeight returns the vertical gap between git and shell panes
