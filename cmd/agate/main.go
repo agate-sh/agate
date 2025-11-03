@@ -1543,20 +1543,23 @@ func (m model) View() string {
 				}
 			}
 
-			// Get actual git files
+			// Get actual git content using GitPane
 			gitContent := ""
 			changeCount := 0
 			if sess.Worktree != nil {
+				// Use the git pane to render the content properly
+				if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
+					gitPane.SetRepository(sess.Worktree.Path)
+					gitPane.SetSize(contentWidth, contentHeight)
+					gitPane.SetActive(m.focus.PaneType == layout.PaneTypeSession &&
+						m.focus.SessionIndex == i &&
+						m.focus.SessionSubPane == layout.SubPaneGit)
+					gitContent = gitPane.View()
+				}
+
+				// Get change count for badge
 				fileStatus := git.GetFileStatuses(sess.Worktree.Path)
-				if fileStatus == nil || fileStatus.IsClean {
-					gitContent = "No changes"
-					changeCount = 0
-				} else {
-					var gitLines []string
-					for _, file := range fileStatus.Files {
-						gitLines = append(gitLines, file.FilePath)
-					}
-					gitContent = strings.Join(gitLines, "\n")
+				if fileStatus != nil && !fileStatus.IsClean {
 					changeCount = len(fileStatus.Files)
 				}
 			}

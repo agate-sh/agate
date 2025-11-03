@@ -227,6 +227,19 @@ check_dependencies() {
         found_deps+=("fzf")
     fi
 
+    # Check for delta (git diff pager)
+    if ! command_exists delta; then
+        print_info "Installing delta, a syntax-highlighting git diff pager"
+        install_delta "$os_type"
+        if command_exists delta; then
+            found_deps+=("delta")
+        else
+            missing_deps+=("delta")
+        fi
+    else
+        found_deps+=("delta")
+    fi
+
     # Report missing dependencies
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         for dep in "${missing_deps[@]}"; do
@@ -288,6 +301,76 @@ install_fzf() {
     fi
 }
 
+# Install delta (git diff pager)
+install_delta() {
+    local os_type="$1"
+    local install_dir="$HOME/.local/bin"
+
+    # Create install directory
+    mkdir -p "$install_dir"
+
+    # Detect architecture
+    local arch
+    case "$(uname -m)" in
+        x86_64 | amd64) arch="x86_64" ;;
+        arm64 | aarch64) arch="aarch64" ;;
+        *) return 1 ;;
+    esac
+
+    # Get latest version
+    local version
+    version=$(curl -sS "https://api.github.com/repos/dandavison/delta/releases/latest" | \
+              grep '"tag_name"' | \
+              sed -E 's/.*"([^"]+)".*/\1/')
+
+    if [[ -z "$version" ]]; then
+        return 1
+    fi
+
+    # Construct download URL based on OS
+    local download_url
+    local archive_name
+
+    case "$os_type" in
+        darwin)
+            archive_name="delta-${version}-${arch}-apple-darwin.tar.gz"
+            ;;
+        linux)
+            archive_name="delta-${version}-${arch}-unknown-linux-gnu.tar.gz"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    download_url="https://github.com/dandavison/delta/releases/download/${version}/${archive_name}"
+
+    # Download and extract
+    local temp_dir
+    temp_dir=$(mktemp -d) || return 1
+
+    if curl -sS -L -f -o "${temp_dir}/${archive_name}" "$download_url" 2>/dev/null; then
+        cd "$temp_dir"
+        tar xzf "$archive_name" 2>/dev/null
+
+        # Find and move the delta binary
+        find . -name "delta" -type f -perm +111 -exec mv {} "$install_dir/delta" \; 2>/dev/null
+        chmod +x "$install_dir/delta" 2>/dev/null
+
+        # Add to PATH for current session
+        if [[ ":$PATH:" != *":$install_dir:"* ]]; then
+            export PATH="$install_dir:$PATH"
+        fi
+
+        # Cleanup
+        rm -rf "$temp_dir"
+
+        return 0
+    fi
+
+    rm -rf "$temp_dir"
+    return 1
+}
 
 # Download and install the binary
 install_agate() {
@@ -396,7 +479,7 @@ update_shell_config() {
         # Create config file if it doesn't exist
         [[ ! -f "$shell_config" ]] && touch "$shell_config"
 
-        # Add PATH export
+        # Add PATH export for agate
         if [[ "$shell_name" == "fish" ]]; then
             echo "" >> "$shell_config"
             echo "# agate" >> "$shell_config"

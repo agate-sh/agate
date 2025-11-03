@@ -12,13 +12,25 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// FocusPane represents which part of the git pane is focused
+type FocusPane int
+
+const (
+	FocusPaneFileList FocusPane = iota
+	FocusPaneDiffViewer
 )
 
 // GitPane manages the display of Git file status information
 type GitPane struct {
 	*components.BasePane // Embedded BasePane for common functionality
 	fileList             *components.GitFileList
+	diffViewer           *components.GitDiffViewer
 	repoPath             string
+	focusedPane          FocusPane
+	lastSelectedFile     string // Track last selected file to avoid re-loading diff
 }
 
 // gitRefreshMsg is sent when the git pane needs to refresh
@@ -27,19 +39,34 @@ type GitRefreshMsg struct{}
 
 // NewGitPane creates a new GitPane instance
 func NewGitPane() *GitPane {
-	fileList := components.NewGitFileList("", true) // Show summary
+	fileList := components.NewGitFileList("", false) // Don't show summary
+	diffViewer := components.NewGitDiffViewer()
 	return &GitPane{
-		BasePane: components.NewBasePane(2, "Changes"), // Pane index 2
-		fileList: fileList,
+		BasePane:    components.NewBasePane(2, "Changes"), // Pane index 2
+		fileList:    fileList,
+		diffViewer:  diffViewer,
+		focusedPane: FocusPaneFileList, // Start with file list focused
 	}
 }
 
 // SetSize updates the dimensions of the Git pane
 func (g *GitPane) SetSize(width, height int) {
 	g.BasePane.SetSize(width, height)
+
+	// Account for border (1 char wide)
+	borderWidth := 1
+
+	// Split: 25% for file list, remainder for diff viewer (accounting for border)
+	fileListWidth := int(float64(width) * 0.25)
+	diffViewerWidth := width - fileListWidth - borderWidth
+
 	if g.fileList != nil {
-		g.fileList.SetSize(g.GetWidth())
-		g.fileList.SetHeight(g.GetHeight())
+		g.fileList.SetSize(fileListWidth)
+		g.fileList.SetHeight(height)
+	}
+
+	if g.diffViewer != nil {
+		g.diffViewer.SetSize(diffViewerWidth, height)
 	}
 }
 
@@ -66,8 +93,12 @@ func (g *GitPane) Refresh() {
 // SetActive sets whether this pane is currently focused
 func (g *GitPane) SetActive(active bool) {
 	g.BasePane.SetActive(active)
+	// Only the focused sub-pane should be active
 	if g.fileList != nil {
-		g.fileList.SetActive(active)
+		g.fileList.SetActive(active && g.focusedPane == FocusPaneFileList)
+	}
+	if g.diffViewer != nil {
+		g.diffViewer.SetActive(active && g.focusedPane == FocusPaneDiffViewer)
 	}
 }
 
@@ -102,22 +133,88 @@ func (g *GitPane) MoveDown() bool {
 
 // HandleKey processes keyboard input when the pane is active
 func (g *GitPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
-	if !g.IsActive() || g.fileList == nil {
+	if !g.IsActive() {
+		return false, nil
+	}
+
+	// Handle left/right arrow keys to toggle between file list and diff viewer
+	if key == "right" && g.focusedPane == FocusPaneFileList {
+		g.toggleFocus()
+		return true, nil
+	}
+	if key == "left" && g.focusedPane == FocusPaneDiffViewer {
+		g.toggleFocus()
+		return true, nil
+	}
+
+	// Route keys based on focused pane
+	if g.focusedPane == FocusPaneFileList {
+		return g.handleFileListKey(key)
+	} else {
+		return g.handleDiffViewerKey(key)
+	}
+}
+
+// toggleFocus switches focus between file list and diff viewer
+func (g *GitPane) toggleFocus() {
+	if g.focusedPane == FocusPaneFileList {
+		g.focusedPane = FocusPaneDiffViewer
+	} else {
+		g.focusedPane = FocusPaneFileList
+	}
+	// Update active state for both components
+	g.SetActive(g.IsActive())
+}
+
+// handleFileListKey handles keys when file list is focused
+func (g *GitPane) handleFileListKey(key string) (handled bool, cmd tea.Cmd) {
+	if g.fileList == nil {
 		return false, nil
 	}
 
 	switch key {
 	case "up", "k":
-		g.fileList.MoveUp()
+		changed := g.fileList.MoveUp()
+		if changed {
+			g.updateDiffViewer()
+		}
 		return true, nil
 	case "down", "j":
-		g.fileList.MoveDown()
+		changed := g.fileList.MoveDown()
+		if changed {
+			g.updateDiffViewer()
+		}
 		return true, nil
 	case "d":
 		// Discard selected file
 		return true, g.discardFile()
 	case "enter":
 		return true, g.openSelectedFile()
+	default:
+		return false, nil
+	}
+}
+
+// handleDiffViewerKey handles keys when diff viewer is focused
+func (g *GitPane) handleDiffViewerKey(key string) (handled bool, cmd tea.Cmd) {
+	if g.diffViewer == nil {
+		return false, nil
+	}
+
+	// Pass through key events to viewport for scrolling
+	switch key {
+	case "up", "k":
+		cmd = g.diffViewer.Update(tea.KeyMsg{Type: tea.KeyUp})
+		return true, cmd
+	case "down", "j":
+		cmd = g.diffViewer.Update(tea.KeyMsg{Type: tea.KeyDown})
+		return true, cmd
+	case "pgup":
+		cmd = g.diffViewer.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+		return true, cmd
+	case "pgdown":
+		cmd = g.diffViewer.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+		return true, cmd
 	default:
 		return false, nil
 	}
@@ -216,12 +313,67 @@ func (g *GitPane) GetPaneSpecificKeybindings() []key.Binding {
 	return []key.Binding{common.GlobalKeys.OpenInEditor}
 }
 
-// View renders the Git pane content
+// updateDiffViewer updates the diff viewer with the currently selected file
+func (g *GitPane) updateDiffViewer() {
+	if g.diffViewer == nil {
+		return
+	}
+
+	file := g.GetSelectedFile()
+	if file == nil {
+		g.diffViewer.SetDiffContent("")
+		g.lastSelectedFile = ""
+		return
+	}
+
+	// Avoid re-loading if same file
+	if file.FilePath == g.lastSelectedFile {
+		return
+	}
+
+	g.lastSelectedFile = file.FilePath
+
+	// Get rendered diff from delta
+	diffContent, err := git.GetFileDiffRendered(g.repoPath, file.FilePath, g.diffViewer.Width())
+	if err != nil {
+		// If error, clear the diff viewer
+		g.diffViewer.SetDiffContent("")
+		return
+	}
+
+	g.diffViewer.SetDiffContent(diffContent)
+}
+
+// View renders the Git pane content with split layout
 func (g *GitPane) View() string {
-	if g.fileList == nil {
+	if g.fileList == nil || g.diffViewer == nil {
 		return ""
 	}
-	return g.fileList.View()
+
+	// Ensure diff is loaded for selected file
+	g.updateDiffViewer()
+
+	// Render both sides
+	fileListView := g.fileList.View()
+	diffViewerView := g.diffViewer.View()
+
+	// Add a vertical border between the panes (full height)
+	borderStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#3c3c3c")).
+		Height(g.GetHeight())
+
+	// Create a border string with the full height
+	var borderBuilder strings.Builder
+	for i := 0; i < g.GetHeight(); i++ {
+		if i > 0 {
+			borderBuilder.WriteString("\n")
+		}
+		borderBuilder.WriteString("│")
+	}
+	border := borderStyle.Render(borderBuilder.String())
+
+	// Join: file list + border + diff viewer
+	return lipgloss.JoinHorizontal(lipgloss.Top, fileListView, border, diffViewerView)
 }
 
 func (g *GitPane) changeCount() int {
