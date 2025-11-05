@@ -20,9 +20,11 @@ func init() {
 	tmuxPath = FindTmuxPath()
 }
 
-// Command creates a tmux command with the correct path
+// Command creates a tmux command with the correct path and agate server socket
 func Command(args ...string) *exec.Cmd {
-	return exec.Command(tmuxPath, args...)
+	// Prepend -L agate to all tmux commands to use the agate tmux server
+	agateArgs := append([]string{"-L", "agate"}, args...)
+	return exec.Command(tmuxPath, agateArgs...)
 }
 
 func tmuxCommand(args ...string) *exec.Cmd {
@@ -72,7 +74,6 @@ func NewTmuxSession(sanitizedName, program string) *TmuxSession {
 func (t *TmuxSession) SetPtyFactory(factory PtyFactory) {
 	t.ptyFactory = factory
 }
-
 
 // Start creates and starts a new tmux session
 func (t *TmuxSession) Start(workDir string) error {
