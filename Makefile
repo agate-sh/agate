@@ -16,7 +16,7 @@ help:
 
 # Build the binary
 build:
-	go build -o agate .
+	go build -o agate ./cmd/agate
 
 # Clean build artifacts
 clean:
