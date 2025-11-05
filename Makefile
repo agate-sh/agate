@@ -1,4 +1,4 @@
-.PHONY: help build clean fmt lint lint-fix vet test install-tools
+.PHONY: help build clean fmt lint lint-fix vet test install-tools list-tmux-sessions
 
 # Default target
 help:
@@ -13,6 +13,7 @@ help:
 	@echo "  check        - Run fmt, vet, and lint"
 	@echo "  fix          - Run fmt and lint-fix"
 	@echo "  install-tools - Install required development tools"
+	@echo "  list-tmux-sessions - List all tmux sessions grouped by server"
 
 # Build the binary
 build:
@@ -57,3 +58,24 @@ install-tools:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; brew install golangci-lint; }
 	@command -v goimports >/dev/null 2>&1 || { echo "Installing goimports..."; go install golang.org/x/tools/cmd/goimports@latest; }
 	@echo "Development tools installed!"
+
+# List all tmux sessions grouped by server
+list-tmux-sessions:
+	@echo "Tmux sessions by server:"
+	@if [ -d "/tmp/tmux-$$(id -u)" ]; then \
+		for socket in /tmp/tmux-$$(id -u)/*; do \
+			if [ -S "$$socket" ]; then \
+				server_name=$$(basename "$$socket"); \
+				echo ""; \
+				echo "Server: $$server_name"; \
+				sessions=$$(tmux -L "$$server_name" list-sessions 2>/dev/null); \
+				if [ -n "$$sessions" ]; then \
+					echo "$$sessions" | sed 's/^/  /'; \
+				else \
+					echo "  (no sessions)"; \
+				fi; \
+			fi; \
+		done; \
+	else \
+		echo "  No tmux servers found for current user"; \
+	fi
