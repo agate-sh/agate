@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strings"
 
-	"agate/pkg/config"
 	"agate/pkg/gui/theme"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,13 +18,13 @@ import (
 // DebugOverlay provides a full-screen scrollable view of debug logs
 type DebugOverlay struct {
 	viewport    viewport.Model
-	debugLogger *debug.DebugLogger
+	logger      *debug.Logger
 	width       int
 	height      int
 }
 
 // NewDebugOverlay creates a new debug overlay
-func NewDebugOverlay(debugLogger *debug.DebugLogger) *DebugOverlay {
+func NewDebugOverlay(logger *debug.Logger) *DebugOverlay {
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -33,8 +32,8 @@ func NewDebugOverlay(debugLogger *debug.DebugLogger) *DebugOverlay {
 		Padding(1)
 
 	return &DebugOverlay{
-		viewport:    vp,
-		debugLogger: debugLogger,
+		viewport: vp,
+		logger:   logger,
 	}
 }
 
@@ -84,16 +83,16 @@ func (d *DebugOverlay) Update(msg tea.Msg) (*DebugOverlay, tea.Cmd) {
 
 // View renders the debug overlay
 func (d *DebugOverlay) View() string {
-	if d.debugLogger == nil {
+	if d.logger == nil {
 		return ""
 	}
 
-	// Read logs directly from debug.log file
+	// Read logs directly from agate.log file
 	logs := d.readDebugLogFile()
 
-	// Get debug log path for display
-	agateDir, _ := config.GetAgateDir()
-	debugLogPath := filepath.Join(agateDir, "debug.log")
+	// Get log path for display (current directory)
+	workDir, _ := os.Getwd()
+	logPath := filepath.Join(workDir, "agate.log")
 
 	// Create header with title and path on same row
 	titleStyle := lipgloss.NewStyle().
@@ -107,7 +106,7 @@ func (d *DebugOverlay) View() string {
 		Foreground(lipgloss.Color(theme.TextDescription)). // Help text uses description color
 		Align(lipgloss.Center)
 
-	titleRow := titleStyle.Render("Debug Log Viewer") + " " + pathStyle.Render("("+debugLogPath+")")
+	titleRow := titleStyle.Render("Debug Log Viewer") + " " + pathStyle.Render("("+logPath+")")
 	helpRow := helpStyle.Render("Use ↑/↓ to scroll • o to open in editor • ESC to close")
 
 	header := lipgloss.NewStyle().Align(lipgloss.Center).Render(titleRow) + "\n" + helpRow
@@ -143,21 +142,21 @@ func (d *DebugOverlay) View() string {
 	return overlayStyle.Render(overlayContent)
 }
 
-// readDebugLogFile reads all lines from the debug.log file
+// readDebugLogFile reads all lines from the agate.log file
 func (d *DebugOverlay) readDebugLogFile() []string {
-	// Get .agate directory path
-	agateDir, err := config.GetAgateDir()
+	// Get current working directory
+	workDir, err := os.Getwd()
 	if err != nil {
-		return []string{"Error: Could not locate .agate directory"}
+		return []string{"Error: Could not get current directory"}
 	}
 
-	// Create debug log path
-	debugLogPath := filepath.Join(agateDir, "debug.log")
+	// Create log file path
+	logPath := filepath.Join(workDir, "agate.log")
 
-	// Open the debug log file
-	file, err := os.Open(debugLogPath)
+	// Open the log file
+	file, err := os.Open(logPath)
 	if err != nil {
-		return []string{"Error: Could not open debug.log file"}
+		return []string{"Error: Could not open agate.log file"}
 	}
 	defer func() { _ = file.Close() }()
 
@@ -169,35 +168,35 @@ func (d *DebugOverlay) readDebugLogFile() []string {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return []string{"Error: Could not read debug.log file"}
+		return []string{"Error: Could not read agate.log file"}
 	}
 
 	if len(lines) == 0 {
-		return []string{"No debug logs available"}
+		return []string{"No logs available"}
 	}
 
 	return lines
 }
 
-// openDebugLogFile opens the debug log file in the default editor
+// openDebugLogFile opens the log file in the default editor
 func (d *DebugOverlay) openDebugLogFile() tea.Cmd {
 	return func() tea.Msg {
-		// Get debug log path
-		agateDir, err := config.GetAgateDir()
+		// Get current working directory
+		workDir, err := os.Getwd()
 		if err != nil {
 			return nil
 		}
-		debugLogPath := filepath.Join(agateDir, "debug.log")
+		logPath := filepath.Join(workDir, "agate.log")
 
 		// Cross-platform file opening
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
 		case "darwin":
-			cmd = exec.Command("open", debugLogPath)
+			cmd = exec.Command("open", logPath)
 		case "linux":
-			cmd = exec.Command("xdg-open", debugLogPath)
+			cmd = exec.Command("xdg-open", logPath)
 		case "windows":
-			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", debugLogPath)
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", logPath)
 		default:
 			return nil
 		}

@@ -87,8 +87,17 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 		}
 	}
 
+	// Convert agent config env vars to tmux env vars
+	envVars := make([]tmux.EnvVar, len(agentConfig.EnvVars))
+	for i, envVar := range agentConfig.EnvVars {
+		envVars[i] = tmux.EnvVar{
+			Name:  envVar.Name,
+			Value: envVar.Value,
+		}
+	}
+
 	// Create tmux session
-	tmuxSession := tmux.NewTmuxSession(sessionName, executableName)
+	tmuxSession := tmux.NewTmuxSession(sessionName, executableName, envVars)
 	err := tmuxSession.Start(worktree.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start tmux session: %w", err)
@@ -170,14 +179,6 @@ func (m *Manager) SwitchToSession(worktreeKey string) (*Session, error) {
 
 // GetActiveSession returns the currently active session
 func (m *Manager) GetActiveSession() *Session {
-	if m.activeSession != nil && m.activeSession.Worktree != nil {
-		debug.DebugLog("[SessionManager] GetActiveSession: returning path=%s, branch=%s",
-			m.activeSession.Worktree.Path, m.activeSession.Worktree.Branch)
-	} else if m.activeSession != nil {
-		debug.DebugLog("[SessionManager] GetActiveSession: returning session with nil worktree")
-	} else {
-		debug.DebugLog("[SessionManager] GetActiveSession: returning nil")
-	}
 	return m.activeSession
 }
 

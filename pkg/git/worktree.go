@@ -652,12 +652,12 @@ func (wm *WorktreeManager) DeleteWorktree(worktreeInfo WorktreeInfo) error {
 	cmd.Dir = wm.repoPath
 	if err := cmd.Run(); err != nil {
 		// Log warning but don't fail - worktree is already removed
-		fmt.Printf("Warning: failed to delete branch '%s': %v\n", worktreeInfo.Branch, err)
+		DebugLog("Warning: failed to delete branch '%s': %v", worktreeInfo.Branch, err)
 	}
 
 	// Remove directory if it still exists
 	if err := os.RemoveAll(worktreeInfo.Path); err != nil {
-		fmt.Printf("Warning: failed to remove directory '%s': %v\n", worktreeInfo.Path, err)
+		DebugLog("Warning: failed to remove directory '%s': %v", worktreeInfo.Path, err)
 	}
 
 	// Clean up empty parent directory

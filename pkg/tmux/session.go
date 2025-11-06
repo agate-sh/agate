@@ -37,6 +37,7 @@ type TmuxSession struct {
 	name          string
 	sanitizedName string
 	program       string
+	envVars       []EnvVar
 
 	// PTY management
 	ptyFactory PtyFactory
@@ -56,15 +57,22 @@ type TmuxSession struct {
 	height int
 }
 
+// EnvVar represents an environment variable name-value pair
+type EnvVar struct {
+	Name  string
+	Value string
+}
+
 // NewTmuxSession creates a new tmux session manager.
 //
 // IMPORTANT: The name parameter should already be sanitized using naming.Generator.
 // This function does NOT transform the name - it uses it exactly as provided.
-func NewTmuxSession(sanitizedName, program string) *TmuxSession {
+func NewTmuxSession(sanitizedName, program string, envVars []EnvVar) *TmuxSession {
 	return &TmuxSession{
 		name:          sanitizedName, // Store the sanitized name as-is
 		sanitizedName: sanitizedName, // No transformation!
 		program:       program,
+		envVars:       envVars,
 		ptyFactory:    NewPtyFactory(),
 		monitor:       newStatusMonitor(program),
 	}
@@ -84,8 +92,18 @@ func (t *TmuxSession) Start(workDir string) error {
 	}
 
 	if !exists {
-		// Create new tmux session using PTY like Claude Squad
-		cmd := tmuxCommand("new-session", "-d", "-s", t.sanitizedName, "-c", workDir, t.program)
+		// Build tmux new-session command with environment variables
+		args := []string{"new-session", "-d", "-s", t.sanitizedName, "-c", workDir}
+
+		// Add environment variables using -e flags
+		for _, envVar := range t.envVars {
+			args = append(args, "-e", fmt.Sprintf("%s=%s", envVar.Name, envVar.Value))
+		}
+
+		// Add the program to run
+		args = append(args, t.program)
+
+		cmd := tmuxCommand(args...)
 
 		ptmx, err := t.ptyFactory.Start(cmd)
 		if err != nil {
@@ -121,7 +139,7 @@ func (t *TmuxSession) Start(workDir string) error {
 			}
 		}
 		if err := ptmx.Close(); err != nil {
-			fmt.Printf("Warning: Failed to close PTY during session creation: %v\n", err)
+			debug.Warn("Failed to close PTY during session creation: %v", err)
 		}
 
 		// Set history limit to enable scrollback (default is 2000, we'll use 10000 for more history)
@@ -142,7 +160,7 @@ func (t *TmuxSession) Restore() error {
 	// Close existing PTY if any
 	if t.ptmx != nil {
 		if err := t.ptmx.Close(); err != nil {
-			debug.DebugLog("Failed to close existing PTY during restore: %v", err)
+			debug.Warn("Failed to close existing PTY during restore: %v", err)
 		}
 		t.ptmx = nil
 	}
@@ -219,6 +237,7 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 			default:
 				// If context is not done, it was likely an abnormal termination (Ctrl-D)
 				// Print warning message
+				debug.Error("Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.")
 				fmt.Fprintf(os.Stderr, "\n\033[31mError: Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.\033[0m\n")
 			}
 		}
@@ -417,7 +436,7 @@ func (t *TmuxSession) Kill() error {
 	// Close PTY
 	if t.ptmx != nil {
 		if err := t.ptmx.Close(); err != nil {
-			debug.DebugLog("Failed to close PTY during session kill: %v", err)
+			debug.Warn("Failed to close PTY during session kill: %v", err)
 		}
 		t.ptmx = nil
 	}

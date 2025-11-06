@@ -72,7 +72,7 @@ type model struct {
 	showRepoDialog      bool                                 // Whether showing repository dialog
 	welcomeOverlay      *overlays.WelcomeOverlay             // Welcome overlay for first-time users
 	showWelcomeOverlay  bool                                 // Whether showing welcome overlay
-	debugLogger         *debug.DebugLogger                   // Debug logger for development
+	logger               *debug.Logger                       // Application logger
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
@@ -87,26 +87,27 @@ type model struct {
 }
 
 func initialModel(agentName string) model {
-	// Initialize debug logger FIRST so all subsequent logs are captured
-	debugLogger := debug.InitDebugLogger()
-	debug.DebugLog("Debug logger initialized successfully")
+	// Initialize logger FIRST so all subsequent logs are captured
+	logger := debug.InitLogger()
+	logger.Info("Logger initialized successfully")
 
 	// Initialize state manager (thread-safe state persistence)
 	stateManager, err := state.NewManager()
 	if err != nil {
-		fmt.Printf("ERROR: failed to initialize state manager: %v\n", err)
-		fmt.Printf("Agate will run without session persistence. Please check ~/.agate permissions.\n")
-		debug.DebugLog("ERROR: StateManager initialization failed: %v", err)
+		logger.Error("Failed to initialize state manager: %v", err)
+		logger.Warn("Agate will run without session persistence. Please check ~/.agate permissions.")
 		// Continue with nil stateManager - session manager will handle it gracefully
 	} else {
-		debug.DebugLog("StateManager initialized successfully")
+		logger.Info("StateManager initialized successfully")
 	}
 
 	// Initialize worktree manager
 	worktreeManager, err := git.NewWorktreeManager()
 	if err != nil {
 		// Log error but don't fail - app can still work without worktree features
-		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
+		logger.Warn("Failed to initialize worktree manager: %v", err)
+	} else {
+		logger.Info("WorktreeManager initialized successfully")
 	}
 
 	// Create session manager with state manager
@@ -114,7 +115,7 @@ func initialModel(agentName string) model {
 
 	// Load existing sessions from persistence
 	if err := sessionManager.RestoreSessions(); err != nil {
-		debug.DebugLog("Failed to restore sessions on startup: %v", err)
+		logger.Warn("Failed to restore sessions on startup: %v", err)
 		// Don't fail startup if session restoration fails
 	}
 
@@ -136,7 +137,7 @@ func initialModel(agentName string) model {
 	// Save as default agent for new sessions if provided
 	if agentName != "" && stateManager != nil {
 		if err := stateManager.SetDefaultAgent(agentName); err != nil {
-			debug.DebugLog("Failed to save default agent: %v", err)
+			logger.Warn("Failed to save default agent: %v", err)
 			// Continue without saving - not critical
 		}
 	}
@@ -170,12 +171,12 @@ func initialModel(agentName string) model {
 		showWelcomeOverlay = !welcomeShown
 	}
 
-	// Debug logger already initialized at the beginning of initialModel
+	// Logger already initialized at the beginning of initialModel
 	// Initialize debug overlay
-	debugOverlay := overlays.NewDebugOverlay(debugLogger)
+	debugOverlay := overlays.NewDebugOverlay(logger)
 
-	// Set up debug logging for git package (always enabled now)
-	git.DebugLog = debug.DebugLog
+	// Set up logging for git package
+	git.DebugLog = debug.Log
 
 	// Create shared loading state
 	loadingState := tmux.NewLoadingState()
@@ -204,7 +205,7 @@ func initialModel(agentName string) model {
 		showRepoDialog:      false,
 		welcomeOverlay:      overlays.NewWelcomeOverlay(),
 		showWelcomeOverlay:  showWelcomeOverlay,
-		debugLogger:         debugLogger,
+		logger:              logger,
 		debugOverlay:        debugOverlay,
 		showDebugOverlay:    false,
 		loadingState:        loadingState,
@@ -1167,8 +1168,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Close debug panel and log file
-			if m.debugLogger != nil {
-				m.debugLogger.Close()
+			if m.logger != nil {
+				m.logger.Close()
 			}
 			return m, tea.Quit
 

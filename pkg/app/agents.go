@@ -6,12 +6,19 @@ import (
 	"strings"
 )
 
+// EnvVar represents an environment variable name-value pair
+type EnvVar struct {
+	Name  string
+	Value string
+}
+
 // AgentConfig defines the configuration for different AI agents
 type AgentConfig struct {
-	Name           string // Display name
-	BorderColor    string // Hex color value for pane borders
-	ExecutableName string // What to match against in agent names
-	CompanyName    string // Company name to display in UI
+	Name           string   // Display name
+	BorderColor    string   // Hex color value for pane borders
+	ExecutableName string   // What to match against in agent names
+	CompanyName    string   // Company name to display in UI
+	EnvVars        []EnvVar // Environment variables to pass to the command
 }
 
 // Claude agent configuration with the specific color
@@ -20,6 +27,7 @@ var ClaudeAgent = AgentConfig{
 	BorderColor:    "#da7756",
 	ExecutableName: "claude",
 	CompanyName:    "Claude Code",
+	EnvVars:        nil,
 }
 
 // Amp agent configuration with the specific color
@@ -28,6 +36,7 @@ var AmpAgent = AgentConfig{
 	BorderColor:    "#b6bf69",
 	ExecutableName: "amp",
 	CompanyName:    "Amp",
+	EnvVars:        nil,
 }
 
 // Gemini agent configuration with the specific color
@@ -36,6 +45,7 @@ var GeminiAgent = AgentConfig{
 	BorderColor:    "#cda9fc",
 	ExecutableName: "gemini",
 	CompanyName:    "Gemini",
+	EnvVars:        nil,
 }
 
 // Codex agent configuration with the specific color
@@ -44,6 +54,7 @@ var CodexAgent = AgentConfig{
 	BorderColor:    "#6c908e",
 	ExecutableName: "codex",
 	CompanyName:    "Codex",
+	EnvVars:        nil,
 }
 
 // OpenCode agent configuration with the specific color
@@ -52,6 +63,7 @@ var OpenCodeAgent = AgentConfig{
 	BorderColor:    "#ffba88",
 	ExecutableName: "opencode",
 	CompanyName:    "opencode",
+	EnvVars:        nil,
 }
 
 // Cursor agent configuration with the specific color
@@ -60,6 +72,7 @@ var CursorAgent = AgentConfig{
 	BorderColor:    "#ffffff",
 	ExecutableName: "cursor-agent",
 	CompanyName:    "Cursor",
+	EnvVars:        nil,
 }
 
 // GithubCopilot agent configuration with the specific color
@@ -68,6 +81,7 @@ var GithubCopilotAgent = AgentConfig{
 	BorderColor:    "#81a1be",
 	ExecutableName: "copilot",
 	CompanyName:    "GitHub Copilot",
+	EnvVars:        nil,
 }
 
 var ContinueAgent = AgentConfig{
@@ -75,6 +89,7 @@ var ContinueAgent = AgentConfig{
 	BorderColor:    "#3782a6",
 	ExecutableName: "cn",
 	CompanyName:    "Continue",
+	EnvVars:        nil,
 }
 
 var ClineAgent = AgentConfig{
@@ -82,6 +97,18 @@ var ClineAgent = AgentConfig{
 	BorderColor:    "#f3cb76",
 	ExecutableName: "cline",
 	CompanyName:    "Cline",
+	EnvVars:        nil,
+}
+
+// TestAgent configuration for testing environment variables
+var TestAgent = AgentConfig{
+	Name:           "test",
+	BorderColor:    "#ff0000",
+	ExecutableName: "env",
+	CompanyName:    "Test",
+	EnvVars: []EnvVar{
+		{Name: "agate_test_env_var", Value: "hello"},
+	},
 }
 
 // Default configuration for unknown agents
@@ -90,6 +117,7 @@ var DefaultAgent = AgentConfig{
 	BorderColor:    "#86", // Default cyan color
 	ExecutableName: "default",
 	CompanyName:    "Default",
+	EnvVars:        nil,
 }
 
 // GetAgentConfig returns the appropriate agent configuration based on the agent name
@@ -108,6 +136,7 @@ func GetAgentConfig(agentName string) AgentConfig {
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
+		TestAgent,
 	}
 
 	// Check if the agent name contains any known agent executable names
@@ -133,6 +162,7 @@ func GetAllAgents() []AgentConfig {
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
+		TestAgent,
 	}
 }
 

@@ -205,8 +205,24 @@ func (m *Manager) restoreSessionFromPersisted(persistedSession config.PersistedS
 		RepoName: persistedSession.RepoName,
 	}
 
+	// Get executable name from agent config
+	executableName := agentConfig.ExecutableName
+	if executableName == "" {
+		executableName = persistedSession.AgentName
+	}
+
+	// Convert agent config env vars to tmux env vars
+	envVars := make([]tmux.EnvVar, len(agentConfig.EnvVars))
+	for i, envVar := range agentConfig.EnvVars {
+		envVars[i] = tmux.EnvVar{
+			Name:  envVar.Name,
+			Value: envVar.Value,
+		}
+	}
+
 	// Create tmux session object (connecting to existing session)
-	tmuxSession := tmux.NewTmuxSession(persistedSession.TmuxName, persistedSession.AgentName)
+	// Note: env vars are passed but won't be used when restoring existing sessions
+	tmuxSession := tmux.NewTmuxSession(persistedSession.TmuxName, executableName, envVars)
 	err := tmuxSession.Restore() // Connect to existing session
 	if err != nil {
 		return nil, err
