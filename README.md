@@ -41,20 +41,18 @@ go build
 
 ## Usage
 
-Launch Agate with your preferred CLI agent:
+Launch Agate with your preferred CLI agent (optional):
 
 ```bash
-# Claude
-agate claude
+# Launch with saved default agent
+agate
 
-# Claude (shorthand)
-agate cn
-
-# Gemini
-agate gemini
-
-# Codex
-agate codex
+# Or specify an agent explicitly
+agate claude    # Claude
+agate cn        # Continue (shorthand for claude)
+agate gemini    # Gemini
+agate codex     # Codex
+agate amp       # Amp
 ```
 
 ### Controls

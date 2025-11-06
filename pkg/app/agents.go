@@ -10,7 +10,7 @@ import (
 type AgentConfig struct {
 	Name           string // Display name
 	BorderColor    string // Hex color value for pane borders
-	ExecutableName string // What to match against in subprocess names
+	ExecutableName string // What to match against in agent names
 	CompanyName    string // Company name to display in UI
 }
 
@@ -45,7 +45,6 @@ var CodexAgent = AgentConfig{
 	ExecutableName: "codex",
 	CompanyName:    "Codex",
 }
-
 
 // OpenCode agent configuration with the specific color
 var OpenCodeAgent = AgentConfig{
@@ -93,10 +92,10 @@ var DefaultAgent = AgentConfig{
 	CompanyName:    "Default",
 }
 
-// GetAgentConfig returns the appropriate agent configuration based on the subprocess name
-func GetAgentConfig(subprocess string) AgentConfig {
+// GetAgentConfig returns the appropriate agent configuration based on the agent name
+func GetAgentConfig(agentName string) AgentConfig {
 	// Convert to lowercase for case-insensitive matching
-	lower := strings.ToLower(subprocess)
+	lower := strings.ToLower(agentName)
 
 	// List of all available agents
 	agents := []AgentConfig{
@@ -111,7 +110,7 @@ func GetAgentConfig(subprocess string) AgentConfig {
 		GithubCopilotAgent,
 	}
 
-	// Check if the subprocess contains any known agent executable names
+	// Check if the agent name contains any known agent executable names
 	for _, agent := range agents {
 		if strings.Contains(lower, strings.ToLower(agent.ExecutableName)) {
 			return agent

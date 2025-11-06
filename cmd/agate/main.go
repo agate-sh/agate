@@ -54,7 +54,7 @@ type model struct {
 	ready               bool
 	focus               layout.FocusState // Hierarchical focus state
 	err                 error
-	subprocess          string                               // Command to run in tmux pane
+	agentName           string                               // Agent name (e.g., "claude", "amp")
 	mode                sessionMode                          // Current interaction mode
 	shortcutOverlay     *common.ShortcutOverlay              // Manages contextual shortcuts
 	footer              *common.Footer                       // Footer component for shortcuts
@@ -86,7 +86,7 @@ type model struct {
 	gitPane  components.Pane // Git file status pane
 }
 
-func initialModel(subprocess string) model {
+func initialModel(agentName string) model {
 	// Initialize debug logger FIRST so all subsequent logs are captured
 	debugLogger := debug.InitDebugLogger()
 	debug.DebugLog("Debug logger initialized successfully")
@@ -120,15 +120,22 @@ func initialModel(subprocess string) model {
 
 	// No automatic main session creation - users must explicitly create agents
 
-	// Get agent configuration based on subprocess name
-	agentConfig := app.GetAgentConfig(subprocess)
+	// Get agent configuration - use saved default if no agent provided
+	var resolvedAgentName string
+	if agentName != "" {
+		resolvedAgentName = agentName
+	} else if stateManager != nil {
+		resolvedAgentName = stateManager.GetDefaultAgent()
+	}
+	// If still empty, GetAgentConfig will return DefaultAgent
+	agentConfig := app.GetAgentConfig(resolvedAgentName)
 
 	// Set the agent globally so all components can access it (for backwards compatibility)
 	app.SetCurrentAgent(agentConfig)
 
-	// Save as default agent for new sessions
-	if subprocess != "" && stateManager != nil {
-		if err := stateManager.SetDefaultAgent(subprocess); err != nil {
+	// Save as default agent for new sessions if provided
+	if agentName != "" && stateManager != nil {
+		if err := stateManager.SetDefaultAgent(agentName); err != nil {
 			debug.DebugLog("Failed to save default agent: %v", err)
 			// Continue without saving - not critical
 		}
@@ -183,7 +190,7 @@ func initialModel(subprocess string) model {
 		sessionManager:      sessionManager,          // Session manager for coordination
 		stateManager:        stateManager,            // State manager for persistence
 		focus:               layout.NewAgentsFocus(), // Always start with focus on Agents pane
-		subprocess:          subprocess,
+		agentName:           agentName,
 		mode:                modePreview, // Start in preview mode
 		shortcutOverlay:     shortcutOverlay,
 		footer:              footer,
@@ -280,7 +287,15 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 	}
 
 	// Get or create session for this worktree
-	sess, err := m.sessionManager.GetOrCreateSession(worktree, m.subprocess)
+	// Use saved default agent if agentName is empty
+	resolvedAgentName := m.agentName
+	if resolvedAgentName == "" {
+		if m.stateManager != nil {
+			resolvedAgentName = m.stateManager.GetDefaultAgent()
+		}
+		// If still empty, GetAgentConfig will return DefaultAgent
+	}
+	sess, err := m.sessionManager.GetOrCreateSession(worktree, resolvedAgentName)
 	if err != nil {
 		debug.DebugLog("Failed to get/create session for worktree %s: %v", worktree.Path, err)
 		return nil
@@ -637,7 +652,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use the agent name from the message (selected by user in dialog)
 			agentName := msg.AgentName
 			if agentName == "" {
-				agentName = m.subprocess // Fallback to subprocess if not provided
+				agentName = m.agentName // Fallback to agentName if not provided
 			}
 			// Create or get session for this worktree using session manager
 			newSession, err := m.sessionManager.GetOrCreateSession(msg.Worktree, agentName)
@@ -1179,14 +1194,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, common.GlobalKeys.NewSession):
 			// Create new worktree (available from both panes)
 			if m.sessionManager != nil {
-				// Get default agent from state or use current subprocess
+				// Get default agent from state or use current agentName
 				var defaultAgent string
 				if m.stateManager != nil {
 					defaultAgent = m.stateManager.GetDefaultAgent()
 				}
 				if defaultAgent == "" {
-					// Fallback to current subprocess if no default set
-					defaultAgent = m.subprocess
+					// Fallback to current agentName if no default set
+					defaultAgent = m.agentName
 				}
 
 				var worktreeManager *git.WorktreeManager
@@ -1682,12 +1697,12 @@ func checkTmuxInstalled() error {
 	return nil
 }
 
-func runAgent(subprocess string) error {
+func runAgent(agentName string) error {
 	if err := checkTmuxInstalled(); err != nil {
 		return err
 	}
 
-	p := tea.NewProgram(initialModel(subprocess), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(initialModel(agentName), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running program: %v", err)
 	}
@@ -1698,12 +1713,13 @@ func main() {
 	var showVersion bool
 
 	var rootCmd = &cobra.Command{
-		Use:   "agate <agent>",
+		Use:   "agate [agent]",
 		Short: "A tmux-based terminal UI for AI agents",
 		Long: `Agate provides a split-pane terminal interface for interacting with AI agents.
 
-Supports any agent name (claude, amp, cn, etc.) and automatically configures
-colors and settings based on the agent type.
+Optionally specify an agent name (claude, amp, cn, etc.) to configure colors
+and settings. If no agent is specified, Agate will use your saved default or
+a generic default.
 
 Agate provides two interaction modes:
   Preview Mode (default): Read-only view with fast, lag-free rendering
@@ -1714,19 +1730,21 @@ Press Ctrl+Q when attached to detach back to preview.
 Press ? for help once running.
 
 Examples:
+  agate           # Launch with saved default agent
   agate claude    # Launch with Claude
   agate amp       # Launch with Amp
   agate cn        # Launch with Continue`,
-		Args: cobra.ArbitraryArgs,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showVersion {
 				fmt.Println(version.Short())
 				return nil
 			}
-			if len(args) != 1 {
-				return fmt.Errorf("exactly one agent name is required")
+			agent := ""
+			if len(args) > 0 {
+				agent = args[0]
 			}
-			return runAgent(args[0])
+			return runAgent(agent)
 		},
 	}
 
