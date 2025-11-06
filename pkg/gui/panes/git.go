@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agate/internal/debug"
 	"agate/pkg/git"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // FocusPane represents which part of the git pane is focused
@@ -65,9 +67,25 @@ func (g *GitPane) SetSize(width, height int) {
 		g.fileList.SetHeight(height)
 	}
 
+	prevDiffWidth := 0
+	if g.diffViewer != nil {
+		prevDiffWidth = g.diffViewer.Width()
+	}
+
+	if diffViewerWidth < 0 {
+		diffViewerWidth = 0
+	}
+
 	if g.diffViewer != nil {
 		g.diffViewer.SetSize(diffViewerWidth, height)
 	}
+
+	if diffViewerWidth != prevDiffWidth {
+		// Force re-render of the current diff with the new width
+		g.lastSelectedFile = ""
+	}
+
+	debug.DebugLog("[GitPane] SetSize width=%d height=%d fileListWidth=%d diffWidth=%d", width, height, fileListWidth, diffViewerWidth)
 }
 
 // SetRepository updates the repository path and refreshes file status
@@ -319,7 +337,18 @@ func (g *GitPane) updateDiffViewer() {
 		return
 	}
 
+	if g.diffViewer.Width() < 1 {
+		g.diffViewer.SetDiffContent("")
+		return
+	}
+
+	diffWidth := g.diffViewer.Width()
 	file := g.GetSelectedFile()
+	filePath := "<nil>"
+	if file != nil {
+		filePath = file.FilePath
+	}
+	debug.DebugLog("[GitPane] updateDiffViewer width=%d file=%s", diffWidth, filePath)
 	if file == nil {
 		g.diffViewer.SetDiffContent("")
 		g.lastSelectedFile = ""
@@ -372,8 +401,7 @@ func (g *GitPane) View() string {
 	}
 	border := borderStyle.Render(borderBuilder.String())
 
-	// Join: file list + border + diff viewer
-	return lipgloss.JoinHorizontal(lipgloss.Top, fileListView, border, diffViewerView)
+	return joinGitSections(fileListView, border, diffViewerView, g.GetWidth(), g.GetHeight())
 }
 
 func (g *GitPane) changeCount() int {
@@ -385,4 +413,64 @@ func (g *GitPane) changeCount() int {
 		return 0
 	}
 	return len(status.Files)
+}
+
+// joinGitSections composes the Git pane sections without padding trailing spaces on the diff content.
+func joinGitSections(fileListView, borderView, diffView string, targetWidth, targetHeight int) string {
+	left := lipgloss.JoinHorizontal(lipgloss.Top, fileListView, borderView)
+	leftLines := strings.Split(left, "\n")
+	diffLines := strings.Split(diffView, "\n")
+
+	leftWidth := 0
+	for _, line := range leftLines {
+		if w := ansi.StringWidth(line); w > leftWidth {
+			leftWidth = w
+		}
+	}
+
+	maxLines := max(len(leftLines), len(diffLines))
+	if targetHeight > maxLines {
+		maxLines = targetHeight
+	}
+
+	var b strings.Builder
+	for i := 0; i < maxLines; i++ {
+		var leftLine string
+		if i < len(leftLines) {
+			leftLine = leftLines[i]
+		}
+		padding := leftWidth - ansi.StringWidth(leftLine)
+		if padding > 0 {
+			leftLine += strings.Repeat(" ", padding)
+		}
+
+		leftLineWidth := ansi.StringWidth(leftLine)
+		diffTargetWidth := targetWidth - leftLineWidth
+		if diffTargetWidth < 0 {
+			diffTargetWidth = 0
+		}
+
+		var diffLine string
+		if i < len(diffLines) {
+			diffLine = diffLines[i]
+		}
+
+		diffLine = components.FitANSIString(diffLine, diffTargetWidth)
+
+		b.WriteString(leftLine)
+		b.WriteString(diffLine)
+
+		if i < maxLines-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

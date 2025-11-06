@@ -76,8 +76,8 @@ type CommitMessageGeneratedMsg struct {
 // NewCommitOverlay creates a new commit overlay
 func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	repoPath := ""
-	if sess != nil && sess.Worktree != nil {
-		repoPath = sess.Worktree.Path
+	if sess != nil && sess.Worktree() != nil {
+		repoPath = sess.Worktree().Path
 	}
 
 	// Create labeled input for commit message
@@ -145,7 +145,7 @@ func (c *CommitOverlay) Init() tea.Cmd {
 		return nil
 	}
 
-	testCmd := c.session.Agent.HeadlessCommand("")
+	testCmd := c.session.Agent().HeadlessCommand("")
 
 	if testCmd == nil {
 		// No fast headless support - skip generation, recreate input with proper placeholder
@@ -162,7 +162,7 @@ func (c *CommitOverlay) Init() tea.Cmd {
 	now := time.Now()
 	c.startTime = &now
 
-	c.loader.SetLabel(fmt.Sprintf("%s is generating a commit message", c.session.Agent.CompanyName))
+	c.loader.SetLabel(fmt.Sprintf("%s is generating a commit message", c.session.Agent().CompanyName))
 	cmds = append(cmds, c.loader.TickCmd())
 	cmds = append(cmds, c.generateCommitMessage())
 
@@ -348,7 +348,8 @@ func (c *CommitOverlay) openSelectedFile() tea.Cmd {
 // generateCommitMessage starts the commit message generation
 func (c *CommitOverlay) generateCommitMessage() tea.Cmd {
 	return func() tea.Msg {
-		message, err := git.GenerateCommitMessage(&c.session.Agent, c.repoPath, c.executor)
+		agentConfig := c.session.Agent()
+		message, err := git.GenerateCommitMessage(&agentConfig, c.repoPath, c.executor)
 		if err != nil {
 			// On error, return empty message (will show empty input)
 			return CommitMessageGeneratedMsg{Message: ""}
@@ -394,9 +395,9 @@ func (c *CommitOverlay) View() string {
 	// Header: Repo > Branch > Commit changes (same style as session dialog)
 	repoName := "unknown"
 	branchName := "unknown"
-	if c.session != nil && c.session.Worktree != nil {
-		repoName = c.session.Worktree.RepoName
-		branchName = c.session.Worktree.Branch
+	if c.session != nil && c.session.Worktree() != nil {
+		repoName = c.session.Worktree().RepoName
+		branchName = c.session.Worktree().Branch
 	}
 
 	repoStyle := lipgloss.NewStyle().
@@ -420,7 +421,7 @@ func (c *CommitOverlay) View() string {
 		// Only show loader when generating
 		loaderView := c.loader.View()
 		loaderStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(c.session.Agent.BorderColor)).
+			Foreground(lipgloss.Color(c.session.Agent().BorderColor)).
 			Bold(true)
 		appendLine(loaderStyle.Render(loaderView))
 		content = append(content, "")
@@ -509,8 +510,8 @@ func (c *CommitOverlay) View() string {
 	commitButton := components.NewButton("Commit", "↵", components.ButtonVariantAgent)
 	commitButton.SetWidth(actualContentWidth)
 	// Use the agent color from the session
-	if c.session != nil && c.session.Agent.BorderColor != "" {
-		commitButton.SetAgentColor(c.session.Agent.BorderColor)
+	if c.session != nil && c.session.Agent().BorderColor != "" {
+		commitButton.SetAgentColor(c.session.Agent().BorderColor)
 	}
 	commitButton.SetDisabled(!c.isValid())
 	button := commitButton.Render()

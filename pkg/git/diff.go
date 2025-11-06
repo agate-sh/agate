@@ -57,6 +57,7 @@ func GetFileDiffRendered(repoPath, filePath string, width int) (string, error) {
 	deltaCmd := exec.Command("delta",
 		"--width", fmt.Sprintf("%d", width),
 		"--paging", "never",
+		"--line-fill-method", "spaces",
 		"--file-decoration-style", "none",
 		"--hunk-header-decoration-style", "none",
 	)

@@ -4,23 +4,34 @@ import (
 	"time"
 )
 
-// SessionState manages the persistent state of sessions
+// SessionState manages the persistent state of multi-agent sessions
 type SessionState struct {
-	SessionMappings map[string]PersistedSession `json:"session_mappings"` // WorktreeKey -> PersistedSession
-	ActiveSession   string                      `json:"active_session"`   // Currently active session key
+	SessionMappings map[string]PersistedSession `json:"session_mappings"` // SessionID -> PersistedSession
+	ActiveSession   string                      `json:"active_session"`   // Currently active session ID
 	PinnedSessions  []string                    `json:"pinned_sessions"`  // Ordered list of pinned session IDs (max 4)
 	DefaultAgent    string                      `json:"default_agent"`    // Default agent for new sessions
 }
 
 // PersistedSession represents a session's persistent data
 type PersistedSession struct {
+	ID                  string                      `json:"id"`
+	Prompt              string                      `json:"prompt"`
+	Description         string                      `json:"description"` // Can be empty
+	BranchBaseName      string                      `json:"branch_base_name"`
+	ActiveInstanceIndex int                         `json:"active_instance_index"`
+	Instances           []PersistedAgentInstance    `json:"instances"`
+	CreatedAt           time.Time                   `json:"created_at"`
+	LastAccessed        time.Time                   `json:"last_accessed"`
+}
+
+// PersistedAgentInstance represents an agent instance's persistent data
+type PersistedAgentInstance struct {
 	ID           string    `json:"id"`
-	WorktreeKey  string    `json:"worktree_key"`
-	TmuxName     string    `json:"tmux_name"`     // Tmux session name
-	AgentName    string    `json:"agent_name"`    // Agent used for this session
-	WorktreePath string    `json:"worktree_path"` // Path to worktree
-	Branch       string    `json:"branch"`        // Branch name
-	RepoName     string    `json:"repo_name"`     // Repository name
+	AgentName    string    `json:"agent_name"`
+	TmuxName     string    `json:"tmux_name"`
+	WorktreePath string    `json:"worktree_path"`
+	Branch       string    `json:"branch"`
+	RepoName     string    `json:"repo_name"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 }
@@ -40,7 +51,7 @@ func GetSessionMappings() (map[string]PersistedSession, error) {
 }
 
 // SaveSessionMapping persists a session mapping
-func SaveSessionMapping(worktreeKey string, session PersistedSession) error {
+func SaveSessionMapping(sessionID string, session PersistedSession) error {
 	state, err := LoadState()
 	if err != nil {
 		return err
@@ -50,25 +61,25 @@ func SaveSessionMapping(worktreeKey string, session PersistedSession) error {
 		state.Sessions.SessionMappings = make(map[string]PersistedSession)
 	}
 
-	state.Sessions.SessionMappings[worktreeKey] = session
+	state.Sessions.SessionMappings[sessionID] = session
 	return SaveState(state)
 }
 
 // RemoveSessionMapping removes a session mapping
-func RemoveSessionMapping(worktreeKey string) error {
+func RemoveSessionMapping(sessionID string) error {
 	state, err := LoadState()
 	if err != nil {
 		return err
 	}
 
 	if state.Sessions.SessionMappings != nil {
-		delete(state.Sessions.SessionMappings, worktreeKey)
+		delete(state.Sessions.SessionMappings, sessionID)
 	}
 
 	return SaveState(state)
 }
 
-// GetActiveSession returns the active session key
+// GetActiveSession returns the active session ID
 func GetActiveSession() (string, error) {
 	state, err := LoadState()
 	if err != nil {
@@ -77,14 +88,14 @@ func GetActiveSession() (string, error) {
 	return state.Sessions.ActiveSession, nil
 }
 
-// SetActiveSession sets the active session key
-func SetActiveSession(sessionKey string) error {
+// SetActiveSession sets the active session ID
+func SetActiveSession(sessionID string) error {
 	state, err := LoadState()
 	if err != nil {
 		return err
 	}
 
-	state.Sessions.ActiveSession = sessionKey
+	state.Sessions.ActiveSession = sessionID
 	return SaveState(state)
 }
 

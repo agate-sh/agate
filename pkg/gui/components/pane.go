@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -58,13 +59,40 @@ func ApplyPaneContentPadding(content string, innerWidth int) string {
 	lines := strings.Split(content, "\n")
 	leftPad := strings.Repeat(" ", paneContentHorizontalPadding)
 	rightPad := strings.Repeat(" ", paneContentHorizontalPadding)
-	contentStyle := lipgloss.NewStyle().Width(innerWidth)
 	paddedLines := make([]string, len(lines))
 	for i, line := range lines {
-		normalized := contentStyle.Render(line)
+		normalized := FitANSIString(line, innerWidth)
 		paddedLines[i] = leftPad + normalized + rightPad
 	}
 	return strings.Join(paddedLines, "\n")
+}
+
+// FitANSIString fits a string into the requested printable width while preserving ANSI styling.
+func FitANSIString(line string, target int) string {
+	if target <= 0 {
+		return ""
+	}
+
+	// Clamp or truncate to the desired width without breaking escape codes.
+	trimmed := ansi.Truncate(line, target, "")
+	width := ansi.StringWidth(trimmed)
+	if width > target {
+		trimmed = ansi.Truncate(trimmed, target, "")
+		width = target
+	}
+
+	if width == target {
+		return trimmed
+	}
+
+	padding := strings.Repeat(" ", target-width)
+	fillIdx := strings.LastIndex(trimmed, "\x1b[0K")
+	if fillIdx == -1 {
+		return trimmed + padding
+	}
+
+	// Insert padding before the erase sequence so it inherits the active background color.
+	return trimmed[:fillIdx] + padding + trimmed[fillIdx:]
 }
 
 // TitleStyle defines how a pane's title should be rendered

@@ -127,7 +127,7 @@ func (d *SessionDeleteConfirmDialog) deleteSession() tea.Cmd {
 		}
 
 		// Delete the session using the session manager
-		err := d.sessionManager.DeleteSession(d.session.WorktreeKey)
+		err := d.sessionManager.DeleteSession(d.session.ID)
 		if err != nil {
 			return SessionDeletionErrorMsg{
 				Session: d.session,
@@ -158,9 +158,9 @@ func (d *SessionDeleteConfirmDialog) View() string {
 	// Header: Repo > Branch > Delete session (same style as session dialog)
 	repoName := "unknown"
 	branchName := "unknown"
-	if d.session != nil && d.session.Worktree != nil {
-		repoName = d.session.Worktree.RepoName
-		branchName = d.session.Worktree.Branch
+	if d.session != nil && d.session.Worktree() != nil {
+		repoName = d.session.Worktree().RepoName
+		branchName = d.session.Worktree().Branch
 	}
 
 	repoStyle := lipgloss.NewStyle().

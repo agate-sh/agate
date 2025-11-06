@@ -439,14 +439,14 @@ func (r *AgentsPane) SyncActiveSessionFromManager() {
 
 	activeSession := r.sessionManager.GetActiveSession()
 	git.DebugLog("[AgentsPane] SyncActiveSessionFromManager: activeSession=%v", activeSession)
-	if activeSession != nil && activeSession.Worktree != nil {
+	if activeSession != nil && activeSession.Worktree() != nil {
 		git.DebugLog("[AgentsPane] SyncActiveSessionFromManager: activeSession.Worktree.Path=%s, Branch=%s",
-			activeSession.Worktree.Path, activeSession.Worktree.Branch)
+			activeSession.Worktree().Path, activeSession.Worktree().Branch)
 		// Update the pane's active worktree to match the session manager
-		clone := *activeSession.Worktree
+		clone := *activeSession.Worktree()
 		r.activeWorktree = &clone
-		if activeSession.Worktree.RepoName != "" {
-			r.currentRepo = activeSession.Worktree.RepoName
+		if activeSession.Worktree().RepoName != "" {
+			r.currentRepo = activeSession.Worktree().RepoName
 		}
 		// Update delegate
 		r.delegate.currentRepo = r.currentRepo
@@ -813,12 +813,12 @@ func (r *AgentsPane) SnapshotItems() []AgentListItem {
 // 1. Session above if available
 // 2. Session below if available
 func (r *AgentsPane) SelectSessionAfterDeletion(deletedSession *session.Session, previousItems []AgentListItem) bool {
-	if deletedSession == nil || deletedSession.Worktree == nil {
+	if deletedSession == nil || deletedSession.Worktree() == nil {
 		return false
 	}
 
-	deletedPath := filepath.Clean(deletedSession.Worktree.Path)
-	deletedWasActive := r.isActiveWorktree(deletedSession.Worktree)
+	deletedPath := filepath.Clean(deletedSession.Worktree().Path)
+	deletedWasActive := r.isActiveWorktree(deletedSession.Worktree())
 
 	git.DebugLog("[AgentsPane] SelectSessionAfterDeletion: deleted=%s, wasActive=%v", deletedPath, deletedWasActive)
 
@@ -916,12 +916,12 @@ func determineDeletionSelectionPlan(deletedSession *session.Session, items []Age
 		belowIdx:   -1,
 	}
 
-	if deletedSession == nil || deletedSession.Worktree == nil {
+	if deletedSession == nil || deletedSession.Worktree() == nil {
 		return plan, false
 	}
 
-	deletedPath := filepath.Clean(deletedSession.Worktree.Path)
-	deletedRepoName := deletedSession.Worktree.RepoName
+	deletedPath := filepath.Clean(deletedSession.Worktree().Path)
+	deletedRepoName := deletedSession.Worktree().RepoName
 
 	for idx := range items {
 		item := &items[idx]
@@ -1009,8 +1009,8 @@ func (r *AgentsPane) Refresh() error {
 	// Group sessions by repository
 	r.groupedSessions = make(map[string][]*session.Session)
 	for _, sess := range sessions {
-		if sess.Worktree != nil && sess.Worktree.RepoName != "" {
-			r.groupedSessions[sess.Worktree.RepoName] = append(r.groupedSessions[sess.Worktree.RepoName], sess)
+		if sess.Worktree() != nil && sess.Worktree().RepoName != "" {
+			r.groupedSessions[sess.Worktree().RepoName] = append(r.groupedSessions[sess.Worktree().RepoName], sess)
 		}
 	}
 
@@ -1068,11 +1068,11 @@ func (r *AgentsPane) buildItemList() {
 		})
 	} else {
 		for _, sess := range pinnedSessions {
-			if sess.Worktree != nil {
-				worktreeCopy := *sess.Worktree
+			if sess.Worktree() != nil {
+				worktreeCopy := *sess.Worktree()
 				r.items = append(r.items, AgentListItem{
 					Type:      "session",
-					RepoName:  sess.Worktree.RepoName,
+					RepoName:  sess.Worktree().RepoName,
 					Worktree:  &worktreeCopy,
 					SessionID: sess.ID,
 					IsPinned:  true,
@@ -1150,15 +1150,15 @@ func (r *AgentsPane) buildItemList() {
 			if len(sessions) > 0 {
 				// Sort sessions by branch name
 				sort.Slice(sessions, func(i, j int) bool {
-					if sessions[i].Worktree != nil && sessions[j].Worktree != nil {
-						return sessions[i].Worktree.Branch < sessions[j].Worktree.Branch
+					if sessions[i].Worktree() != nil && sessions[j].Worktree() != nil {
+						return sessions[i].Worktree().Branch < sessions[j].Worktree().Branch
 					}
-					return sessions[i].Name < sessions[j].Name
+					return sessions[i].Name() < sessions[j].Name()
 				})
 
 				for _, sess := range sessions {
-					if sess.Worktree != nil {
-						worktreeCopy := *sess.Worktree
+					if sess.Worktree() != nil {
+						worktreeCopy := *sess.Worktree()
 						// Check if this session is pinned
 						isPinned := false
 						if r.sessionManager != nil {
@@ -1302,7 +1302,7 @@ func (r *AgentsPane) jumpToActiveSession() {
 	}
 
 	activeSession := r.sessionManager.GetActiveSession()
-	if activeSession == nil || activeSession.Worktree == nil {
+	if activeSession == nil || activeSession.Worktree() == nil {
 		return
 	}
 
@@ -1311,7 +1311,7 @@ func (r *AgentsPane) jumpToActiveSession() {
 		if workItem, ok := item.(AgentListItem); ok {
 			if workItem.Type == "session" &&
 				workItem.Worktree != nil &&
-				workItem.Worktree.Path == activeSession.Worktree.Path {
+				workItem.Worktree.Path == activeSession.Worktree().Path {
 				// Ensure this item is selectable
 				if r.isSelectableItem(idx) {
 					r.list.Select(idx)

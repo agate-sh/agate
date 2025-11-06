@@ -266,7 +266,7 @@ func (m *model) getCurrentTmuxSession() *tmux.TmuxSession {
 	if activeSession == nil {
 		return nil
 	}
-	return activeSession.TmuxSession
+	return activeSession.TmuxSession()
 }
 
 // switchToSessionForWorktree switches to the session associated with the given worktree
@@ -286,37 +286,37 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 		return nil
 	}
 
-	debug.DebugLog("Got session: ID=%s, WorktreeKey=%s, TmuxName=%s", sess.ID, sess.WorktreeKey, sess.TmuxSession.GetSessionName())
+	debug.DebugLog("Got session: ID=%s, TmuxName=%s", sess.ID, sess.TmuxSession().GetSessionName())
 
 	// Switch to this session
-	m.sessionManager.SwitchToSession(sess.WorktreeKey)
-	debug.DebugLog("Switched to session %s", sess.WorktreeKey)
+	m.sessionManager.SwitchToSession(sess.ID)
+	debug.DebugLog("Switched to session %s", sess.ID)
 
 	// Update global agent state
-	app.SetCurrentAgent(sess.Agent)
+	app.SetCurrentAgent(sess.Agent())
 
 	// Update tmux pane with the session
 	if m.tmuxPane != nil {
 		if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-			tmuxPane.SetSession(sess.TmuxSession)
-			debug.DebugLog("Updated tmux pane with session %s", sess.TmuxSession.GetSessionName())
+			tmuxPane.SetSession(sess.TmuxSession())
+			debug.DebugLog("Updated tmux pane with session %s", sess.TmuxSession().GetSessionName())
 		}
 	}
 
-	debug.DebugLog("Switched to session %s with agent %s", sess.ID, sess.Agent.Name)
+	debug.DebugLog("Switched to session %s with agent %s", sess.ID, sess.Agent().Name)
 
 	// Return command to immediately refresh the tmux content for the new session
 	// We need to force a refresh even if the content hasn't "changed" since we're switching sessions
-	if sess.TmuxSession != nil {
-		debug.DebugLog("Forcing immediate tmux content refresh for session %s", sess.TmuxSession.GetSessionName())
+	if sess.TmuxSession() != nil {
+		debug.DebugLog("Forcing immediate tmux content refresh for session %s", sess.TmuxSession().GetSessionName())
 		return func() tea.Msg {
 			// Force capture the content without checking HasUpdated
-			content, err := sess.TmuxSession.CapturePaneContent()
+			content, err := sess.TmuxSession().CapturePaneContent()
 			if err != nil {
 				debug.DebugLog("ERROR capturing pane content: %v", err)
 				return tmuxOutputMsg{content: ""}
 			}
-			debug.DebugLog("Captured %d bytes of content for session %s", len(content), sess.TmuxSession.GetSessionName())
+			debug.DebugLog("Captured %d bytes of content for session %s", len(content), sess.TmuxSession().GetSessionName())
 			// Always return the content, even if it hasn't "changed"
 			return tmuxOutputMsg{content: content, hasPrompt: true}
 		}
@@ -471,13 +471,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		activeSession := msg.session
 
 		// Set the current agent based on the session's agent
-		app.SetCurrentAgent(activeSession.Agent)
+		app.SetCurrentAgent(activeSession.Agent())
 
 		// Initialize loading state for tmux pane
 		if m.tmuxPane != nil {
 			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
 				tmuxPane.SetLoading(true)
-				tmuxPane.SetSession(activeSession.TmuxSession)
+				tmuxPane.SetSession(activeSession.TmuxSession())
 			}
 		}
 
@@ -489,9 +489,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateGitPane()
 
 		// Set initial tmux session size using layout
-		if m.ready && activeSession.TmuxSession != nil {
+		if m.ready && activeSession.TmuxSession() != nil {
 			if contentWidth, contentHeight := m.layout.GetTmuxDimensions(); contentWidth > 0 && contentHeight > 0 {
-				if err := activeSession.TmuxSession.SetDetachedSize(contentWidth, contentHeight); err != nil {
+				if err := activeSession.TmuxSession().SetDetachedSize(contentWidth, contentHeight); err != nil {
 					debug.DebugLog("Failed to set tmux session initial size to %dx%d: %v", contentWidth, contentHeight, err)
 					// Continue - tmux will use default size
 				}
@@ -500,7 +500,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Start monitoring tmux output and set up loading timeout
 		return m, tea.Batch(
-			waitForTmuxOutput(activeSession.TmuxSession),
+			waitForTmuxOutput(activeSession.TmuxSession()),
 			tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 				return loadingTimeoutMsg{}
 			}),
@@ -575,9 +575,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		debug.DebugLog("[tmuxDetachedMsg] ===== DETACHED FROM TMUX =====")
 		if m.sessionManager != nil {
 			activeSession := m.sessionManager.GetActiveSession()
-			if activeSession != nil && activeSession.Worktree != nil {
+			if activeSession != nil && activeSession.Worktree() != nil {
 				debug.DebugLog("[tmuxDetachedMsg] Active session before switchToPane: path=%s, branch=%s",
-					activeSession.Worktree.Path, activeSession.Worktree.Branch)
+					activeSession.Worktree().Path, activeSession.Worktree().Branch)
 			} else {
 				debug.DebugLog("[tmuxDetachedMsg] No active session or worktree")
 			}
@@ -643,10 +643,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSession, err := m.sessionManager.GetOrCreateSession(msg.Worktree, agentName)
 			if err == nil {
 				// Switch to the new session FIRST
-				m.sessionManager.SwitchToSession(newSession.WorktreeKey)
+				m.sessionManager.SwitchToSession(newSession.ID)
 
 				// Update agent based on new session
-				app.SetCurrentAgent(newSession.Agent)
+				app.SetCurrentAgent(newSession.Agent())
 
 				// Update the agents pane to select the new worktree
 				if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
@@ -666,7 +666,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Update tmux pane with new session
 				if m.tmuxPane != nil {
 					if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-						tmuxPane.SetSession(newSession.TmuxSession)
+						tmuxPane.SetSession(newSession.TmuxSession())
 					}
 				}
 
@@ -677,8 +677,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.shortcutOverlay.SetFocus(m.focus.String())
 
 				// Start monitoring the new session
-				if newSession.TmuxSession != nil {
-					cmds = append(cmds, waitForTmuxOutput(newSession.TmuxSession))
+				if newSession.TmuxSession() != nil {
+					cmds = append(cmds, waitForTmuxOutput(newSession.TmuxSession()))
 				}
 			} else {
 				debug.DebugLog("Failed to create session for worktree: %v", err)
@@ -704,11 +704,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Auto-attach to the newly created session's tmux
 		if msg.Worktree != nil {
 			newSession := m.sessionManager.GetSessionForWorktree(msg.Worktree)
-			if newSession != nil && newSession.TmuxSession != nil && m.focus.IsTmuxFocus() {
+			if newSession != nil && newSession.TmuxSession() != nil && m.focus.IsTmuxFocus() {
 				// Clear screen first
 				fmt.Print("\033[2J\033[H")
 				// Block directly in Update like Claude Squad
-				detachCh, err := newSession.TmuxSession.Attach()
+				detachCh, err := newSession.TmuxSession().Attach()
 				if err != nil {
 					return m, func() tea.Msg { return errMsg{err} }
 				}
@@ -751,12 +751,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// User wants to attach to a tmux session from the agents pane
 		if msg.Session != nil && msg.Session.TmuxSession != nil {
 			if m.sessionManager != nil {
-				m.sessionManager.SwitchToSession(msg.Session.WorktreeKey)
-				app.SetCurrentAgent(msg.Session.Agent)
+				m.sessionManager.SwitchToSession(msg.Session.ID)
+				app.SetCurrentAgent(msg.Session.Agent())
 			}
 
 			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-				tmuxPane.SetSession(msg.Session.TmuxSession)
+				tmuxPane.SetSession(msg.Session.TmuxSession())
 			}
 			m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 			m.footer.SetFocus(m.focus.String())
@@ -764,7 +764,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.footer.SetMode("attached")
 			m.shortcutOverlay.SetMode("attached")
 
-			detachCh, err := msg.Session.TmuxSession.Attach()
+			detachCh, err := msg.Session.TmuxSession().Attach()
 			if err != nil {
 				return m, func() tea.Msg { return errMsg{err} }
 			}
@@ -846,7 +846,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Session != nil && m.toast != nil {
 			branchName := "session"
 			if msg.Session.Worktree != nil {
-				branchName = msg.Session.Worktree.Branch
+				branchName = msg.Session.Worktree().Branch
 			}
 			// Create styled message with green checkmark
 			checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
@@ -1232,9 +1232,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, common.GlobalKeys.Commit):
 			// Show commit overlay (global shortcut)
 			activeSession := m.sessionManager.GetActiveSession()
-			if activeSession != nil && activeSession.Worktree != nil {
+			if activeSession != nil && activeSession.Worktree() != nil {
 				// Check if there are any changes to commit
-				fileStatus := git.GetFileStatuses(activeSession.Worktree.Path)
+				fileStatus := git.GetFileStatuses(activeSession.Worktree().Path)
 				if fileStatus == nil || fileStatus.IsClean {
 					// No changes to commit - show toast
 					toastCmd := m.toast.Show("No changes to commit", 0)
@@ -1509,8 +1509,8 @@ func (m model) View() string {
 		sessionContents := make([]layout.SessionPaneContent, len(pinnedSessions))
 		for i, sess := range pinnedSessions {
 			branchName := "Session"
-			if sess.Worktree != nil && sess.Worktree.Branch != "" {
-				branchName = sess.Worktree.Branch
+			if sess.Worktree != nil && sess.Worktree().Branch != "" {
+				branchName = sess.Worktree().Branch
 			}
 
 			// Determine the grid cell and size tmux panes accordingly
@@ -1527,8 +1527,8 @@ func (m model) View() string {
 			}
 
 			if contentWidth > 0 && contentHeight > 0 {
-				if sess.TmuxSession != nil {
-					if err := sess.TmuxSession.SetDetachedSize(contentWidth, contentHeight); err != nil {
+				if sess.TmuxSession() != nil {
+					if err := sess.TmuxSession().SetDetachedSize(contentWidth, contentHeight); err != nil {
 						debug.DebugLog("Failed to resize tmux session %s to %dx%d: %v", sess.ID, contentWidth, contentHeight, err)
 					}
 				}
@@ -1536,8 +1536,8 @@ func (m model) View() string {
 
 			// Get actual tmux content (after ensuring size matches the grid cell)
 			tmuxContent := ""
-			if sess.TmuxSession != nil {
-				captured, err := sess.TmuxSession.CapturePaneContent()
+			if sess.TmuxSession() != nil {
+				captured, err := sess.TmuxSession().CapturePaneContent()
 				if err == nil {
 					tmuxContent = captured
 				}
@@ -1549,7 +1549,7 @@ func (m model) View() string {
 			if sess.Worktree != nil {
 				// Use the git pane to render the content properly
 				if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
-					gitPane.SetRepository(sess.Worktree.Path)
+					gitPane.SetRepository(sess.Worktree().Path)
 					gitPane.SetSize(contentWidth, contentHeight)
 					gitPane.SetActive(m.focus.PaneType == layout.PaneTypeSession &&
 						m.focus.SessionIndex == i &&
@@ -1558,7 +1558,7 @@ func (m model) View() string {
 				}
 
 				// Get change count for badge
-				fileStatus := git.GetFileStatuses(sess.Worktree.Path)
+				fileStatus := git.GetFileStatuses(sess.Worktree().Path)
 				if fileStatus != nil && !fileStatus.IsClean {
 					changeCount = len(fileStatus.Files)
 				}
