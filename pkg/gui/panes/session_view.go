@@ -1,0 +1,170 @@
+package panes
+
+import (
+	"agate/pkg/app"
+	"agate/pkg/gui/components"
+	"agate/pkg/session"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// SessionViewPane displays session metadata and tmux output from the active agent
+type SessionViewPane struct {
+	*components.BasePane
+	session       *session.Session
+	sessionHeader *components.SessionHeader
+	tmuxContent   string
+}
+
+// NewSessionViewPane creates a new SessionViewPane instance
+func NewSessionViewPane() *SessionViewPane {
+	return &SessionViewPane{
+		BasePane:      components.NewBasePane(1, "Session"), // Pane index 1
+		tmuxContent:   "",
+		sessionHeader: nil,
+	}
+}
+
+// SetSession updates the session reference and refreshes the header
+func (p *SessionViewPane) SetSession(s *session.Session) {
+	p.session = s
+	if s == nil {
+		p.sessionHeader = nil
+		return
+	}
+
+	// Build agent configs and determine active index
+	instances := s.GetOrderedInstances()
+	agentConfigs := make([]app.AgentConfig, 0, len(instances))
+	for _, instance := range instances {
+		agentConfigs = append(agentConfigs, instance.AgentConfig)
+	}
+
+	// Create/update session header
+	p.sessionHeader = components.NewSessionHeader(
+		s.Description,
+		s.BranchBaseName,
+		agentConfigs,
+		s.ActiveInstanceIndex,
+	)
+	if p.sessionHeader != nil {
+		p.sessionHeader.SetWidth(p.GetWidth())
+	}
+}
+
+// SetTmuxContent updates the tmux output display
+func (p *SessionViewPane) SetTmuxContent(content string) {
+	p.tmuxContent = content
+}
+
+// SetSize updates the dimensions of the session view pane
+func (p *SessionViewPane) SetSize(width, height int) {
+	p.BasePane.SetSize(width, height)
+	if p.sessionHeader != nil {
+		p.sessionHeader.SetWidth(width)
+	}
+}
+
+// View renders the pane with session header and tmux output
+func (p *SessionViewPane) View() string {
+	if p.session == nil {
+		return lipgloss.NewStyle().
+			Width(p.GetWidth()).
+			Height(p.GetHeight()).
+			Render("No active session")
+	}
+
+	// Calculate heights: ~25% for header, ~75% for tmux
+	headerHeight := p.GetHeight() / 4
+	tmuxHeight := p.GetHeight() - headerHeight
+
+	// Render header
+	var headerContent string
+	if p.sessionHeader != nil {
+		headerContent = p.sessionHeader.Render()
+	}
+
+	// Limit header to its allocated height
+	headerLines := strings.Split(headerContent, "\n")
+	if len(headerLines) > headerHeight {
+		headerLines = headerLines[:headerHeight]
+	}
+	headerContent = strings.Join(headerLines, "\n")
+
+	// Pad header to full height
+	for len(strings.Split(headerContent, "\n")) < headerHeight {
+		headerContent += "\n"
+	}
+
+	// Render tmux content
+	tmuxLines := strings.Split(p.tmuxContent, "\n")
+	if len(tmuxLines) > tmuxHeight {
+		// Take the last N lines to show most recent output
+		tmuxLines = tmuxLines[len(tmuxLines)-tmuxHeight:]
+	}
+	tmuxContent := strings.Join(tmuxLines, "\n")
+
+	// Pad tmux content to full height
+	for len(strings.Split(tmuxContent, "\n")) < tmuxHeight {
+		tmuxContent += "\n"
+	}
+
+	// Join header and tmux sections
+	return headerContent + tmuxContent
+}
+
+// Update handles tea.Msg updates for the session view pane
+func (p *SessionViewPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
+	// Loader animation ticking will be handled by the main application
+	// when description generation is in progress
+	return p, nil
+}
+
+// HandleKey processes keyboard input when the pane is active
+func (p *SessionViewPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
+	// Tab key cycles to next agent
+	if key == "tab" {
+		return true, func() tea.Msg {
+			return CycleAgentMsg{}
+		}
+	}
+
+	return false, nil
+}
+
+// GetTitleStyle returns the title style based on the active agent
+func (p *SessionViewPane) GetTitleStyle() components.TitleStyle {
+	if p.session == nil {
+		return p.BasePane.GetTitleStyle()
+	}
+
+	activeInstance := p.session.GetActiveInstance()
+	if activeInstance == nil {
+		return p.BasePane.GetTitleStyle()
+	}
+
+	shortcuts := ""
+	if p.IsActive() {
+		shortcuts = "tab cycle"
+	} else {
+		shortcuts = "(1)"
+	}
+
+	return components.TitleStyle{
+		Type:      "badge",
+		Color:     activeInstance.AgentConfig.BorderColor,
+		Text:      activeInstance.AgentConfig.Name,
+		Shortcuts: shortcuts,
+	}
+}
+
+// GetPaneSpecificKeybindings returns session view pane specific keybindings
+func (p *SessionViewPane) GetPaneSpecificKeybindings() []key.Binding {
+	return []key.Binding{} // Tab cycling is implicit
+}
+
+// CycleAgentMsg is sent when Tab is pressed to cycle between agents
+type CycleAgentMsg struct{}
