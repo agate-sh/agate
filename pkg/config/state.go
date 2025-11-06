@@ -22,9 +22,7 @@ type AppState struct {
 func defaultAppState() AppState {
 	return AppState{
 		Version: currentStateVersion,
-		UI: UIState{
-			Welcome: WelcomeState{Shown: false},
-		},
+		UI:      UIState{},
 		Workspace: WorkspaceState{
 			Repositories:   []string{},
 			RepoSelections: map[string]RepoSelection{},

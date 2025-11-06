@@ -62,16 +62,12 @@ type model struct {
 	showHelp            bool                                 // Whether help dialog is visible
 	worktreeManager     *git.WorktreeManager                 // Git worktree management
 	worktreeList        *overlays.WorktreeList               // Worktree list component
-	worktreeDialog      *overlays.SessionDialog              // Worktree creation dialog
 	worktreeConfirm     *overlays.WorktreeConfirmDialog      // Worktree deletion confirmation
 	sessionConfirm      *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
-	showSessionDialog   bool                                 // Whether showing worktree creation dialog
 	showWorktreeConfirm bool                                 // Whether showing worktree deletion confirmation
 	showSessionConfirm  bool                                 // Whether showing session deletion confirmation
 	repoDialog          *overlays.RepoDialog                 // Repository search dialog
 	showRepoDialog      bool                                 // Whether showing repository dialog
-	welcomeOverlay      *overlays.WelcomeOverlay             // Welcome overlay for first-time users
-	showWelcomeOverlay  bool                                 // Whether showing welcome overlay
 	debugLogger         *debug.DebugLogger                   // Debug logger for development
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
@@ -80,10 +76,17 @@ type model struct {
 	commitOverlay       *overlays.CommitOverlay              // Commit overlay for creating commits
 	showCommitOverlay   bool                                 // Whether showing commit overlay
 
+	// New session creation flow
+	chatInput             *components.ChatInput // Chat input component for new session creation
+	showNewSessionInput   bool                  // true when showing new session input (no sessions or user pressed 'n')
+	creatingSession       bool                  // true during session creation (shows toast)
+	generatingBranchName  bool                  // true during branch name generation (shows "Generating branch name..." toast)
+	generatingDescription bool                  // true while description is being generated in background
+
 	// Panes using the new Pane interface
-	repoPane components.Pane // Repos & worktrees pane (will be extracted from WorktreeList)
-	tmuxPane components.Pane // Tmux terminal pane
-	gitPane  components.Pane // Git file status pane
+	repoPane        components.Pane // Agents pane (list of sessions)
+	sessionViewPane components.Pane // SessionViewPane instance (header + tmux)
+	changesPane     components.Pane // ChangesPane instance (file changes)
 }
 
 func initialModel(subprocess string) model {
@@ -154,17 +157,6 @@ func initialModel(subprocess string) model {
 		worktreeList = overlays.NewWorktreeList(worktreeManager)
 	}
 
-	// Check if welcome overlay should be shown
-	var showWelcomeOverlay bool
-	if stateManager != nil {
-		var welcomeShown bool
-		stateManager.ReadUI(func(ui *config.UIState) error {
-			welcomeShown = ui.Welcome.Shown
-			return nil
-		})
-		showWelcomeOverlay = !welcomeShown
-	}
-
 	// Debug logger already initialized at the beginning of initialModel
 	// Initialize debug overlay
 	debugOverlay := overlays.NewDebugOverlay(debugLogger)
@@ -176,45 +168,61 @@ func initialModel(subprocess string) model {
 	loadingState := tmux.NewLoadingState()
 
 	// Initialize all panes using the new Pane interface
-	gitPane := panes.NewGitPane()
-	tmuxPane := panes.NewAgentTmuxPane(loadingState)
 	repoPane := panes.NewAgentsPane(sessionManager)
+	sessionViewPane := panes.NewSessionViewPane()
+	changesPane := panes.NewChangesPane()
 
-	m := model{
-		layout:              layout.NewLayout(0, 0),  // Will be updated on first WindowSizeMsg
-		sessionManager:      sessionManager,          // Session manager for coordination
-		stateManager:        stateManager,            // State manager for persistence
-		focus:               layout.NewAgentsFocus(), // Always start with focus on Agents pane
-		subprocess:          subprocess,
-		mode:                modePreview, // Start in preview mode
-		shortcutOverlay:     shortcutOverlay,
-		footer:              footer,
-		helpDialog:          overlays.NewHelpDialog(common.GlobalKeys),
-		showHelp:            false,
-		worktreeManager:     worktreeManager,
-		worktreeList:        worktreeList,
-		showSessionDialog:   false,
-		showWorktreeConfirm: false,
-		showSessionConfirm:  false,
-		showRepoDialog:      false,
-		welcomeOverlay:      overlays.NewWelcomeOverlay(),
-		showWelcomeOverlay:  showWelcomeOverlay,
-		debugLogger:         debugLogger,
-		debugOverlay:        debugOverlay,
-		showDebugOverlay:    false,
-		loadingState:        loadingState,
-		toast:               components.NewToast(), // Toast notification manager
+	// Initialize chat input with default agent
+	chatInput := components.NewChatInput(agentConfig)
 
-		// Initialize panes
-		repoPane: repoPane,
-		tmuxPane: tmuxPane,
-		gitPane:  gitPane,
+	// Determine if we should show new session input
+	// Show if: no sessions exist OR all sessions are empty (no instances)
+	showNewSessionInput := true
+	sessions := sessionManager.ListSessions()
+	for _, sess := range sessions {
+		if len(sess.Instances) > 0 {
+			showNewSessionInput = false
+			break
+		}
 	}
 
-	// Initialize Git pane content if repo pane has items
+	m := model{
+		layout:                layout.NewLayout(0, 0),  // Will be updated on first WindowSizeMsg
+		sessionManager:        sessionManager,          // Session manager for coordination
+		stateManager:          stateManager,            // State manager for persistence
+		focus:                 layout.NewAgentsFocus(), // Always start with focus on Agents pane
+		subprocess:            subprocess,
+		mode:                  modePreview, // Start in preview mode
+		shortcutOverlay:       shortcutOverlay,
+		footer:                footer,
+		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
+		showHelp:              false,
+		worktreeManager:       worktreeManager,
+		worktreeList:          worktreeList,
+		showWorktreeConfirm:   false,
+		showSessionConfirm:    false,
+		showRepoDialog:        false,
+		debugLogger:           debugLogger,
+		debugOverlay:          debugOverlay,
+		showDebugOverlay:      false,
+		loadingState:          loadingState,
+		toast:                 components.NewToast(), // Toast notification manager
+		chatInput:             chatInput,
+		showNewSessionInput:   showNewSessionInput,
+		creatingSession:       false,
+		generatingBranchName:  false,
+		generatingDescription: false,
+
+		// Initialize panes
+		repoPane:        repoPane,
+		sessionViewPane: sessionViewPane,
+		changesPane:     changesPane,
+	}
+
+	// Initialize Changes pane content if repo pane has items
 	if m.repoPane != nil {
 		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok && repoPane.HasItems() {
-			m.updateGitPane()
+			m.updateChangesPane()
 		}
 	}
 
@@ -227,12 +235,12 @@ func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 	if m.repoPane != nil {
 		m.repoPane.SetActive(targetPane.IsAgentsFocus())
 	}
-	// Tmux pane is active whenever we're on ANY session sub-pane (shows agent badge)
-	if m.tmuxPane != nil {
-		m.tmuxPane.SetActive(targetPane.PaneType == layout.PaneTypeSession)
+	// Session view pane is active whenever we're on ANY session sub-pane
+	if m.sessionViewPane != nil {
+		m.sessionViewPane.SetActive(targetPane.PaneType == layout.PaneTypeSession)
 	}
-	if m.gitPane != nil {
-		m.gitPane.SetActive(targetPane.IsGitFocus())
+	if m.changesPane != nil {
+		m.changesPane.SetActive(targetPane.IsGitFocus())
 	}
 
 	// Set the new focus
@@ -252,8 +260,8 @@ func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 			}
 		}
 
-		// Update GitPane with selected worktree/repo and get refresh command
-		return m, m.updateGitPane()
+		// Update ChangesPane with selected worktree/repo and get refresh command
+		return m, m.updateChangesPane()
 	}
 
 	return m, nil
@@ -297,11 +305,11 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 	// Update global agent state
 	app.SetCurrentAgent(sess.Agent())
 
-	// Update tmux pane with the session
-	if m.tmuxPane != nil {
-		if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-			tmuxPane.SetSession(sess.TmuxSession())
-			debug.DebugLog("Updated tmux pane with session %s", sess.TmuxSession().GetSessionName())
+	// Update session view pane with the session
+	if m.sessionViewPane != nil {
+		if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+			sessionViewPane.SetSession(sess)
+			debug.DebugLog("Updated session view pane with session %s", sess.TmuxSession().GetSessionName())
 		}
 	}
 
@@ -327,45 +335,45 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 	return nil
 }
 
-// updateGitPane updates the Git pane based on the currently selected worktree/repo
+// updateChangesPane updates the Changes pane based on the currently selected worktree/repo
 // and returns a command to refresh the tmux content
-func (m *model) updateGitPane() tea.Cmd {
-	debug.DebugLog("===== updateGitPane called =====")
+func (m *model) updateChangesPane() tea.Cmd {
+	debug.DebugLog("===== updateChangesPane called =====")
 
-	if m.gitPane == nil || m.repoPane == nil {
-		debug.DebugLog("updateGitPane: gitPane or repoPane is nil")
+	if m.changesPane == nil || m.repoPane == nil {
+		debug.DebugLog("updateChangesPane: changesPane or repoPane is nil")
 		return nil
 	}
 
 	// Cast to AgentsPane to access GetSelectedWorktree method
 	repoPane, ok := m.repoPane.(*panes.AgentsPane)
 	if !ok {
-		debug.DebugLog("updateGitPane: repoPane is not a AgentsPane")
+		debug.DebugLog("updateChangesPane: repoPane is not a AgentsPane")
 		return nil
 	}
 
 	// Get the selected worktree from the repo pane
 	selectedWorktree := repoPane.GetSelectedWorktree()
 	if selectedWorktree == nil {
-		debug.DebugLog("updateGitPane: no selected worktree")
+		debug.DebugLog("updateChangesPane: no selected worktree")
 		return nil
 	}
 
 	repoPath := selectedWorktree.Path
-	debug.DebugLog("updateGitPane: selected worktree path=%s, branch=%s, repo=%s", repoPath, selectedWorktree.Branch, selectedWorktree.RepoName)
+	debug.DebugLog("updateChangesPane: selected worktree path=%s, branch=%s, repo=%s", repoPath, selectedWorktree.Branch, selectedWorktree.RepoName)
 
 	// Switch to session for this worktree (this updates the agent and tmux session)
 	// and get the command to refresh content
 	refreshCmd := m.switchToSessionForWorktree(selectedWorktree)
-	debug.DebugLog("updateGitPane: switchToSessionForWorktree returned cmd=%v", refreshCmd != nil)
+	debug.DebugLog("updateChangesPane: switchToSessionForWorktree returned cmd=%v", refreshCmd != nil)
 
-	// Cast to GitPane to access SetRepository method
-	if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
-		gitPane.SetRepository(repoPath)
-		debug.DebugLog("updateGitPane: set git pane repository to %s", repoPath)
+	// Cast to ChangesPane to access SetRepository method
+	if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+		changesPane.SetRepository(repoPath)
+		debug.DebugLog("updateChangesPane: set changes pane repository to %s", repoPath)
 	}
 
-	debug.DebugLog("===== updateGitPane returning cmd=%v =====", refreshCmd != nil)
+	debug.DebugLog("===== updateChangesPane returning cmd=%v =====", refreshCmd != nil)
 	return refreshCmd
 }
 
@@ -434,6 +442,17 @@ type errMsg struct {
 
 type loadingTimeoutMsg struct{}
 
+// New session creation messages
+type branchNameGeneratedMsg struct {
+	branchName string
+	err        error
+}
+
+type sessionCreatedMsg struct {
+	session *session.Session
+	err     error
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -464,9 +483,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.debugOverlay.SetSize(msg.Width, msg.Height)
 		}
 
-		// Update Git pane content after all components are sized
+		// Update Changes pane content after all components are sized
 		// This ensures the worktree list has proper dimensions and selection
-		m.updateGitPane()
+		m.updateChangesPane()
 
 	case tmuxSessionStartedMsg:
 		// Store the session (msg.session is now a *session.Session)
@@ -475,20 +494,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Set the current agent based on the session's agent
 		app.SetCurrentAgent(activeSession.Agent())
 
-		// Initialize loading state for tmux pane
-		if m.tmuxPane != nil {
-			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-				tmuxPane.SetLoading(true)
-				tmuxPane.SetSession(activeSession.TmuxSession())
+		// Initialize session view pane with the session
+		if m.sessionViewPane != nil {
+			if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				sessionViewPane.SetSession(activeSession)
 			}
 		}
 
 		// Start loading timer for stopwatch
 		m.loadingState.Start()
 
-		// Update Git pane now that the app is fully initialized
+		// Update Changes pane now that the app is fully initialized
 		// This ensures the worktree list has been sized and has a selection
-		m.updateGitPane()
+		m.updateChangesPane()
 
 		// Set initial tmux session size using layout
 		if m.ready && activeSession.TmuxSession() != nil {
@@ -509,15 +527,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case tmuxOutputMsg:
-		// Update tmux pane content
+		// Update session view pane tmux content
 		if msg.content != "" {
-			if m.tmuxPane != nil {
-				if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-					tmuxPane.SetContent(msg.content)
-					// Stop loading when we have meaningful content (not just whitespace)
-					if strings.TrimSpace(msg.content) != "" {
-						tmuxPane.SetLoading(false)
-					}
+			if m.sessionViewPane != nil {
+				if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+					sessionViewPane.SetTmuxContent(msg.content)
 				}
 			}
 			// Clear loading timer when we have meaningful content
@@ -525,8 +539,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loadingState.Stop()
 			}
 
-			// On first real output, ensure Git pane is initialized
-			m.updateGitPane()
+			// On first real output, ensure Changes pane is initialized
+			m.updateChangesPane()
 		}
 
 		// Continue monitoring (increased frequency for better responsiveness)
@@ -553,10 +567,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case initializationCompleteMsg:
-		// Close the worktree dialog and auto-attach
-		m.showSessionDialog = false
-		m.worktreeDialog = nil
-
+		// TODO: This handler is part of the old session dialog system and should be removed
 		// Auto-attach to the tmux session
 		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.focus.IsTmuxFocus() {
 			// Clear screen first
@@ -622,18 +633,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Left content error will be displayed by WorktreeList directly
 		// Error: msg.error can be handled by WorktreeList if needed
 
-	// Worktree dialog messages
+	// Worktree dialog messages (TODO: This is part of the old system, may need refactoring)
 	case overlays.WorktreeCreatedMsg:
 		var cmds []tea.Cmd
-		if m.showSessionDialog && m.worktreeDialog != nil {
-			var dialogCmd tea.Cmd
-			var dialogModel tea.Model
-			dialogModel, dialogCmd = m.worktreeDialog.Update(msg)
-			m.worktreeDialog = dialogModel.(*overlays.SessionDialog)
-			cmds = append(cmds, dialogCmd)
-		}
 
-		// Worktree created successfully - start tmux session but keep dialog open
+		// Worktree created successfully - start tmux session
 		// Create and switch to new session for the worktree FIRST
 		if msg.Worktree != nil {
 			// Use the agent name from the message (selected by user in dialog)
@@ -656,23 +660,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					agentsPane.SelectWorktreeByPath(msg.Worktree.Path)
 				}
 
-				// Refresh worktree list and update git pane
+				// Refresh worktree list and update changes pane
 				if m.worktreeList != nil {
 					if err := m.worktreeList.Refresh(); err != nil {
 						debug.DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
 					}
-					// Now updateGitPane will use the correct selected worktree
-					m.updateGitPane()
+					// Now updateChangesPane will use the correct selected worktree
+					m.updateChangesPane()
 				}
 
-				// Update tmux pane with new session
-				if m.tmuxPane != nil {
-					if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-						tmuxPane.SetSession(newSession.TmuxSession())
+				// Update session view pane with new session
+				if m.sessionViewPane != nil {
+					if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+						sessionViewPane.SetSession(newSession)
 					}
 				}
 
-				// Switch focus to tmux pane
+				// Switch focus to session pane
 				m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 				// Update footer focus
 				m.footer.SetFocus(m.focus.String())
@@ -689,9 +693,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, combineCmds(cmds...)
 
 	case overlays.WorktreeInitializationCompleteMsg:
-		// Initialization complete - close dialog and auto-attach
-		m.showSessionDialog = false
-		m.worktreeDialog = nil
+		// Initialization complete - auto-attach (TODO: Part of old system)
 
 		// Refresh the agents pane to show the new session AND select it
 		if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
@@ -723,11 +725,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case overlays.WorktreeCreationErrorMsg:
-		if m.showSessionDialog && m.worktreeDialog != nil {
-			model, cmd := m.worktreeDialog.Update(msg)
-			m.worktreeDialog = model.(*overlays.SessionDialog)
-			return m, cmd
-		}
+		// TODO: Part of old system, handle error appropriately
 		return m, nil
 
 	case panes.DeleteSessionRequestMsg:
@@ -757,8 +755,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				app.SetCurrentAgent(msg.Session.Agent())
 			}
 
-			if tmuxPane, ok := m.tmuxPane.(*panes.AgentTmuxPane); ok {
-				tmuxPane.SetSession(msg.Session.TmuxSession())
+			if m.sessionViewPane != nil {
+				if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+					sessionViewPane.SetSession(msg.Session)
+				}
 			}
 			m.focus = layout.NewSessionFocus(0, layout.SubPaneTmux)
 			m.footer.SetFocus(m.focus.String())
@@ -776,16 +776,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case overlays.SessionDialogCancelledMsg:
-		// Dialog cancelled
-		m.showSessionDialog = false
-		m.worktreeDialog = nil
+		// TODO: Old dialog system, remove
 		return m, nil
 
 	case panes.GitRefreshMsg:
-		// Git pane needs to refresh after discard or other operations
-		if m.gitPane != nil {
+		// Changes pane needs to refresh after discard or other operations
+		if m.changesPane != nil {
 			var cmd tea.Cmd
-			m.gitPane, cmd = m.gitPane.Update(msg)
+			m.changesPane, cmd = m.changesPane.Update(msg)
 			return m, cmd
 		}
 		return m, nil
@@ -799,8 +797,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				debug.DebugLog("Failed to refresh worktree list after deletion: %v", err)
 				// UI will still show deletion success, but log refresh failure
 			}
-			// Update Git pane after deletion
-			m.updateGitPane()
+			// Update Changes pane after deletion
+			m.updateChangesPane()
 		}
 		return m, nil
 
@@ -841,8 +839,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Update Git pane
-		m.updateGitPane()
+		// Update Changes pane
+		m.updateChangesPane()
 
 		// Show success toast
 		if msg.Session != nil && m.toast != nil {
@@ -896,8 +894,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					debug.DebugLog("Failed to refresh worktree list after adding repository: %v", err)
 					// Repository was saved successfully, but UI refresh failed
 				}
-				// Update Git pane after adding repository
-				m.updateGitPane()
+				// Update Changes pane after adding repository
+				m.updateChangesPane()
 			}
 		}
 		return m, nil
@@ -923,9 +921,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		// Update TmuxPane's spinner (which now shares the same LoadingState)
-		if m.tmuxPane != nil {
-			if _, cmd := m.tmuxPane.Update(msg); cmd != nil {
+		// Update SessionViewPane's spinner if needed
+		if m.sessionViewPane != nil {
+			if _, cmd := m.sessionViewPane.Update(msg); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
@@ -939,13 +937,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.showSessionDialog && m.worktreeDialog != nil {
-			var dialogCmd tea.Cmd
-			var dialogModel tea.Model
-			dialogModel, dialogCmd = m.worktreeDialog.Update(msg)
-			m.worktreeDialog = dialogModel.(*overlays.SessionDialog)
-			if dialogCmd != nil {
-				cmds = append(cmds, dialogCmd)
+		// Update chat input spinner if generating
+		if m.showNewSessionInput && m.chatInput != nil {
+			if cmd := m.chatInput.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 
@@ -978,10 +973,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		message := fmt.Sprintf("%s Created commit %s", checkmark, msg.SHA)
 		toastCmd := m.toast.Show(message, 0)
 
-		// Refresh git pane to show updated status
-		if m.gitPane != nil {
-			if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
-				gitPane.Refresh()
+		// Refresh changes pane to show updated status
+		if m.changesPane != nil {
+			if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+				changesPane.Refresh()
 			}
 		}
 
@@ -1001,20 +996,109 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		toastCmd := m.toast.Show(fmt.Sprintf("✗ Failed to create commit: %s", msg.Err.Error()), 0)
 		return m, toastCmd
 
-	case tea.KeyMsg:
-		// If welcome overlay is visible, any key closes it
-		if m.showWelcomeOverlay {
-			m.showWelcomeOverlay = false
-			// Mark welcome as shown so it doesn't appear again
-			if m.stateManager != nil {
-				m.stateManager.UpdateUI(func(ui *config.UIState) error {
-					ui.Welcome.Shown = true
-					return nil
-				})
+	case branchNameGeneratedMsg:
+		// Branch name generation completed
+		m.generatingBranchName = false
+
+		if msg.err != nil {
+			// Generation failed - use random fallback
+			debug.DebugLog("Branch name generation failed: %v, using random name", msg.err)
+			msg.branchName = session.GenerateRandomBranchName()
+		}
+
+		// Now start session creation
+		m.creatingSession = true
+		prompt := m.chatInput.GetValue()
+		agents := m.chatInput.GetSelectedAgents()
+		agentNames := make([]string, 0, len(agents))
+		for _, agent := range agents {
+			agentNames = append(agentNames, agent.Name)
+		}
+
+		// Build agent list for toast message
+		var agentNameList []string
+		for _, agent := range agents {
+			agentNameList = append(agentNameList, "@"+agent.Name)
+		}
+		toastMsg := "Creating " + strings.Join(agentNameList, ", ") + " agent(s)..."
+		toastCmd := m.toast.Show(toastMsg, 0)
+
+		createCmd := func() tea.Msg {
+			newSession, err := m.sessionManager.CreateSession(prompt, msg.branchName, agentNames)
+			return sessionCreatedMsg{session: newSession, err: err}
+		}
+
+		return m, tea.Batch(toastCmd, createCmd)
+
+	case sessionCreatedMsg:
+		// Session creation completed
+		m.creatingSession = false
+
+		if msg.err != nil {
+			// Session creation failed - show error
+			toastCmd := m.toast.Show(fmt.Sprintf("Failed to create session: %v", msg.err), 0)
+			return m, toastCmd
+		}
+
+		// Session created successfully!
+		m.showNewSessionInput = false
+		m.chatInput.Reset()
+
+		// Update session view pane
+		if m.sessionViewPane != nil {
+			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				sessionView.SetSession(msg.session)
 			}
+		}
+
+		// Set first agent's tmux content
+		activeInstance := msg.session.GetActiveInstance()
+		if activeInstance != nil && activeInstance.TmuxSession != nil {
+			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				content, _ := activeInstance.TmuxSession.CapturePaneContent()
+				sessionView.SetTmuxContent(content)
+			}
+
+			// Update changes pane
+			if m.changesPane != nil && activeInstance.Worktree != nil {
+				if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+					changesPane.SetRepository(activeInstance.Worktree.Path)
+				}
+			}
+		}
+
+		// Start async description generation
+		m.generatingDescription = true
+		prompt := msg.session.Prompt
+		defaultAgent := app.GetAgentConfig(m.subprocess)
+		descCmd := session.GenerateSessionDescription(prompt, defaultAgent, msg.session, m.sessionManager)
+
+		return m, descCmd
+
+	case session.SessionDescriptionGeneratedMsg:
+		// Description generation completed (async)
+		m.generatingDescription = false
+
+		if msg.Error != nil {
+			debug.DebugLog("Description generation failed: %v", msg.Error)
+			// Continue - session is functional without description
 			return m, nil
 		}
 
+		// Description was already updated in the session manager by the generation function
+		// Just refresh the session view
+		if m.sessionViewPane != nil {
+			activeSession := m.sessionManager.GetActiveSession()
+			if activeSession != nil && activeSession.ID == msg.SessionID {
+				if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+					sessionView.SetSession(activeSession)
+				}
+			}
+		}
+
+		return m, nil
+
+	case tea.KeyMsg:
 		// If help dialog is visible, any key closes it
 		if m.showHelp {
 			m.showHelp = false
@@ -1029,13 +1113,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Handle worktree dialog input
-		if m.showSessionDialog && m.worktreeDialog != nil {
-			var cmd tea.Cmd
-			model, cmd := m.worktreeDialog.Update(msg)
-			m.worktreeDialog = model.(*overlays.SessionDialog)
-			return m, cmd
-		}
+		// TODO: Old worktree dialog handler removed
 
 		// Handle worktree confirm dialog input
 		if m.showWorktreeConfirm && m.worktreeConfirm != nil {
@@ -1076,6 +1154,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Handle chat input when showing new session input
+		if m.showNewSessionInput && m.chatInput != nil {
+			if msg.String() == "enter" {
+				// User pressed Enter - start session creation
+				prompt := m.chatInput.GetValue()
+				agents := m.chatInput.GetSelectedAgents()
+
+				if strings.TrimSpace(prompt) == "" {
+					// Empty prompt - show error toast
+					toastCmd := m.toast.Show("Please enter a prompt", 0)
+					return m, toastCmd
+				}
+
+				// Start branch name generation (show toast)
+				m.generatingBranchName = true
+				toastCmd := m.toast.Show("Generating branch name...", 0)
+				branchNameCmd := func() tea.Msg {
+					branchName, err := session.GenerateBranchNameFromPrompt(prompt, agents[0])
+					return branchNameGeneratedMsg{branchName: branchName, err: err}
+				}
+				return m, tea.Batch(toastCmd, branchNameCmd)
+			} else if msg.String() == "esc" {
+				// Cancel new session input
+				if len(m.sessionManager.ListSessions()) > 0 {
+					m.showNewSessionInput = false
+					m.chatInput.Reset()
+				}
+				return m, nil
+			} else {
+				// Update chat input
+				cmd := m.chatInput.Update(msg)
+				return m, cmd
+			}
+		}
+
 		// Handle preview mode - navigation and mode switches only
 		switch {
 		case msg.String() == "enter":
@@ -1088,9 +1201,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					handled, cmd := m.repoPane.HandleKey("enter")
 					debug.DebugLog("Agents pane HandleKey returned: handled=%v, cmd=%v", handled, cmd != nil)
 					if handled {
-						// Update Git pane and get refresh command for tmux content
-						refreshCmd := m.updateGitPane()
-						debug.DebugLog("After updateGitPane: refreshCmd=%v", refreshCmd != nil)
+						// Update Changes pane and get refresh command for tmux content
+						refreshCmd := m.updateChangesPane()
+						debug.DebugLog("After updateChangesPane: refreshCmd=%v", refreshCmd != nil)
 						// Combine the pane's command with the refresh command
 						combinedCmd := combineCmds(cmd, refreshCmd)
 						debug.DebugLog("Returning combined command: %v", combinedCmd != nil)
@@ -1098,9 +1211,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case m.focus.IsGitFocus():
-				// Let the git pane handle enter key for opening files
-				if m.gitPane != nil {
-					handled, cmd := m.gitPane.HandleKey("enter")
+				// Let the changes pane handle enter key for opening files
+				if m.changesPane != nil {
+					handled, cmd := m.changesPane.HandleKey("enter")
 					if handled {
 						return m, cmd
 					}
@@ -1132,12 +1245,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 			}
-			// Also handle 'd' in git pane for discarding files
-			if m.focus.IsGitFocus() && m.gitPane != nil {
-				handled, cmd := m.gitPane.HandleKey("d")
+			// Also handle 'd' in changes pane for discarding files
+			if m.focus.IsGitFocus() && m.changesPane != nil {
+				handled, cmd := m.changesPane.HandleKey("d")
 				if handled {
-					// Refresh git pane after discard
-					m.updateGitPane()
+					// Refresh changes pane after discard
+					m.updateChangesPane()
 					return m, cmd
 				}
 			}
@@ -1179,43 +1292,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.NewSession):
-			// Create new worktree (available from both panes)
-			if m.sessionManager != nil {
-				// Get default agent from state or use current subprocess
-				var defaultAgent string
-				if m.stateManager != nil {
-					defaultAgent = m.stateManager.GetDefaultAgent()
-				}
-				if defaultAgent == "" {
-					// Fallback to current subprocess if no default set
-					defaultAgent = m.subprocess
-				}
-
-				var worktreeManager *git.WorktreeManager
-				var repoName string
-				if pane, ok := m.repoPane.(*panes.AgentsPane); ok {
-					repoName = pane.GetHoveredRepoName()
-				}
-
-				var err error
-				if repoName != "" {
-					worktreeManager, err = m.sessionManager.GetWorktreeManagerForRepo(repoName)
-					if err != nil {
-						debug.DebugLog("NewSession: failed to resolve worktree manager for repo %s: %v", repoName, err)
-					}
-				}
-
-				if worktreeManager == nil {
-					worktreeManager = m.sessionManager.GetWorktreeManager()
-				}
-
-				if worktreeManager != nil {
-					m.worktreeManager = worktreeManager
-					m.worktreeDialog = overlays.NewSessionDialog(worktreeManager, defaultAgent)
-					m.showSessionDialog = true
-					return m, nil
-				}
+			// Step 5.5: 'n' key shows new chat input interface
+			m.showNewSessionInput = true
+			if m.chatInput != nil {
+				m.chatInput.Reset()
 			}
+			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.AttachAgent):
 			// Attach to agent tmux session (global shortcut)
@@ -1260,8 +1342,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.repoPane.MoveUp()
 				}
 			case m.focus.IsGitFocus():
-				if m.gitPane != nil {
-					m.gitPane.MoveUp()
+				if m.changesPane != nil {
+					m.changesPane.MoveUp()
 					return m, nil
 				}
 			}
@@ -1275,8 +1357,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.repoPane.MoveDown()
 				}
 			case m.focus.IsGitFocus():
-				if m.gitPane != nil {
-					m.gitPane.MoveDown()
+				if m.changesPane != nil {
+					m.changesPane.MoveDown()
 					return m, nil
 				}
 			}
@@ -1431,19 +1513,16 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
-	// Get pinned sessions for grid rendering
-	var panesWithPadding string
-
 	if m.sessionManager == nil {
 		return "No session manager"
 	}
 
-	pinnedSessions := m.sessionManager.GetPinnedSessions()
+	var panesWithPadding string
 
-	if len(pinnedSessions) == 0 {
-		// No pinned sessions - render agents pane + placeholder
-		agentsContent := m.repoPane.View()
+	// Step 5.4: Handle different UI states
 
+	// State 1: Showing new session input (no sessions or user pressed 'n')
+	if m.showNewSessionInput {
 		// Calculate layout dimensions
 		chromeHeight := layout.TopPaddingRows + layout.BottomSpacerRows + layout.PaneTitleRows + layout.FooterRows + layout.BottomMarginRows
 		availableHeight := m.layout.GetHeight() - chromeHeight
@@ -1451,14 +1530,14 @@ func (m model) View() string {
 		frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
 		contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
 
-		// Render agents pane
+		// Render agents pane on left (may be empty or show existing sessions)
+		agentsContent := m.repoPane.View()
 		agentsStyle := components.PaneBaseStyle
 		if m.focus.IsAgentsFocus() {
 			agentsStyle = agentsStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 		}
 
 		leftFullWidth := leftWidth + contentPaddingWidth
-
 		if lipgloss.Width(agentsContent) < leftFullWidth {
 			agentsContent = components.ApplyPaneContentPadding(agentsContent, leftWidth)
 		}
@@ -1472,29 +1551,50 @@ func (m model) View() string {
 			Height(availableHeight).
 			Render(agentsContentAligned)
 
-		// Create placeholder pane for right section
-		totalHorizontalMargins := layout.HorizontalMargin*2 + layout.HorizontalGapWidth
+		// Render center pane with ASCII art + chat input
+		totalHorizontalMargins := layout.HorizontalMargin*2 + layout.HorizontalGapWidth*2
 		usableWidth := m.layout.GetWidth() - totalHorizontalMargins
-		rightWidth := usableWidth - leftWidth - contentPaddingWidth - frameHeight
+		centerWidth := usableWidth - leftWidth - contentPaddingWidth - frameHeight
 
-		placeholderText := "No pinned sessions\n\nPress ↵ on a session in the Agents pane to pin it"
+		// Render ASCII art centered at top
+		asciiArt := components.RenderAgateASCII(centerWidth - 4)
+
+		// Render chat input centered in middle
+		if m.chatInput != nil {
+			m.chatInput.SetWidth(min(80, centerWidth-8))
+		}
+		chatInputView := ""
+		if m.chatInput != nil {
+			chatInputView = m.chatInput.View()
+		}
+
+		// Combine ASCII art + spacing + chat input
+		var centerParts []string
+		centerParts = append(centerParts, asciiArt)
+		centerParts = append(centerParts, "")
+		centerParts = append(centerParts, "")
+		centerParts = append(centerParts, chatInputView)
+
+		centerContent := strings.Join(centerParts, "\n")
+
+		// Center the content vertically and horizontally
 		placeholderContentHeight := availableHeight - frameHeight
-		placeholderContent := lipgloss.Place(
-			rightWidth,
+		centeredContent := lipgloss.Place(
+			centerWidth,
 			placeholderContentHeight,
 			lipgloss.Center,
 			lipgloss.Center,
-			lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(placeholderText),
+			centerContent,
 		)
 
-		// Render placeholder with border (same height as agents pane)
-		placeholder := components.PaneBaseStyle.
+		// Render center pane with border
+		centerPane := components.PaneBaseStyle.
 			Height(availableHeight).
-			Render(placeholderContent)
+			Render(centeredContent)
 
-		// Join agents pane and placeholder
+		// Join agents pane and center pane (right pane hidden)
 		gap := lipgloss.NewStyle().Width(layout.HorizontalGapWidth).Render("")
-		panes := lipgloss.JoinHorizontal(lipgloss.Top, agentsPane, gap, placeholder)
+		panes := lipgloss.JoinHorizontal(lipgloss.Top, agentsPane, gap, centerPane)
 
 		// Add padding
 		panesWithPadding = lipgloss.NewStyle().
@@ -1503,93 +1603,162 @@ func (m model) View() string {
 			PaddingLeft(layout.HorizontalMargin).
 			PaddingRight(layout.HorizontalMargin).
 			Render(panes)
+
 	} else {
-		// Calculate grid layout
-		m.layout.CalculateGridLayout(len(pinnedSessions))
+		// State 2: Active session (render 3-pane layout or grid view)
+		pinnedSessions := m.sessionManager.GetPinnedSessions()
 
-		// Build SessionPaneContent for each pinned session
-		sessionContents := make([]layout.SessionPaneContent, len(pinnedSessions))
-		for i, sess := range pinnedSessions {
-			branchName := "Session"
-			if sess.Worktree != nil && sess.Worktree().Branch != "" {
-				branchName = sess.Worktree().Branch
+		if len(pinnedSessions) == 0 {
+			// No pinned sessions - render agents pane + placeholder
+			agentsContent := m.repoPane.View()
+
+			// Calculate layout dimensions
+			chromeHeight := layout.TopPaddingRows + layout.BottomSpacerRows + layout.PaneTitleRows + layout.FooterRows + layout.BottomMarginRows
+			availableHeight := m.layout.GetHeight() - chromeHeight
+			leftWidth, leftHeight := m.layout.GetLeftDimensions()
+			frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
+			contentPaddingWidth := components.PaneContentHorizontalPadding() * 2
+
+			// Render agents pane
+			agentsStyle := components.PaneBaseStyle
+			if m.focus.IsAgentsFocus() {
+				agentsStyle = agentsStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 			}
 
-			// Determine the grid cell and size tmux panes accordingly
-			contentWidth := 0
-			contentHeight := 0
-			if cell := m.layout.GetGridCell(i); cell != nil {
-				tabsForSizing := []components.Tab{
-					{Name: icons.GetGitRepo() + " " + branchName},
-					{Name: "Changes"},
+			leftFullWidth := leftWidth + contentPaddingWidth
+
+			if lipgloss.Width(agentsContent) < leftFullWidth {
+				agentsContent = components.ApplyPaneContentPadding(agentsContent, leftWidth)
+			}
+
+			agentsWrapped := lipgloss.NewStyle().
+				Width(leftFullWidth).
+				MaxHeight(leftHeight).
+				Render(agentsContent)
+			agentsContentAligned := lipgloss.PlaceVertical(leftHeight, lipgloss.Top, agentsWrapped)
+			agentsPane := agentsStyle.
+				Height(availableHeight).
+				Render(agentsContentAligned)
+
+			// Create placeholder pane for right section
+			totalHorizontalMargins := layout.HorizontalMargin*2 + layout.HorizontalGapWidth
+			usableWidth := m.layout.GetWidth() - totalHorizontalMargins
+			rightWidth := usableWidth - leftWidth - contentPaddingWidth - frameHeight
+
+			placeholderText := "No pinned sessions\n\nPress ↵ on a session in the Agents pane to pin it"
+			placeholderContentHeight := availableHeight - frameHeight
+			placeholderContent := lipgloss.Place(
+				rightWidth,
+				placeholderContentHeight,
+				lipgloss.Center,
+				lipgloss.Center,
+				lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted)).Render(placeholderText),
+			)
+
+			// Render placeholder with border (same height as agents pane)
+			placeholder := components.PaneBaseStyle.
+				Height(availableHeight).
+				Render(placeholderContent)
+
+			// Join agents pane and placeholder
+			gap := lipgloss.NewStyle().Width(layout.HorizontalGapWidth).Render("")
+			panes := lipgloss.JoinHorizontal(lipgloss.Top, agentsPane, gap, placeholder)
+
+			// Add padding
+			panesWithPadding = lipgloss.NewStyle().
+				PaddingTop(layout.TopPaddingRows).
+				PaddingBottom(layout.BottomSpacerRows).
+				PaddingLeft(layout.HorizontalMargin).
+				PaddingRight(layout.HorizontalMargin).
+				Render(panes)
+		} else {
+			// Calculate grid layout
+			m.layout.CalculateGridLayout(len(pinnedSessions))
+
+			// Build SessionPaneContent for each pinned session
+			sessionContents := make([]layout.SessionPaneContent, len(pinnedSessions))
+			for i, sess := range pinnedSessions {
+				branchName := "Session"
+				if sess.Worktree != nil && sess.Worktree().Branch != "" {
+					branchName = sess.Worktree().Branch
 				}
-				sizingPane := components.NewTabbedPane(tabsForSizing)
-				sizingPane.SetSize(cell.Width, cell.Height)
-				contentWidth, contentHeight = sizingPane.ContentSize()
-			}
 
-			if contentWidth > 0 && contentHeight > 0 {
-				if sess.TmuxSession() != nil {
-					if err := sess.TmuxSession().SetDetachedSize(contentWidth, contentHeight); err != nil {
-						debug.DebugLog("Failed to resize tmux session %s to %dx%d: %v", sess.ID, contentWidth, contentHeight, err)
+				// Determine the grid cell and size tmux panes accordingly
+				contentWidth := 0
+				contentHeight := 0
+				if cell := m.layout.GetGridCell(i); cell != nil {
+					tabsForSizing := []components.Tab{
+						{Name: icons.GetGitRepo() + " " + branchName},
+						{Name: "Changes"},
+					}
+					sizingPane := components.NewTabbedPane(tabsForSizing)
+					sizingPane.SetSize(cell.Width, cell.Height)
+					contentWidth, contentHeight = sizingPane.ContentSize()
+				}
+
+				if contentWidth > 0 && contentHeight > 0 {
+					if sess.TmuxSession() != nil {
+						if err := sess.TmuxSession().SetDetachedSize(contentWidth, contentHeight); err != nil {
+							debug.DebugLog("Failed to resize tmux session %s to %dx%d: %v", sess.ID, contentWidth, contentHeight, err)
+						}
 					}
 				}
-			}
 
-			// Get actual tmux content (after ensuring size matches the grid cell)
-			tmuxContent := ""
-			if sess.TmuxSession() != nil {
-				captured, err := sess.TmuxSession().CapturePaneContent()
-				if err == nil {
-					tmuxContent = captured
+				// Get actual tmux content (after ensuring size matches the grid cell)
+				tmuxContent := ""
+				if sess.TmuxSession() != nil {
+					captured, err := sess.TmuxSession().CapturePaneContent()
+					if err == nil {
+						tmuxContent = captured
+					}
+				}
+
+				// Get actual git content using ChangesPane
+				gitContent := ""
+				changeCount := 0
+				if sess.Worktree != nil {
+					// Use the changes pane to render the content properly
+					if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+						changesPane.SetRepository(sess.Worktree().Path)
+						changesPane.SetSize(contentWidth, contentHeight)
+						changesPane.SetActive(m.focus.PaneType == layout.PaneTypeSession &&
+							m.focus.SessionIndex == i &&
+							m.focus.SessionSubPane == layout.SubPaneGit)
+						gitContent = changesPane.View()
+					}
+
+					// Get change count for badge
+					fileStatus := git.GetFileStatuses(sess.Worktree().Path)
+					if fileStatus != nil && !fileStatus.IsClean {
+						changeCount = len(fileStatus.Files)
+					}
+				}
+
+				// Determine active tab based on focus
+				activeTab := 0 // Default to Tmux
+				if m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i {
+					switch m.focus.SessionSubPane {
+					case layout.SubPaneTmux:
+						activeTab = 0
+					case layout.SubPaneGit:
+						activeTab = 1
+					}
+				}
+
+				sessionContents[i] = layout.SessionPaneContent{
+					TmuxContent:  tmuxContent,
+					GitContent:   gitContent,
+					BranchName:   branchName,
+					AgentColor:   app.GetCurrentAgentColor(),
+					IsFocused:    m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i,
+					ActiveTab:    activeTab,
+					ChangesCount: changeCount,
 				}
 			}
 
-			// Get actual git content using GitPane
-			gitContent := ""
-			changeCount := 0
-			if sess.Worktree != nil {
-				// Use the git pane to render the content properly
-				if gitPane, ok := m.gitPane.(*panes.GitPane); ok {
-					gitPane.SetRepository(sess.Worktree().Path)
-					gitPane.SetSize(contentWidth, contentHeight)
-					gitPane.SetActive(m.focus.PaneType == layout.PaneTypeSession &&
-						m.focus.SessionIndex == i &&
-						m.focus.SessionSubPane == layout.SubPaneGit)
-					gitContent = gitPane.View()
-				}
-
-				// Get change count for badge
-				fileStatus := git.GetFileStatuses(sess.Worktree().Path)
-				if fileStatus != nil && !fileStatus.IsClean {
-					changeCount = len(fileStatus.Files)
-				}
-			}
-
-			// Determine active tab based on focus
-			activeTab := 0 // Default to Tmux
-			if m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i {
-				switch m.focus.SessionSubPane {
-				case layout.SubPaneTmux:
-					activeTab = 0
-				case layout.SubPaneGit:
-					activeTab = 1
-				}
-			}
-
-			sessionContents[i] = layout.SessionPaneContent{
-				TmuxContent:  tmuxContent,
-				GitContent:   gitContent,
-				BranchName:   branchName,
-				AgentColor:   app.GetCurrentAgentColor(),
-				IsFocused:    m.focus.PaneType == layout.PaneTypeSession && m.focus.SessionIndex == i,
-				ActiveTab:    activeTab,
-				ChangesCount: changeCount,
-			}
+			// Render grid panes
+			panesWithPadding = m.layout.RenderGridPanes(m.repoPane.View(), sessionContents, m.focus)
 		}
-
-		// Render grid panes
-		panesWithPadding = m.layout.RenderGridPanes(m.repoPane.View(), sessionContents, m.focus)
 	}
 
 	// Add footer at the bottom
@@ -1602,12 +1771,9 @@ func (m model) View() string {
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, bottomComponents...)
 
-	// If welcome overlay is visible, overlay it (highest priority)
-	if m.showWelcomeOverlay {
-		// Update overlay size
-		m.welcomeOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.welcomeOverlay.View(), mainView, true, true)
+	// Overlay toast notifications if visible
+	if m.toast != nil && m.toast.IsVisible() {
+		mainView = m.toast.PlaceOverlay(mainView, m.layout.GetWidth(), m.layout.GetHeight())
 	}
 
 	// If help dialog is visible, overlay it
@@ -1622,14 +1788,7 @@ func (m model) View() string {
 		return overlay.PlaceOverlay(0, 0, m.debugOverlay.View(), mainView, true, true)
 	}
 
-	// If worktree creation dialog is visible, overlay it
-	if m.showSessionDialog && m.worktreeDialog != nil {
-		// Update dialog size
-		m.worktreeDialog.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-
-		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.worktreeDialog.View(), mainView, true, true)
-	}
+	// TODO: Old worktree dialog removed, replaced with chat input
 
 	// If repository dialog is visible, overlay it
 	if m.showRepoDialog && m.repoDialog != nil {

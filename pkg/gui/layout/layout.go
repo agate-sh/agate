@@ -298,6 +298,24 @@ func (l *Layout) GetGitDimensions() (width, height int) {
 	return l.gitContentWidth, gitContentHeight
 }
 
+// GetCenterDimensions returns the content dimensions for the center pane (session view)
+func (l *Layout) GetCenterDimensions() (width, height int) {
+	return l.tmuxContentWidth, l.contentHeight
+}
+
+// GetRightDimensions returns the content dimensions for the right pane (changes)
+func (l *Layout) GetRightDimensions() (width, height int) {
+	return l.gitContentWidth, l.contentHeight
+}
+
+// CalculateThreePaneLayout calculates dimensions for the 3-pane system
+// Left: ~25% (Agents), Center: ~50% (SessionView), Right: ~25% (Changes)
+func (l *Layout) CalculateThreePaneLayout(totalWidth, totalHeight int) {
+	l.width = totalWidth
+	l.height = totalHeight
+	l.calculate()
+}
+
 // GetWidth returns the layout width
 func (l *Layout) GetWidth() int {
 	return l.width

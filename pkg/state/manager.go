@@ -84,9 +84,7 @@ func loadStateFromDisk(filePath string) (*config.AppState, error) {
 func defaultAppState() config.AppState {
 	return config.AppState{
 		Version: 1,
-		UI: config.UIState{
-			Welcome: config.WelcomeState{Shown: false},
-		},
+		UI:      config.UIState{},
 		Workspace: config.WorkspaceState{
 			Repositories:   []string{},
 			RepoSelections: map[string]config.RepoSelection{},
