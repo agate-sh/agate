@@ -131,6 +131,8 @@ func initialModel(subprocess string) model {
 		if err := stateManager.SetDefaultAgent(subprocess); err != nil {
 			debug.DebugLog("Failed to save default agent: %v", err)
 			// Continue without saving - not critical
+		} else {
+			debug.DebugLog("Set default agent to: %s", subprocess)
 		}
 	}
 
