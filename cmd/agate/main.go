@@ -72,7 +72,7 @@ type model struct {
 	showRepoDialog      bool                                 // Whether showing repository dialog
 	welcomeOverlay      *overlays.WelcomeOverlay             // Welcome overlay for first-time users
 	showWelcomeOverlay  bool                                 // Whether showing welcome overlay
-	logger               *debug.Logger                       // Application logger
+	logger              *debug.Logger                        // Application logger
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
@@ -1225,6 +1225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if worktreeManager != nil {
 					m.worktreeManager = worktreeManager
+					debug.Debug("NewSession: opening session dialog repo=%q defaultAgent=%q", repoName, defaultAgent)
 					m.worktreeDialog = overlays.NewSessionDialog(worktreeManager, defaultAgent)
 					m.showSessionDialog = true
 					return m, nil

@@ -1,6 +1,7 @@
 package overlays
 
 import (
+	"agate/internal/debug"
 	"agate/pkg/app"
 	"fmt"
 	"strings"
@@ -34,6 +35,7 @@ type SessionDialog struct {
 	loader          *components.LaunchAgentLoader
 	help            help.Model
 	keys            sessionKeyMap
+	lastAgentValue  string
 }
 
 // sessionKeyMap defines the keybindings for the session dialog
@@ -105,6 +107,8 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string)
 		agentInput.SetValue(defaultAgent)
 	}
 
+	initialAgentValue := strings.TrimSpace(agentInput.Value())
+
 	var repoName string
 	var systemCaps git.SystemCapabilities
 
@@ -116,7 +120,8 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string)
 	loader := components.NewLaunchAgentLoader("")
 
 	// Get initial selected agent
-	selectedAgent := app.GetAgentConfig(defaultAgent)
+	selectedAgent := app.GetAgentConfig(initialAgentValue)
+	debug.Debug("SessionDialog: initialized repo=%q defaultAgentValue=%q resolvedAgent=%q exec=%q", repoName, initialAgentValue, selectedAgent.Name, selectedAgent.ExecutableName)
 
 	// Initialize help
 	h := help.New()
@@ -148,6 +153,7 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string)
 		loader:          loader,
 		help:            h,
 		keys:            keys,
+		lastAgentValue:  initialAgentValue,
 	}
 }
 
@@ -169,19 +175,26 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "enter":
+			agentValue := strings.TrimSpace(d.agentInput.Value())
+			branchValue := strings.TrimSpace(d.branchInput.Value())
+			valid := d.isValid()
+			debug.Debug("SessionDialog: enter pressed branch=%q agentInput=%q valid=%t", branchValue, agentValue, valid)
 			// Only create if both fields are valid
-			if d.isValid() {
+			if valid {
 				return d, d.createAndAttachWorktree()
 			}
+			debug.Debug("SessionDialog: enter ignored due to invalid agent input")
 			return d, nil
 
 		case "tab":
+			debug.Debug("SessionDialog: focus moved via tab from field=%d", d.focusedField)
 			// Switch to next field
 			d.focusedField = (d.focusedField + 1) % 2
 			d.updateFocus()
 			return d, nil
 
 		case "shift+tab":
+			debug.Debug("SessionDialog: focus moved via shift+tab from field=%d", d.focusedField)
 			// Switch to previous field
 			d.focusedField--
 			if d.focusedField < 0 {
@@ -192,12 +205,16 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "esc":
 			// Cancel dialog
+			agentValue := strings.TrimSpace(d.agentInput.Value())
+			debug.Debug("SessionDialog: cancelled by user branch=%q agentInput=%q", strings.TrimSpace(d.branchInput.Value()), agentValue)
 			return d, func() tea.Msg {
 				return SessionDialogCancelledMsg{}
 			}
 		}
 
 	case WorktreeCreatedMsg:
+		agentName := strings.TrimSpace(msg.AgentName)
+		debug.Debug("SessionDialog: worktree created name=%q path=%q branch=%q agent=%q", msg.Worktree.Name, msg.Worktree.Path, msg.Worktree.Branch, agentName)
 		// Worktree creation completed successfully, now start initializing
 		d.creating = false
 		d.initializing = true
@@ -222,9 +239,11 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Worktree creation failed
 		d.creating = false
 		d.err = msg.Error
+		debug.Warn("SessionDialog: worktree creation failed: %s", msg.Error)
 		return d, nil
 
 	case WorktreeInitializationCompleteMsg:
+		debug.Debug("SessionDialog: worktree initialization complete for branch=%q path=%q", msg.Worktree.Branch, msg.Worktree.Path)
 		// Initialization complete - forward message to main app
 		return d, func() tea.Msg {
 			return msg
@@ -239,9 +258,15 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			inputCmd = d.branchInput.Update(msg)
 		} else {
 			inputCmd = d.agentInput.Update(msg)
-			// Update selected agent when agent input changes
-			if app.IsValidAgent(d.agentInput.Value()) {
-				d.selectedAgent = app.GetAgentConfig(d.agentInput.Value())
+			newValue := strings.TrimSpace(d.agentInput.Value())
+			if newValue != d.lastAgentValue {
+				isValid := app.IsValidAgent(newValue)
+				debug.Debug("SessionDialog: agent input changed to %q valid=%t", newValue, isValid)
+				d.lastAgentValue = newValue
+				if isValid {
+					d.selectedAgent = app.GetAgentConfig(newValue)
+					debug.Debug("SessionDialog: resolved agent name=%q exec=%q envs=%d", d.selectedAgent.Name, d.selectedAgent.ExecutableName, len(d.selectedAgent.EnvVars))
+				}
 			}
 		}
 		cmds = append(cmds, inputCmd)
@@ -260,6 +285,7 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // createAndAttachWorktree creates a new agent and attaches to it
 func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 	if d.worktreeManager == nil {
+		debug.Warn("SessionDialog: cannot create worktree, manager unavailable")
 		return func() tea.Msg {
 			return WorktreeCreationErrorMsg{Error: "Worktree manager not available"}
 		}
@@ -273,6 +299,7 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 
 	// Validate branch name
 	if err := git.ValidateBranchName(branchName); err != nil {
+		debug.Warn("SessionDialog: invalid branch name %q: %v", branchName, err)
 		return func() tea.Msg {
 			return WorktreeCreationErrorMsg{Error: err.Error()}
 		}
@@ -286,6 +313,17 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 		d.loader.SetLabel(fmt.Sprintf("%s is starting...", d.selectedAgent.CompanyName))
 	}
 
+	agentInput := strings.TrimSpace(d.agentInput.Value())
+	envSummary := make([]string, len(d.selectedAgent.EnvVars))
+	for i, envVar := range d.selectedAgent.EnvVars {
+		valueSummary := "<empty>"
+		if envVar.Value != "" {
+			valueSummary = fmt.Sprintf("<%d chars>", len(envVar.Value))
+		}
+		envSummary[i] = fmt.Sprintf("%s=%s", envVar.Name, valueSummary)
+	}
+	debug.Debug("SessionDialog: creating worktree branch=%q agentInput=%q resolvedAgent=%q exec=%q envSummary=%v", branchName, agentInput, d.selectedAgent.Name, d.selectedAgent.ExecutableName, envSummary)
+
 	// Create worktree in background and start loader ticking
 	var cmds []tea.Cmd
 
@@ -293,6 +331,7 @@ func (d *SessionDialog) createAndAttachWorktree() tea.Cmd {
 	cmds = append(cmds, func() tea.Msg {
 		worktree, err := d.worktreeManager.CreateWorktree(branchName)
 		if err != nil {
+			debug.Warn("SessionDialog: worktree creation error for branch=%q: %v", branchName, err)
 			return WorktreeCreationErrorMsg{Error: err.Error()}
 		}
 		return WorktreeCreatedMsg{

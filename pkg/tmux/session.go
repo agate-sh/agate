@@ -235,10 +235,15 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 			case <-t.ctx.Done():
 				// Normal detach, do nothing
 			default:
-				// If context is not done, it was likely an abnormal termination (Ctrl-D)
-				// Print warning message
-				debug.Error("Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.")
-				fmt.Fprintf(os.Stderr, "\n\033[31mError: Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.\033[0m\n")
+				// If context is not done, the PTY closed unexpectedly. Distinguish between
+				// the user sending Ctrl-D (session still alive) and the agent program
+				// exiting on its own (session gone).
+				if t.sessionExists() {
+					debug.Warn("Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.")
+					fmt.Fprintf(os.Stderr, "\n\033[31mError: Session terminated without detaching. Use Ctrl-Q to properly detach from tmux sessions.\033[0m\n")
+				} else {
+					debug.Log("Session %q ended because the agent process exited", t.sanitizedName)
+				}
 			}
 		}
 	}()
@@ -290,6 +295,17 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 
 	t.monitorWindowSize()
 	return t.attachCh, nil
+}
+
+func (t *TmuxSession) sessionExists() bool {
+	if t.sanitizedName == "" {
+		return false
+	}
+	cmd := tmuxCommand("has-session", "-t", t.sanitizedName)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
 }
 
 // Detach disconnects from the current tmux session.

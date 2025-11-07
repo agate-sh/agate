@@ -77,14 +77,17 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 		return existing, nil
 	}
 
-	// Use the agent config's executable name for tmux session (not the raw agentName)
+	// Determine the command to launch for this agent
 	executableName := agentConfig.ExecutableName
 	if executableName == "" {
-		// Fallback to agentName if ExecutableName is empty (shouldn't happen with DefaultAgent)
 		executableName = agentName
 		if executableName == "" {
 			executableName = "default"
 		}
+	}
+	launchCommand := agentConfig.Command
+	if launchCommand == "" {
+		launchCommand = executableName
 	}
 
 	// Convert agent config env vars to tmux env vars
@@ -97,7 +100,7 @@ func (m *Manager) CreateSession(worktree *git.WorktreeInfo, agentName string) (*
 	}
 
 	// Create tmux session
-	tmuxSession := tmux.NewTmuxSession(sessionName, executableName, envVars)
+	tmuxSession := tmux.NewTmuxSession(sessionName, launchCommand, envVars)
 	err := tmuxSession.Start(worktree.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start tmux session: %w", err)

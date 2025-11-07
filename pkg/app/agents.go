@@ -17,6 +17,7 @@ type AgentConfig struct {
 	Name           string   // Display name
 	BorderColor    string   // Hex color value for pane borders
 	ExecutableName string   // What to match against in agent names
+	Command        string   // Optional full command to execute when launching
 	CompanyName    string   // Company name to display in UI
 	EnvVars        []EnvVar // Environment variables to pass to the command
 }
@@ -105,6 +106,7 @@ var TestAgent = AgentConfig{
 	Name:           "test",
 	BorderColor:    "#ff0000",
 	ExecutableName: "env",
+	Command:        "env; sleep 3600",
 	CompanyName:    "Test",
 	EnvVars: []EnvVar{
 		{Name: "agate_test_env_var", Value: "hello"},
@@ -122,8 +124,7 @@ var DefaultAgent = AgentConfig{
 
 // GetAgentConfig returns the appropriate agent configuration based on the agent name
 func GetAgentConfig(agentName string) AgentConfig {
-	// Convert to lowercase for case-insensitive matching
-	lower := strings.ToLower(agentName)
+	lower := strings.ToLower(strings.TrimSpace(agentName))
 
 	// List of all available agents
 	agents := []AgentConfig{
@@ -139,10 +140,22 @@ func GetAgentConfig(agentName string) AgentConfig {
 		TestAgent,
 	}
 
-	// Check if the agent name contains any known agent executable names
-	for _, agent := range agents {
-		if strings.Contains(lower, strings.ToLower(agent.ExecutableName)) {
-			return agent
+	if lower != "" {
+		// First, attempt exact matches against agent Name or ExecutableName
+		for _, agent := range agents {
+			if lower == strings.ToLower(agent.Name) || lower == strings.ToLower(agent.ExecutableName) {
+				return agent
+			}
+		}
+
+		// For backwards compatibility, fall back to substring checks
+		for _, agent := range agents {
+			nameLower := strings.ToLower(agent.Name)
+			execLower := strings.ToLower(agent.ExecutableName)
+			if (nameLower != "" && strings.Contains(lower, nameLower)) ||
+				(execLower != "" && strings.Contains(lower, execLower)) {
+				return agent
+			}
 		}
 	}
 
@@ -168,12 +181,14 @@ func GetAllAgents() []AgentConfig {
 
 // IsValidAgent checks if the given agent name is valid
 func IsValidAgent(name string) bool {
-	// Convert to lowercase for case-insensitive matching
-	lower := strings.ToLower(name)
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return false
+	}
 
 	agents := GetAllAgents()
 	for _, agent := range agents {
-		if strings.ToLower(agent.ExecutableName) == lower {
+		if lower == strings.ToLower(agent.Name) || lower == strings.ToLower(agent.ExecutableName) {
 			return true
 		}
 	}
