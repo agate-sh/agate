@@ -125,38 +125,19 @@ func (p *SessionViewPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 // HandleKey processes keyboard input when the pane is active
 func (p *SessionViewPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
-	// Tab key cycles to next agent
-	if key == "tab" {
-		return true, func() tea.Msg {
-			return CycleAgentMsg{}
-		}
-	}
-
 	return false, nil
 }
 
 // GetTitleStyle returns the title style based on the active agent
 func (p *SessionViewPane) GetTitleStyle() components.TitleStyle {
-	if p.session == nil {
-		return p.BasePane.GetTitleStyle()
-	}
-
-	activeInstance := p.session.GetActiveInstance()
-	if activeInstance == nil {
-		return p.BasePane.GetTitleStyle()
-	}
-
-	shortcuts := ""
+	shortcuts := "(⌥s)"
 	if p.IsActive() {
-		shortcuts = "tab cycle"
-	} else {
-		shortcuts = "(1)"
+		shortcuts = "tab cycle agents"
 	}
 
 	return components.TitleStyle{
-		Type:      "badge",
-		Color:     activeInstance.AgentConfig.BorderColor,
-		Text:      activeInstance.AgentConfig.Name,
+		Type:      "standard",
+		Text:      "Session",
 		Shortcuts: shortcuts,
 	}
 }
@@ -165,6 +146,3 @@ func (p *SessionViewPane) GetTitleStyle() components.TitleStyle {
 func (p *SessionViewPane) GetPaneSpecificKeybindings() []key.Binding {
 	return []key.Binding{} // Tab cycling is implicit
 }
-
-// CycleAgentMsg is sent when Tab is pressed to cycle between agents
-type CycleAgentMsg struct{}

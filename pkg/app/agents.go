@@ -101,14 +101,14 @@ func GetAgentConfig(subprocess string) AgentConfig {
 	// List of all available agents
 	agents := []AgentConfig{
 		ClaudeAgent,
-		AmpAgent,
-		GeminiAgent,
 		CodexAgent,
 		ContinueAgent,
-		ClineAgent,
+		AmpAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
+		GeminiAgent,
+		ClineAgent,
 	}
 
 	// Check if the subprocess contains any known agent executable names
@@ -126,14 +126,14 @@ func GetAgentConfig(subprocess string) AgentConfig {
 func GetAllAgents() []AgentConfig {
 	return []AgentConfig{
 		ClaudeAgent,
-		AmpAgent,
-		GeminiAgent,
 		CodexAgent,
 		ContinueAgent,
-		ClineAgent,
+		AmpAgent,
 		OpenCodeAgent,
 		CursorAgent,
 		GithubCopilotAgent,
+		GeminiAgent,
+		ClineAgent,
 	}
 }
 

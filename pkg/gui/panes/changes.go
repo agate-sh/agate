@@ -195,7 +195,7 @@ func (p *ChangesPane) GetTitleStyle() components.TitleStyle {
 	if p.IsActive() {
 		shortcuts = "↵ open • d discard"
 	} else {
-		shortcuts = "(2)"
+		shortcuts = "(⌥c)"
 	}
 
 	label := "Changes"

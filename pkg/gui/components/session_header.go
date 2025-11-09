@@ -92,6 +92,9 @@ func (h *SessionHeader) Render() string {
 
 	// 3. Agent cards row
 	if len(h.agentCards) > 0 {
+		// Add a blank spacer row before the cards
+		sections = append(sections, "")
+
 		cardsSection := h.renderAgentCards()
 		sections = append(sections, cardsSection)
 	}
@@ -106,7 +109,7 @@ func (h *SessionHeader) Render() string {
 // renderDescription renders the description row with loader if generating
 func (h *SessionHeader) renderDescription() string {
 	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextDescription)).
+		Foreground(lipgloss.Color(theme.TextPrimary)).
 		Width(h.width)
 
 	if h.generatingDescription {
@@ -125,11 +128,15 @@ func (h *SessionHeader) renderDescription() string {
 // renderBranchName renders the branch name row
 func (h *SessionHeader) renderBranchName() string {
 	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		Bold(true).
+		Foreground(lipgloss.Color(theme.TextMuted)).
 		Width(h.width)
 
-	return style.Render(h.branchName)
+	if strings.TrimSpace(h.branchName) == "" {
+		return ""
+	}
+
+	branchIcon := " " // Nerd Font branch icon
+	return style.Render(branchIcon + h.branchName)
 }
 
 // renderAgentCards renders the horizontal layout of agent cards
@@ -139,10 +146,13 @@ func (h *SessionHeader) renderAgentCards() string {
 		cards = append(cards, card.Render())
 	}
 
-	// Join cards with a space
-	cardsLine := strings.Join(cards, " ")
+	// Join multi-line cards horizontally so their borders line up
+	cardsLine := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
 
-	return cardsLine
+	// Ensure the row uses the full header width
+	return lipgloss.NewStyle().
+		Width(h.width).
+		Render(cardsLine)
 }
 
 // renderDivider renders the horizontal separator line

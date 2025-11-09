@@ -97,6 +97,12 @@ var (
 		NerdFont: "\uf071", // Nerd Font warning icon
 		Fallback: "C",      // Conflicted
 	}
+
+	// Generic dropdown chevron for selectors
+	ChevronDown = Icon{
+		NerdFont: "\uf078", // Font Awesome chevron-down (available in Nerd Fonts)
+		Fallback: "⌄",
+	}
 )
 
 var useNerdFonts *bool
@@ -186,4 +192,9 @@ func GetGitStatusIcon(status string) string {
 	default:
 		return GitModified.Get() // Default fallback
 	}
+}
+
+// GetChevronDown returns the dropdown chevron icon
+func GetChevronDown() string {
+	return ChevronDown.Get()
 }

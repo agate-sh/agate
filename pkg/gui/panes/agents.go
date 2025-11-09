@@ -1,6 +1,7 @@
 package panes
 
 import (
+	"agate/internal/debug"
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -37,19 +39,19 @@ type AgentsPane struct {
 	lastSavedBranch string
 	lastSavedRepo   string
 	isGitRepo       bool
+	searchInput     textinput.Model // Search input for filtering by branch
+	searching       bool            // Whether search input is focused
+	unfilteredItems []list.Item     // Backup of items before filtering
 }
 
 // AgentListItem implements list.Item interface for agent sessions
 type AgentListItem struct {
-	Type        string // "repo_header", "session", "empty_message", "pinned_header", "pinned_empty"
-	RepoName    string
-	RepoPath    string // Full path to repository
-	Worktree    *git.WorktreeInfo
-	SessionID   string // Session ID for pinned sessions
-	Index       int    // Index in original repo list
-	IsPinned    bool
-	PinnedCount int
-	PinnedLimit int
+	Type      string // "repo_header", "session", "empty_message", "gap"
+	RepoName  string
+	RepoPath  string // Full path to repository
+	Worktree  *git.WorktreeInfo
+	SessionID string // Session ID
+	Index     int    // Index in original repo list
 }
 
 // FilterValue implements list.Item
@@ -158,47 +160,17 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	rightPad := strings.Repeat(" ", paddingRight)
 
 	highlight := selected && d.isActive
-	if workItem.Type == "pinned_header" {
-		highlight = false
-	}
 
 	var linePlain string
 	var lineStyled string
 	var hint string
 
-	var hoveredRepoName string
-	var hoveredRepoExpanded bool
-	if hoveredItem := m.SelectedItem(); hoveredItem != nil {
-		if hoveredAgent, ok := hoveredItem.(AgentListItem); ok {
-			hoveredRepoName = hoveredAgent.RepoName
-			if d.expandedRepos != nil {
-				hoveredRepoExpanded = d.expandedRepos[hoveredRepoName]
-			}
-		}
-	}
-
 	switch workItem.Type {
 	case "repo_header":
 		repoName := workItem.RepoName
 		displayName := repoName
-		var arrow string
-		if d.expandedRepos != nil && d.expandedRepos[repoName] {
-			arrow = "▼"
-		} else {
-			arrow = "▶"
-		}
 
-		showShortcut := repoName == hoveredRepoName && !hoveredRepoExpanded
-		shortcutPlain := "n new agent"
-		shortcutStyled := ""
-		if showShortcut {
-			shortcutStyled = components.RenderShortcut("n", "new agent", components.ShortcutDefault, "")
-		}
-
-		linePlain = displayName + " " + arrow
-		if showShortcut {
-			linePlain += "  " + shortcutPlain
-		}
+		linePlain = displayName
 
 		if highlight {
 			lineStyled = linePlain
@@ -209,12 +181,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			} else {
 				nameStyled = d.styles.repoHeader.Render(displayName)
 			}
-			arrowStyled := d.styles.repoCurrent.Render(arrow)
-			if showShortcut {
-				lineStyled = nameStyled + " " + arrowStyled + "  " + shortcutStyled
-			} else {
-				lineStyled = nameStyled + " " + arrowStyled
-			}
+			lineStyled = nameStyled
 		}
 
 	case "session":
@@ -233,27 +200,6 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			lineStyled = d.styles.normalItem.Render(linePlain)
 		}
 
-	case "pinned_header":
-		limit := workItem.PinnedLimit
-		if limit <= 0 {
-			limit = session.MaxPinnedSessions
-		}
-		label := "Pinned"
-		countPlain := fmt.Sprintf("(%d/%d)", workItem.PinnedCount, limit)
-		linePlain = label + " " + countPlain
-		if highlight {
-			lineStyled = linePlain
-		} else {
-			countStyled := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.TextDescription)).
-				Render(countPlain)
-			lineStyled = d.styles.repoHeader.Render(label) + " " + countStyled
-		}
-
-	case "pinned_empty":
-		linePlain = "  No pinned sessions"
-		lineStyled = d.styles.mustedText.Render(linePlain)
-
 	case "empty_message":
 		// Show empty state message
 		linePlain = "  No agents"
@@ -270,12 +216,8 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	// Handle hint text - only when pane is active and hovering a session item
 	if hint == "" && d.isActive && highlight && workItem.Type == "session" {
-		// Show pin/unpin hint
-		if workItem.IsPinned {
-			hint = " ↵ to unpin, d to delete"
-		} else {
-			hint = " ↵ to pin, d to delete"
-		}
+		// Show delete hint
+		hint = " d to delete"
 	}
 
 	contentWidth := innerWidth
@@ -361,12 +303,23 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(false)
 
+	// Create search input
+	ti := textinput.New()
+	ti.Prompt = " > "
+	ti.Placeholder = "Search by branch"
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
+	ti.CharLimit = 100
+
 	pane := &AgentsPane{
 		BasePane:       components.NewBasePane(0, "Agents"), // Updated to Agents
 		list:           l,
 		sessionManager: sessionManager,
 		delegate:       delegate,
 		expandedRepos:  expandedRepos, // Use the same map reference
+		searchInput:    ti,
+		searching:      false,
 	}
 
 	// Initial refresh
@@ -407,7 +360,16 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 func (r *AgentsPane) SetSize(width, height int) {
 	r.BasePane.SetSize(width, height)
 	fullWidth := components.PaneFullWidth(width)
-	r.list.SetSize(fullWidth, height)
+
+	// Account for search input (1 line) + spacing (1 line)
+	listHeight := height - 2
+	if listHeight < 1 {
+		listHeight = 1
+	}
+
+	r.list.SetSize(fullWidth, listHeight)
+	r.searchInput.Width = fullWidth
+
 	// Update delegate widths so row highlighting spans the padded content
 	r.delegate.styles.innerWidth = width
 	r.delegate.styles.fullWidth = fullWidth
@@ -424,8 +386,13 @@ func (r *AgentsPane) SetActive(active bool) {
 		// Sync active worktree from session manager before refreshing
 		r.SyncActiveSessionFromManager()
 		r.Refresh()
-		// Jump to active session if one exists
-		r.jumpToActiveSession()
+		// Focus search input and enter searching mode
+		r.searchInput.Focus()
+		r.searching = true
+	} else {
+		// Blur search input when inactive
+		r.searchInput.Blur()
+		r.searching = false
 	}
 }
 
@@ -470,8 +437,8 @@ func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 		repoHelp := common.GlobalKeys.AddRepo.Help()
 		shortcuts = fmt.Sprintf("%s %s", repoHelp.Key, repoHelp.Desc)
 	} else {
-		// When not active, show pane number
-		shortcuts = "(0)"
+		// When not active, show keyboard shortcut to activate
+		shortcuts = "(⌥a)"
 	}
 
 	return components.TitleStyle{
@@ -533,14 +500,48 @@ func (r *AgentsPane) View() string {
 		return style.Render(message)
 	}
 
-	return r.list.View()
+	// Render search input at top
+	searchInputView := r.searchInput.View()
+
+	// Render list view
+	listView := r.list.View()
+
+	// Join search input and list vertically with spacing
+	return lipgloss.JoinVertical(lipgloss.Left, searchInputView, "", listView)
 }
 
 // Update handles tea.Msg updates for the repo worktree pane
 func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
-	var cmd tea.Cmd
-	r.list, cmd = r.list.Update(msg)
-	return r, cmd
+	var cmds []tea.Cmd
+
+	// Update search input if searching
+	if r.searching {
+		oldValue := r.searchInput.Value()
+		var searchCmd tea.Cmd
+		r.searchInput, searchCmd = r.searchInput.Update(msg)
+		if searchCmd != nil {
+			cmds = append(cmds, searchCmd)
+		}
+
+		// If value changed, filter the list
+		if r.searchInput.Value() != oldValue {
+			r.filterList()
+		}
+	}
+
+	// Update list
+	var listCmd tea.Cmd
+	r.list, listCmd = r.list.Update(msg)
+	if listCmd != nil {
+		cmds = append(cmds, listCmd)
+	}
+
+	if len(cmds) == 0 {
+		return r, nil
+	} else if len(cmds) == 1 {
+		return r, cmds[0]
+	}
+	return r, tea.Batch(cmds...)
 }
 
 // HandleKey processes keyboard input when the pane is active
@@ -549,48 +550,40 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		return false, nil
 	}
 
+	// When searching, up/down exits search mode and navigates the list
+	if r.searching {
+		switch key {
+		case "up", "k", "down", "j":
+			// Exit search mode and navigate
+			r.searching = false
+			r.searchInput.Blur()
+			// Then handle the key as normal
+			if key == "up" || key == "k" {
+				r.MoveUp()
+			} else {
+				r.MoveDown()
+			}
+			return true, nil
+		case "esc":
+			// Clear filter and exit search mode
+			r.clearFilter()
+			r.searching = false
+			r.searchInput.Blur()
+			return true, nil
+		default:
+			// Mark all other keys as handled so they go to Update method
+			// which will pass them to the search input
+			return true, nil
+		}
+	}
+
+	// When not searching, normal navigation
 	switch key {
 	case "up", "k":
 		r.MoveUp()
 		return true, nil
 	case "down", "j":
 		r.MoveDown()
-		return true, nil
-	case "enter":
-		// Pin/unpin sessions, or toggle repository expansion
-		if len(r.items) > 0 {
-			currentIndex := r.list.Index()
-			selectedItem := r.list.SelectedItem()
-			if workItem, ok := selectedItem.(AgentListItem); ok {
-				if workItem.Type == "repo_header" {
-					// Toggle expansion state
-					r.expandedRepos[workItem.RepoName] = !r.expandedRepos[workItem.RepoName]
-					// Update the delegate with the current expandedRepos state
-					r.delegate.expandedRepos = r.expandedRepos
-					// Update the list's delegate
-					r.list.SetDelegate(r.delegate)
-					r.rebuildListPreservingSelection(currentIndex)
-				} else if workItem.Type == "session" && workItem.Worktree != nil && workItem.SessionID != "" {
-					// Pin/unpin the session
-					if r.sessionManager != nil {
-						if workItem.IsPinned {
-							// Unpin the session
-							r.sessionManager.UnpinSession(workItem.SessionID)
-							r.rebuildListPreservingSelection(currentIndex)
-						} else {
-							// Try to pin the session
-							if err := r.sessionManager.PinSession(workItem.SessionID); err != nil {
-								// Return error toast message
-								return true, func() tea.Msg {
-									return PinErrorMsg{Error: err}
-								}
-							}
-							r.rebuildListPreservingSelection(currentIndex)
-						}
-					}
-				}
-			}
-		}
 		return true, nil
 	case "d":
 		// Delete selected session
@@ -613,22 +606,34 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 	}
 }
 
-// MoveUp moves the selection up one item
+// MoveUp moves the selection up one item (implements Pane interface)
 func (r *AgentsPane) MoveUp() bool {
 	r.moveUp()
 	return true
 }
 
-// MoveDown moves the selection down one item
+// MoveDown moves the selection down one item (implements Pane interface)
 func (r *AgentsPane) MoveDown() bool {
 	r.moveDown()
 	return true
 }
 
+// MoveUpWithCmd moves the selection up and returns a command if session was switched
+func (r *AgentsPane) MoveUpWithCmd() (bool, tea.Cmd) {
+	cmd := r.moveUp()
+	return true, cmd
+}
+
+// MoveDownWithCmd moves the selection down and returns a command if session was switched
+func (r *AgentsPane) MoveDownWithCmd() (bool, tea.Cmd) {
+	cmd := r.moveDown()
+	return true, cmd
+}
+
 // moveUp navigates up to the previous selectable item
-func (r *AgentsPane) moveUp() {
+func (r *AgentsPane) moveUp() tea.Cmd {
 	if len(r.items) == 0 {
-		return
+		return nil
 	}
 
 	currentIndex := r.list.Index()
@@ -651,15 +656,16 @@ func (r *AgentsPane) moveUp() {
 		// Check if this item is selectable
 		if r.isSelectableItem(currentIndex) {
 			r.list.Select(currentIndex)
-			return
+			return r.onSelectionChanged()
 		}
 	}
+	return nil
 }
 
 // moveDown navigates down to the next selectable item
-func (r *AgentsPane) moveDown() {
+func (r *AgentsPane) moveDown() tea.Cmd {
 	if len(r.items) == 0 {
-		return
+		return nil
 	}
 
 	currentIndex := r.list.Index()
@@ -682,9 +688,36 @@ func (r *AgentsPane) moveDown() {
 		// Check if this item is selectable
 		if r.isSelectableItem(currentIndex) {
 			r.list.Select(currentIndex)
-			return
+			return r.onSelectionChanged()
 		}
 	}
+	return nil
+}
+
+// onSelectionChanged is called when the selection changes and automatically switches to the selected session
+func (r *AgentsPane) onSelectionChanged() tea.Cmd {
+	if r.sessionManager == nil {
+		return nil
+	}
+
+	selectedItem := r.list.SelectedItem()
+	if workItem, ok := selectedItem.(AgentListItem); ok {
+		if workItem.Type == "session" && workItem.Worktree != nil && workItem.SessionID != "" {
+			// Switch to the selected session
+			if sess, err := r.sessionManager.SwitchToSession(workItem.SessionID); err != nil {
+				debug.DebugLog("Failed to auto-switch to session %s: %v", workItem.SessionID, err)
+			} else {
+				// Update the pane to reflect the new active session
+				r.setActiveWorktree(workItem.Worktree)
+
+				// Send message to notify that session was switched
+				return func() tea.Msg {
+					return SessionSwitchedMsg{Session: sess}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // GetSelectedWorktree returns the currently selected worktree
@@ -1040,6 +1073,104 @@ func (r *AgentsPane) Refresh() error {
 	return nil
 }
 
+// filterList filters the list based on the search input value
+func (r *AgentsPane) filterList() {
+	query := strings.ToLower(strings.TrimSpace(r.searchInput.Value()))
+
+	// If query is empty, show everything
+	if query == "" {
+		r.clearFilter()
+		return
+	}
+
+	// Backup unfiltered items if not already backed up
+	if r.unfilteredItems == nil {
+		r.unfilteredItems = make([]list.Item, len(r.items))
+		copy(r.unfilteredItems, r.items)
+	}
+
+	// Filter sessions by branch name
+	filtered := []list.Item{}
+	repoHasMatches := false
+	var pendingRepoHeader *AgentListItem
+
+	for _, item := range r.unfilteredItems {
+		agentItem, ok := item.(AgentListItem)
+		if !ok {
+			continue
+		}
+
+		switch agentItem.Type {
+		case "repo_header":
+			// If previous repo had matches, add its header
+			if pendingRepoHeader != nil && repoHasMatches {
+				filtered = append(filtered, *pendingRepoHeader)
+			}
+			// Store this repo header to add later if it has matches
+			pendingRepoHeader = &agentItem
+			repoHasMatches = false
+
+		case "session":
+			if agentItem.Worktree != nil {
+				branchName := strings.ToLower(agentItem.Worktree.Branch)
+				if strings.Contains(branchName, query) {
+					// This session matches - mark repo as having matches
+					repoHasMatches = true
+				}
+			}
+
+		case "empty_message", "gap":
+			// Skip these in filtered view
+			continue
+		}
+	}
+
+	// Add final repo header if it had matches
+	if pendingRepoHeader != nil && repoHasMatches {
+		filtered = append(filtered, *pendingRepoHeader)
+	}
+
+	// Now do a second pass to add matching sessions
+	for _, item := range r.unfilteredItems {
+		agentItem, ok := item.(AgentListItem)
+		if !ok {
+			continue
+		}
+
+		if agentItem.Type == "session" && agentItem.Worktree != nil {
+			branchName := strings.ToLower(agentItem.Worktree.Branch)
+			if strings.Contains(branchName, query) {
+				filtered = append(filtered, agentItem)
+			}
+		}
+	}
+
+	r.items = filtered
+	r.list.SetItems(r.items)
+
+	// Select first selectable item
+	if len(r.items) > 0 {
+		for i := range r.items {
+			if r.isSelectableItem(i) {
+				r.list.Select(i)
+				break
+			}
+		}
+	}
+}
+
+// clearFilter clears the search filter and restores unfiltered items
+func (r *AgentsPane) clearFilter() {
+	r.searchInput.SetValue("")
+	if r.unfilteredItems != nil {
+		r.items = r.unfilteredItems
+		r.unfilteredItems = nil
+		r.list.SetItems(r.items)
+		// Try to restore selection to active session
+		r.jumpToActiveSession()
+	}
+}
+
 // buildItemList creates a list of items for the bubbles list
 func (r *AgentsPane) buildItemList() {
 	git.DebugLog("[AgentsPane] buildItemList called")
@@ -1049,42 +1180,6 @@ func (r *AgentsPane) buildItemList() {
 		git.DebugLog("[AgentsPane] buildItemList: r.activeWorktree is nil")
 	}
 	r.items = nil
-
-	var pinnedSessions []*session.Session
-	if r.sessionManager != nil {
-		pinnedSessions = r.sessionManager.GetPinnedSessions()
-	}
-	pinnedCount := len(pinnedSessions)
-
-	r.items = append(r.items, AgentListItem{
-		Type:        "pinned_header",
-		PinnedCount: pinnedCount,
-		PinnedLimit: session.MaxPinnedSessions,
-	})
-
-	if pinnedCount == 0 {
-		r.items = append(r.items, AgentListItem{
-			Type: "pinned_empty",
-		})
-	} else {
-		for _, sess := range pinnedSessions {
-			if sess.Worktree() != nil {
-				worktreeCopy := *sess.Worktree()
-				r.items = append(r.items, AgentListItem{
-					Type:      "session",
-					RepoName:  sess.Worktree().RepoName,
-					Worktree:  &worktreeCopy,
-					SessionID: sess.ID,
-					IsPinned:  true,
-				})
-			}
-		}
-	}
-
-	// Gap after pinned section
-	r.items = append(r.items, AgentListItem{
-		Type: "gap",
-	})
 
 	// Get sorted repository names (current repo first)
 	repoNames := make([]string, 0, len(r.groupedSessions))
@@ -1118,11 +1213,6 @@ func (r *AgentsPane) buildItemList() {
 		return repoNames[i] < repoNames[j]
 	})
 
-	// Initialize expanded state for first repo if needed
-	if len(r.expandedRepos) == 0 && len(repoNames) > 0 {
-		r.expandedRepos[repoNames[0]] = true
-	}
-
 	for _, repoName := range repoNames {
 		// Add repository header
 		var mainRepoPath string
@@ -1142,51 +1232,42 @@ func (r *AgentsPane) buildItemList() {
 			RepoPath: mainRepoPath,
 		})
 
-		// Only add sessions if repository is expanded
-		if r.expandedRepos[repoName] {
-			// Get all sessions for this repository
-			sessions := r.groupedSessions[repoName]
+		// Always show all sessions (no collapse/expand)
+		sessions := r.groupedSessions[repoName]
 
-			if len(sessions) > 0 {
-				// Sort sessions by branch name
-				sort.Slice(sessions, func(i, j int) bool {
-					if sessions[i].Worktree() != nil && sessions[j].Worktree() != nil {
-						return sessions[i].Worktree().Branch < sessions[j].Worktree().Branch
-					}
-					return sessions[i].Name() < sessions[j].Name()
-				})
-
-				for _, sess := range sessions {
-					if sess.Worktree() != nil {
-						worktreeCopy := *sess.Worktree()
-						// Check if this session is pinned
-						isPinned := false
-						if r.sessionManager != nil {
-							isPinned = r.sessionManager.IsPinned(sess.ID)
-						}
-						r.items = append(r.items, AgentListItem{
-							Type:      "session",
-							RepoName:  repoName,
-							Worktree:  &worktreeCopy,
-							SessionID: sess.ID,
-							IsPinned:  isPinned,
-						})
-					}
+		if len(sessions) > 0 {
+			// Sort sessions by branch name
+			sort.Slice(sessions, func(i, j int) bool {
+				if sessions[i].Worktree() != nil && sessions[j].Worktree() != nil {
+					return sessions[i].Worktree().Branch < sessions[j].Worktree().Branch
 				}
-			} else {
-				// No sessions - add placeholder
-				r.items = append(r.items, AgentListItem{
-					Type:     "empty_message",
-					RepoName: repoName,
-				})
-			}
+				return sessions[i].Name() < sessions[j].Name()
+			})
 
-			// Add gap after expanded repo for visual separation
+			for _, sess := range sessions {
+				if sess.Worktree() != nil {
+					worktreeCopy := *sess.Worktree()
+					r.items = append(r.items, AgentListItem{
+						Type:      "session",
+						RepoName:  repoName,
+						Worktree:  &worktreeCopy,
+						SessionID: sess.ID,
+					})
+				}
+			}
+		} else {
+			// No sessions - add placeholder
 			r.items = append(r.items, AgentListItem{
-				Type:     "gap",
+				Type:     "empty_message",
 				RepoName: repoName,
 			})
 		}
+
+		// Add gap after repo for visual separation
+		r.items = append(r.items, AgentListItem{
+			Type:     "gap",
+			RepoName: repoName,
+		})
 	}
 
 	// Update delegate's current repo, expanded state, and main worktree
@@ -1287,12 +1368,12 @@ func (r *AgentsPane) isSelectableItem(index int) bool {
 		return false
 	}
 
-	// Headers, gap items, and empty messages are not selectable
-	if item.Type == "pinned_header" || item.Type == "empty_message" || item.Type == "gap" {
-		return false
+	// Only session items are selectable
+	if item.Type == "session" {
+		return true
 	}
 
-	return true
+	return false
 }
 
 // jumpToActiveSession selects the currently active session in the list
@@ -1385,12 +1466,12 @@ type DeleteSessionRequestMsg struct {
 	Session *session.Session
 }
 
-// AttachToSessionMsg is sent when the user wants to attach to a tmux session
-type AttachToSessionMsg struct {
+// SessionSwitchedMsg is sent when the selection changes and a session is auto-switched
+type SessionSwitchedMsg struct {
 	Session *session.Session
 }
 
-// PinErrorMsg is sent when there's an error pinning a session
-type PinErrorMsg struct {
-	Error error
+// AttachToSessionMsg is sent when the user wants to attach to a tmux session
+type AttachToSessionMsg struct {
+	Session *session.Session
 }

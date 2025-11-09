@@ -2,7 +2,6 @@ package components
 
 import (
 	_ "embed"
-	"strings"
 
 	"agate/pkg/gui/theme"
 
@@ -21,18 +20,17 @@ func LoadAgateASCII() string {
 func RenderAgateASCII(width int) string {
 	art := LoadAgateASCII()
 
-	// Style with muted purple color
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.AgateColor)).
+	// Just apply color - no width or centering manipulation
+	// The ASCII art file has its own internal alignment that must be preserved
+	colorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.AgateColor))
+
+	coloredArt := colorStyle.Render(art)
+
+	// Center the entire block
+	centerStyle := lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center)
 
-	// Split into lines and render each line centered
-	lines := strings.Split(strings.TrimSpace(art), "\n")
-	var styledLines []string
-	for _, line := range lines {
-		styledLines = append(styledLines, style.Render(line))
-	}
-
-	return strings.Join(styledLines, "\n")
+	return centerStyle.Render(coloredArt)
 }

@@ -28,7 +28,7 @@ var (
 // while keeping them globally accessible through the pane interface.
 type GlobalKeyMap struct {
 	// Truly global keys - work from any pane, any context
-	Quit         key.Binding // q, Ctrl+C - quit application
+	Quit         key.Binding // Ctrl+C - quit application
 	Keybindings  key.Binding // ? - show help
 	DebugOverlay key.Binding // Ctrl+D - toggle debug overlay
 
@@ -36,15 +36,19 @@ type GlobalKeyMap struct {
 	Up   key.Binding // ↑, k - move up in active pane
 	Down key.Binding // ↓, j - move down in active pane
 
-	// Two-level navigation system
-	TabNextPane key.Binding // Tab - cycle between top-level panes (Agents ↔ Session)
-	NextSubPane key.Binding // Shift+Tab - toggle session sub-panes (Tmux ↔ Git)
-	PrevSubPane key.Binding // (unused placeholder for future backwards navigation)
+	// Pane navigation with Option/Alt keys
+	AgentsPane    key.Binding // Alt+A - jump to agents pane
+	SessionPane   key.Binding // Alt+S - jump to session pane
+	ChangesPane   key.Binding // Alt+C - jump to changes pane
+
+	// Agent cycling (only works on session pane)
+	NextAgent     key.Binding // Tab - cycle to next agent (session pane only)
+	PrevAgent     key.Binding // Shift+Tab - cycle to previous agent (session pane only)
 
 	// Repository and session management - conceptually belong to repos pane
 	// but are globally accessible for convenience
 	AddRepo    key.Binding // r - add repository (repos pane action, but global)
-	NewSession key.Binding // n - create new session (repos pane action, but global)
+	NewSession key.Binding // Alt+N - create new session (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
 	AttachAgent key.Binding // a - attach to agent tmux session
@@ -67,12 +71,12 @@ type GlobalKeyMap struct {
 var GlobalKeys = &GlobalKeyMap{
 	// Global keys
 	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
+		key.WithKeys("ctrl+c"),
+		key.WithHelp("ctrl+c", "quit"),
 	),
 	Keybindings: key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "keybindings"),
+		key.WithKeys("alt+p"),
+		key.WithHelp("⌥p", "Commands"),
 	),
 
 	// Debug
@@ -91,17 +95,28 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("↓/j", "move down"),
 	),
 
-	// Two-level navigation system
-	TabNextPane: key.NewBinding(
+	// Pane navigation with Option/Alt keys
+	AgentsPane: key.NewBinding(
+		key.WithKeys("alt+a"),
+		key.WithHelp("⌥a", "agents pane"),
+	),
+	SessionPane: key.NewBinding(
+		key.WithKeys("alt+s"),
+		key.WithHelp("⌥s", "session pane"),
+	),
+	ChangesPane: key.NewBinding(
+		key.WithKeys("alt+c"),
+		key.WithHelp("⌥c", "changes pane"),
+	),
+
+	// Agent cycling (only works on session pane)
+	NextAgent: key.NewBinding(
 		key.WithKeys("tab"),
-		key.WithHelp("tab", "cycle pane"),
+		key.WithHelp("tab", "next agent"),
 	),
-	NextSubPane: key.NewBinding(
+	PrevAgent: key.NewBinding(
 		key.WithKeys(append([]string{"shift+tab"}, sessionShiftTabSequences...)...),
-		key.WithHelp("shift+tab", "toggle session tab"),
-	),
-	PrevSubPane: key.NewBinding(
-		key.WithDisabled(),
+		key.WithHelp("⇧tab", "prev agent"),
 	),
 
 	// Repository and Session management
@@ -110,8 +125,8 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithHelp("r", "add repo"),
 	),
 	NewSession: key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", "new agent"),
+		key.WithKeys("alt+n"),
+		key.WithHelp("⌥n", "new agent"),
 	),
 
 	// Session interaction
@@ -194,14 +209,15 @@ func (k *GlobalKeyMap) ShortHelp() []key.Binding {
 // FullHelp returns a slice of key bindings to show in the full help view
 func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Keybindings},                 // Global
-		{k.TabNextPane, k.NextSubPane},          // Pane navigation
-		{k.Up, k.Down},                          // List navigation
-		{k.NewSession, k.AttachAgent, k.Commit}, // Quick actions (n, a, c)
-		{k.AddRepo},                             // Repository
-		{k.DetachTmux},                          // Session
-		{k.Filter, k.ClearFilter},               // Filtering
-		{k.Confirm, k.Cancel},                   // Dialogs
+		{k.Quit, k.Keybindings},                           // Global
+		{k.AgentsPane, k.SessionPane, k.ChangesPane},      // Pane navigation
+		{k.NextAgent, k.PrevAgent},                        // Agent cycling
+		{k.Up, k.Down},                                    // List navigation
+		{k.NewSession, k.AttachAgent, k.Commit},           // Quick actions (n, a, c)
+		{k.AddRepo},                                       // Repository
+		{k.DetachTmux},                                    // Session
+		{k.Filter, k.ClearFilter},                         // Filtering
+		{k.Confirm, k.Cancel},                             // Dialogs
 	}
 }
 
@@ -213,8 +229,13 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.Keybindings,
 		},
 		"Pane Navigation": {
-			k.TabNextPane,
-			k.NextSubPane,
+			k.AgentsPane,
+			k.SessionPane,
+			k.ChangesPane,
+		},
+		"Agent Cycling": {
+			k.NextAgent,
+			k.PrevAgent,
 		},
 		"List Navigation": {
 			k.Up,
@@ -262,11 +283,11 @@ func (k *GlobalKeyMap) EnableDialogKeys() {
 	k.Cancel.SetEnabled(true)
 }
 
-// IsNextSubPaneKey reports whether the provided key message should trigger a
-// transition to the next session sub-pane. This explicitly handles common
+// IsPrevAgentKey reports whether the provided key message should trigger a
+// transition to the previous agent. This explicitly handles common
 // escape sequences for Shift+Tab emitted by popular terminals.
-func IsNextSubPaneKey(msg tea.KeyMsg) bool {
-	return key.Matches(msg, GlobalKeys.NextSubPane) || matchesSequence(msg, sessionShiftTabSequences)
+func IsPrevAgentKey(msg tea.KeyMsg) bool {
+	return key.Matches(msg, GlobalKeys.PrevAgent) || matchesSequence(msg, sessionShiftTabSequences)
 }
 
 func matchesSequence(msg tea.KeyMsg, sequences []string) bool {

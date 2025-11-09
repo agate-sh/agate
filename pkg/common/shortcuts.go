@@ -34,14 +34,7 @@ func (s *ShortcutOverlay) SetMode(mode string) {
 func (s *ShortcutOverlay) GetContextualShortcuts() []key.Binding {
 	shortcuts := []key.Binding{}
 
-	// Always show core global shortcuts
-	shortcuts = append(shortcuts,
-		s.keyMap.NewSession,  // n - new agent
-		s.keyMap.AttachAgent, // a - attach to agent
-		s.keyMap.Commit,      // c - commit
-		s.keyMap.Quit,        // q - quit
-		s.keyMap.Keybindings, // ? - keybindings
-	)
+	// Footer removed - shortcuts now shown in new session header only
 
 	return shortcuts
 }

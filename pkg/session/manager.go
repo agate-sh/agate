@@ -14,17 +14,14 @@ import (
 	"agate/pkg/tmux"
 )
 
-const MaxPinnedSessions = 4
-
 // Manager is a singleton that manages all multi-agent sessions
 type Manager struct {
-	sessions       map[string]*Session      // SessionID -> Session
-	activeSession  *Session                 // Currently active session
-	pinnedSessions []string                 // Ordered list of pinned session IDs (max MaxPinnedSessions)
-	worktreeMgr    *git.WorktreeManager     // Default Git worktree manager (launch repo)
-	worktreeMap    map[string]*git.WorktreeManager
-	stateMgr       StateManager             // Thread-safe state persistence
-	mu             sync.RWMutex             // Protects concurrent access
+	sessions      map[string]*Session      // SessionID -> Session
+	activeSession *Session                 // Currently active session
+	worktreeMgr   *git.WorktreeManager     // Default Git worktree manager (launch repo)
+	worktreeMap   map[string]*git.WorktreeManager
+	stateMgr      StateManager             // Thread-safe state persistence
+	mu            sync.RWMutex             // Protects concurrent access
 }
 
 // StateManager defines the interface for state persistence
@@ -67,12 +64,15 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	debug.DebugLog("CreateSession: Starting session creation with prompt='%s', branch='%s', agents=%v", prompt, branchName, agentNames)
+
 	if len(agentNames) == 0 {
 		return nil, fmt.Errorf("at least one agent must be specified")
 	}
 
 	// Generate session ID
 	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
+	debug.DebugLog("CreateSession: Generated sessionID=%s", sessionID)
 
 	// Create session object
 	session := &Session{
@@ -147,14 +147,22 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 
 // createAgentInstance creates a single agent instance for a session
 func (m *Manager) createAgentInstance(sessionID string, branchName string, agentName string) (*AgentInstance, error) {
+	debug.DebugLog("createAgentInstance: Creating instance for agent=%s, baseBranch=%s, sessionID=%s", agentName, branchName, sessionID)
+
 	// Get agent configuration
 	agentConfig := app.GetAgentConfig(agentName)
 
 	// Create worktree for this agent
-	worktree, err := m.worktreeMgr.CreateWorktree(branchName)
+	// For multi-agent sessions, append agent name to branch to make it unique
+	agentBranchName := fmt.Sprintf("%s_%s", branchName, agentName)
+	debug.DebugLog("createAgentInstance: Creating worktree with unique branch=%s for agent=%s", agentBranchName, agentName)
+
+	worktree, err := m.worktreeMgr.CreateWorktree(agentBranchName)
 	if err != nil {
+		debug.DebugLog("createAgentInstance: Failed to create worktree for agent=%s, branch=%s: %v", agentName, agentBranchName, err)
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
+	debug.DebugLog("createAgentInstance: Successfully created worktree at %s for agent=%s", worktree.Path, agentName)
 
 	// Generate instance ID
 	instanceID := fmt.Sprintf("%s_%s", sessionID, agentName)
@@ -353,14 +361,6 @@ func (m *Manager) DeleteSession(sessionID string) error {
 		m.activeSession = nil
 	}
 
-	// Remove from pinned sessions if present
-	for i, id := range m.pinnedSessions {
-		if id == sessionID {
-			m.pinnedSessions = append(m.pinnedSessions[:i], m.pinnedSessions[i+1:]...)
-			break
-		}
-	}
-
 	// Persist changes
 	if err := m.PersistSessions(); err != nil {
 		debug.DebugLog("Failed to persist after deleting session: %v", err)
@@ -380,88 +380,6 @@ func (m *Manager) ListSessions() []*Session {
 		sessions = append(sessions, session)
 	}
 	return sessions
-}
-
-// PinSession pins a session to the grid display (max 4 sessions)
-func (m *Manager) PinSession(sessionID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check if already pinned
-	for _, id := range m.pinnedSessions {
-		if id == sessionID {
-			debug.DebugLog("Session %s is already pinned", sessionID)
-			return nil
-		}
-	}
-
-	// Check if we've reached the max limit
-	if len(m.pinnedSessions) >= MaxPinnedSessions {
-		return fmt.Errorf("cannot pin more than %d sessions (currently have %d pinned)", MaxPinnedSessions, len(m.pinnedSessions))
-	}
-
-	// Verify the session exists
-	if _, exists := m.sessions[sessionID]; !exists {
-		return fmt.Errorf("session %s not found", sessionID)
-	}
-
-	// Add to pinned sessions
-	m.pinnedSessions = append(m.pinnedSessions, sessionID)
-	debug.DebugLog("Pinned session %s (total pinned: %d)", sessionID, len(m.pinnedSessions))
-
-	// Persist the change
-	if err := m.PersistSessions(); err != nil {
-		debug.DebugLog("Failed to persist pinned session %s: %v", sessionID, err)
-	}
-
-	return nil
-}
-
-// UnpinSession removes a session from the pinned list
-func (m *Manager) UnpinSession(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for i, id := range m.pinnedSessions {
-		if id == sessionID {
-			m.pinnedSessions = append(m.pinnedSessions[:i], m.pinnedSessions[i+1:]...)
-			debug.DebugLog("Unpinned session %s (remaining pinned: %d)", sessionID, len(m.pinnedSessions))
-
-			// Persist the change
-			if err := m.PersistSessions(); err != nil {
-				debug.DebugLog("Failed to persist after unpinning session %s: %v", sessionID, err)
-			}
-			return
-		}
-	}
-	debug.DebugLog("Session %s was not pinned", sessionID)
-}
-
-// GetPinnedSessions returns an ordered list of pinned sessions
-func (m *Manager) GetPinnedSessions() []*Session {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]*Session, 0, len(m.pinnedSessions))
-	for _, sessionID := range m.pinnedSessions {
-		if session, exists := m.sessions[sessionID]; exists {
-			result = append(result, session)
-		}
-	}
-	return result
-}
-
-// IsPinned checks if a session is currently pinned
-func (m *Manager) IsPinned(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, id := range m.pinnedSessions {
-		if id == sessionID {
-			return true
-		}
-	}
-	return false
 }
 
 // GetRepositoryPath returns the absolute path for the given repository name
