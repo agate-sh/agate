@@ -155,27 +155,12 @@ func (d *SessionDeleteConfirmDialog) View() string {
 		}
 	}
 
-	// Header: Repo > Branch > Delete session (same style as session dialog)
-	repoName := "unknown"
-	branchName := "unknown"
-	if d.session != nil && d.session.Worktree() != nil {
-		repoName = d.session.Worktree().RepoName
-		branchName = d.session.Worktree().Branch
-	}
-
-	repoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextDescription))
+	// Header: "Delete Session"
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextPrimary)).
 		Bold(true)
 
-	repoText := repoStyle.Render(repoName)
-	arrow1Text := titleStyle.Render(" > ")
-	branchText := repoStyle.Render(branchName)
-	arrow2Text := titleStyle.Render(" > ")
-	actionText := titleStyle.Render("Delete session")
-
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrow1Text, branchText, arrow2Text, actionText)
+	headerLine := titleStyle.Render("Delete Session")
 	appendLine(headerLine)
 	content = append(content, "")
 
@@ -183,10 +168,61 @@ func (d *SessionDeleteConfirmDialog) View() string {
 	content = append(content, "DIVIDER_PLACEHOLDER")
 	content = append(content, "")
 
-	// Subtitle - don't constrain width to avoid early wrapping
+	// Extract session info
+	repoName := "unknown"
+	description := ""
+	var agentNames []string
+
+	if d.session != nil {
+		if d.session.Worktree() != nil {
+			repoName = d.session.Worktree().RepoName
+		}
+		description = d.session.Description
+		if strings.TrimSpace(description) == "" {
+			description = d.session.Prompt
+		}
+
+		// Get agent names
+		if len(d.session.Instances) > 0 {
+			instances := d.session.GetOrderedInstances()
+			for _, instance := range instances {
+				agentName := instance.AgentConfig.Name
+				if len(agentName) > 0 {
+					agentName = strings.ToUpper(agentName[:1]) + agentName[1:]
+				}
+				agentNames = append(agentNames, agentName)
+			}
+		}
+	}
+
+	// Info list styles
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextPrimary)).
+		Bold(true)
+	valueStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextPrimary))
+
+	// Repo
+	repoLine := labelStyle.Render("Repo: ") + valueStyle.Render(repoName)
+	appendLine(repoLine)
+
+	// Description
+	descLine := labelStyle.Render("Description: ") + valueStyle.Render(description)
+	appendLine(descLine)
+
+	// Agents
+	agentsText := strings.Join(agentNames, ", ")
+	if agentsText == "" {
+		agentsText = "None"
+	}
+	agentsLine := labelStyle.Render("Agents: ") + valueStyle.Render(agentsText)
+	appendLine(agentsLine)
+	content = append(content, "")
+
+	// Subtitle - warning message
 	subtitleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextPrimary))
-	appendLine(subtitleStyle.Render("This will delete the worktree, along with all uncommitted changes"))
+	appendLine(subtitleStyle.Render("This will delete the worktree, tmux sessions, and all committed and uncommitted changes"))
 	content = append(content, "")
 	content = append(content, "")
 

@@ -106,7 +106,7 @@ func NewAgentSelector(initialAgents []app.AgentConfig) *AgentSelector {
 	// Create filter input (focused to show cursor)
 	ti := textinput.New()
 	ti.Prompt = "> "
-	ti.Placeholder = "Enter search term"
+	ti.Placeholder = "Agent name"
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
 	ti.CharLimit = 50
 	ti.Width = 40

@@ -1,8 +1,10 @@
 package common
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // truncatePathFromLeft truncates a file path from the left side when it's too long,
@@ -72,4 +74,42 @@ func TruncatePathFromLeft(path string, maxWidth int) string {
 	}
 
 	return result.String()
+}
+
+// FormatTimeAgo formats a time into a shorthand "time ago" string
+// Examples: "now", "5m", "2h", "3d", "2w", "1mo", "1y"
+func FormatTimeAgo(t time.Time) string {
+	duration := time.Since(t)
+
+	seconds := int(duration.Seconds())
+	minutes := int(duration.Minutes())
+	hours := int(duration.Hours())
+	days := hours / 24
+	weeks := days / 7
+	months := days / 30
+	years := days / 365
+
+	switch {
+	case seconds < 60:
+		return "now"
+	case minutes < 60:
+		return formatUnit(minutes, "m")
+	case hours < 24:
+		return formatUnit(hours, "h")
+	case days < 7:
+		return formatUnit(days, "d")
+	case days < 30:
+		return formatUnit(weeks, "w")
+	case days < 365:
+		return formatUnit(months, "mo")
+	default:
+		return formatUnit(years, "y")
+	}
+}
+
+func formatUnit(value int, unit string) string {
+	if value == 0 {
+		return "now"
+	}
+	return fmt.Sprintf("%d%s", value, unit)
 }

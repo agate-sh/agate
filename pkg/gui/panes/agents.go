@@ -5,7 +5,6 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
-	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"agate/pkg/git"
 	"agate/pkg/gui/theme"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -51,6 +51,7 @@ type AgentListItem struct {
 	RepoPath  string // Full path to repository
 	Worktree  *git.WorktreeInfo
 	SessionID string // Session ID
+	Session   *session.Session // Session object for accessing description and timestamps
 	Index     int    // Index in original repo list
 }
 
@@ -185,24 +186,67 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 
 	case "session":
-		if workItem.Worktree == nil {
+		if workItem.Worktree == nil || workItem.Session == nil {
 			return
 		}
-		label := workItem.Worktree.Branch
-		if strings.TrimSpace(label) == "" {
-			label = workItem.Worktree.Name
+		// Show description + time ago instead of branch name
+		description := workItem.Session.Description
+		if strings.TrimSpace(description) == "" {
+			description = workItem.Session.Prompt
 		}
-		branchIcon := icons.GetGitRepo()
-		linePlain = "  " + branchIcon + "  " + label
+		timeAgo := common.FormatTimeAgo(workItem.Session.CreatedAt)
+
+		leadingSpaces := ""
+		timeAgoWidth := lipgloss.Width(timeAgo)
+
+		// Calculate available width for description
+		// We need minimum 2 spaces gap before timestamp
+		leadingWidth := lipgloss.Width(leadingSpaces)
+		minGap := 2
+		availableForDesc := innerWidth - leadingWidth - minGap - timeAgoWidth
+
+		// Truncate description if needed
+		truncatedDesc := description
+		if lipgloss.Width(description) > availableForDesc {
+			runes := []rune(description)
+			for lipgloss.Width(string(runes)+"...") > availableForDesc && len(runes) > 0 {
+				runes = runes[:len(runes)-1]
+			}
+			if len(runes) > 0 {
+				truncatedDesc = string(runes) + "..."
+			} else {
+				truncatedDesc = ""
+			}
+		}
+
+		// Build linePlain with right-aligned timestamp
+		descWidth := lipgloss.Width(truncatedDesc)
+		paddingWidth := innerWidth - leadingWidth - descWidth - timeAgoWidth
+		if paddingWidth < minGap {
+			paddingWidth = minGap
+		}
+		padding := strings.Repeat(" ", paddingWidth)
+		linePlain = leadingSpaces + truncatedDesc + padding + timeAgo
+
 		if highlight {
+			// When highlighted, just use plain text (will be styled by highlight background)
 			lineStyled = linePlain
 		} else {
-			lineStyled = d.styles.normalItem.Render(linePlain)
+			// Render description with TextDescription color
+			descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+			descRendered := descStyle.Render(truncatedDesc)
+
+			// Render timestamp with TextMuted color
+			timeAgoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
+			timeAgoRendered := timeAgoStyle.Render(timeAgo)
+
+			// Combine: "  <description><padding><timeAgo>"
+			lineStyled = leadingSpaces + descRendered + padding + timeAgoRendered
 		}
 
 	case "empty_message":
 		// Show empty state message
-		linePlain = "  No agents"
+		linePlain = "No agents"
 		lineStyled = d.styles.mustedText.Render(linePlain)
 
 	case "gap":
@@ -217,7 +261,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	// Handle hint text - only when pane is active and hovering a session item
 	if hint == "" && d.isActive && highlight && workItem.Type == "session" {
 		// Show delete hint
-		hint = " d to delete"
+		hint = " ⌥d to delete"
 	}
 
 	contentWidth := innerWidth
@@ -306,11 +350,13 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 	// Create search input
 	ti := textinput.New()
 	ti.Prompt = " > "
-	ti.Placeholder = "Search by branch"
+	ti.Placeholder = "Search by description"
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
 	ti.CharLimit = 100
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
+	ti.Cursor.SetMode(cursor.CursorBlink)
 
 	pane := &AgentsPane{
 		BasePane:       components.NewBasePane(0, "Agents"), // Updated to Agents
@@ -570,6 +616,11 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 			r.searching = false
 			r.searchInput.Blur()
 			return true, nil
+		case "alt+d":
+			// Exit search mode and trigger deletion
+			r.searching = false
+			r.searchInput.Blur()
+			// Fall through to normal alt+d handling below
 		default:
 			// Mark all other keys as handled so they go to Update method
 			// which will pass them to the search input
@@ -585,7 +636,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 	case "down", "j":
 		r.MoveDown()
 		return true, nil
-	case "d":
+	case "alt+d":
 		// Delete selected session
 		if len(r.items) > 0 {
 			selectedItem := r.list.SelectedItem()
@@ -1236,12 +1287,9 @@ func (r *AgentsPane) buildItemList() {
 		sessions := r.groupedSessions[repoName]
 
 		if len(sessions) > 0 {
-			// Sort sessions by branch name
+			// Sort sessions by CreatedAt in descending order (newest first)
 			sort.Slice(sessions, func(i, j int) bool {
-				if sessions[i].Worktree() != nil && sessions[j].Worktree() != nil {
-					return sessions[i].Worktree().Branch < sessions[j].Worktree().Branch
-				}
-				return sessions[i].Name() < sessions[j].Name()
+				return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
 			})
 
 			for _, sess := range sessions {
@@ -1252,6 +1300,7 @@ func (r *AgentsPane) buildItemList() {
 						RepoName:  repoName,
 						Worktree:  &worktreeCopy,
 						SessionID: sess.ID,
+						Session:   sess,
 					})
 				}
 			}

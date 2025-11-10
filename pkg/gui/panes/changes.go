@@ -130,7 +130,7 @@ func (p *ChangesPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 	case "down", "j":
 		changed := p.MoveDown()
 		return changed, nil
-	case "d":
+	case "alt+d":
 		// Discard selected file
 		return true, p.discardFile()
 	case "enter":
@@ -193,7 +193,7 @@ func (p *ChangesPane) openSelectedFile() tea.Cmd {
 func (p *ChangesPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if p.IsActive() {
-		shortcuts = "↵ open • d discard"
+		shortcuts = "↵ open • ⌥d discard"
 	} else {
 		shortcuts = "(⌥c)"
 	}

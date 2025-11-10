@@ -1336,9 +1336,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				key.Matches(msg, common.GlobalKeys.SessionPane) ||
 				key.Matches(msg, common.GlobalKeys.ChangesPane) ||
 				key.Matches(msg, common.GlobalKeys.Keybindings) ||
-				key.Matches(msg, common.GlobalKeys.Quit) ||
-				key.Matches(msg, common.GlobalKeys.NextAgent) ||
-				key.Matches(msg, common.GlobalKeys.PrevAgent)
+				key.Matches(msg, common.GlobalKeys.Quit)
 
 			// Check if agents pane is active - if so, skip chat input and let pane handle it
 			agentsPaneActive := m.focus.IsAgentsFocus() && m.repoPane != nil && m.repoPane.IsActive()
@@ -1419,17 +1417,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Enter key now handles attachment for tmux pane
 
-		case msg.String() == "d":
-			// 'd' key handling - delegate to the agents pane for session deletion
+		case msg.String() == "alt+d":
+			// 'alt+d' key handling - delegate to the agents pane for session deletion
 			if m.focus.IsAgentsFocus() && m.repoPane != nil {
-				handled, cmd := m.repoPane.HandleKey("d")
+				handled, cmd := m.repoPane.HandleKey("alt+d")
 				if handled {
 					return m, cmd
 				}
 			}
-			// Also handle 'd' in changes pane for discarding files
+			// Also handle 'alt+d' in changes pane for discarding files
 			if m.focus.IsGitFocus() && m.changesPane != nil {
-				handled, cmd := m.changesPane.HandleKey("d")
+				handled, cmd := m.changesPane.HandleKey("alt+d")
 				if handled {
 					// Refresh changes pane after discard
 					m.updateChangesPane()
