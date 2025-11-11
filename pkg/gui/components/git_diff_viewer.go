@@ -10,16 +10,17 @@ import (
 
 // GitDiffViewer displays a scrollable diff for a single file
 type GitDiffViewer struct {
-	viewport     viewport.Model
-	diffContent  string // Pre-rendered diff content from delta
-	width        int
-	height       int
-	active       bool
+	viewport    viewport.Model
+	diffContent string // Pre-rendered diff content from delta
+	width       int
+	height      int
+	active      bool
 }
 
 // NewGitDiffViewer creates a new diff viewer
 func NewGitDiffViewer() *GitDiffViewer {
 	vp := viewport.New(0, 0)
+	vp.MouseWheelEnabled = true
 	return &GitDiffViewer{
 		viewport: vp,
 	}

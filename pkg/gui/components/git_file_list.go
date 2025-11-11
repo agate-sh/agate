@@ -129,24 +129,6 @@ func (g *GitFileList) View() string {
 
 	var output strings.Builder
 
-	// Summary line (if enabled)
-	if g.showSummary {
-		summaryStyle := lipgloss.NewStyle().
-			Width(g.width).
-			Align(lipgloss.Center).
-			Foreground(lipgloss.Color(theme.TextPrimary)).
-			Bold(true)
-
-		summary := g.fileStatus.FormatSummaryLine()
-		summaryLine := summaryStyle.Render(summary)
-		output.WriteString(ApplyPaneContentPadding(summaryLine, g.width))
-		output.WriteString("\n")
-		// Add extra gap after summary if enabled (for panes)
-		if g.summaryGap {
-			output.WriteString("\n")
-		}
-	}
-
 	// Render all files in a single flat list (no sections)
 	// This matches GitHub Desktop's approach where all changes are shown together
 	for i, file := range g.fileStatus.Files {

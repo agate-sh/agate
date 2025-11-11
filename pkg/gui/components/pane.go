@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	paneContentHorizontalPadding = 1
-	paneContentVerticalPadding   = 1
+	paneContentHorizontalPadding = 0
+	paneContentVerticalPadding   = 0
 )
 
 var (
@@ -126,22 +126,29 @@ type Pane interface {
 
 	// Keybindings - pane-specific shortcuts that should be shown when this pane is active
 	GetPaneSpecificKeybindings() []key.Binding
+
+	// Chrome customization
+	GetChromePadding() (top, bottom int)
 }
 
 // BasePane provides default implementations for common pane functionality
 type BasePane struct {
-	index    int
-	width    int
-	height   int
-	isActive bool
-	title    string
+	index         int
+	width         int
+	height        int
+	isActive      bool
+	title         string
+	paddingTop    int
+	paddingBottom int
 }
 
 // NewBasePane creates a new BasePane with the given index and title
 func NewBasePane(index int, title string) *BasePane {
 	return &BasePane{
-		index: index,
-		title: title,
+		index:         index,
+		title:         title,
+		paddingTop:    paneContentVerticalPadding,
+		paddingBottom: paneContentVerticalPadding,
 	}
 }
 
@@ -188,6 +195,23 @@ func (p *BasePane) GetTitleStyle() TitleStyle {
 		Text:      p.title,
 		Shortcuts: shortcuts,
 	}
+}
+
+// SetChromePadding overrides the default top/bottom padding applied by the pane chrome.
+func (p *BasePane) SetChromePadding(top, bottom int) {
+	if top < 0 {
+		top = 0
+	}
+	if bottom < 0 {
+		bottom = 0
+	}
+	p.paddingTop = top
+	p.paddingBottom = bottom
+}
+
+// GetChromePadding returns the chrome padding currently applied to the pane.
+func (p *BasePane) GetChromePadding() (int, int) {
+	return p.paddingTop, p.paddingBottom
 }
 
 // View returns a default empty view - should be overridden by implementations

@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/spf13/cobra"
 )
 
@@ -1538,7 +1539,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case m.focus.IsGitFocus():
 				if m.changesPane != nil {
-					m.changesPane.MoveUp()
+					handled, cmd := m.changesPane.HandleKey(msg.String())
+					if handled {
+						return m, cmd
+					}
 					return m, nil
 				}
 			}
@@ -1557,7 +1561,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case m.focus.IsGitFocus():
 				if m.changesPane != nil {
-					m.changesPane.MoveDown()
+					handled, cmd := m.changesPane.HandleKey(msg.String())
+					if handled {
+						return m, cmd
+					}
 					return m, nil
 				}
 			}
@@ -1587,8 +1594,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.NextAgent):
-			// Tab cycles to next agent (only on session pane)
-			if m.focus.PaneType == layout.PaneTypeSession {
+			// Tab toggles sub-panes in changes pane, or cycles agents in session pane
+			// Check git focus first since it's also PaneTypeSession
+			if m.focus.IsGitFocus() && m.changesPane != nil {
+				handled, cmd := m.changesPane.HandleKey("tab")
+				if handled {
+					return m, cmd
+				}
+			} else if m.focus.PaneType == layout.PaneTypeSession {
+				// Cycle to next agent in session pane
 				return m, m.cycleNextAgent()
 			}
 			return m, nil
@@ -1613,6 +1627,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
+		// Allow changes pane to react to mouse events regardless of focus
+		if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+			if handled, cmd := changesPane.HandleMouse(msg); handled {
+				return m, cmd
+			}
+		}
+
 		// Handle mouse events when right pane is focused
 		if currentTmux := m.getCurrentTmuxSession(); m.focus.IsTmuxFocus() && currentTmux != nil {
 			switch msg.Action {
@@ -1846,11 +1867,40 @@ func (m model) View() string {
 		sessionContent := m.sessionViewPane.View()
 		changesContent := m.changesPane.View()
 
+		defaultPadding := components.PaneContentVerticalPadding()
+
+		leftPadTop, leftPadBottom := defaultPadding, defaultPadding
+		if m.repoPane != nil {
+			leftPadTop, leftPadBottom = m.repoPane.GetChromePadding()
+		}
+
+		centerPadTop, centerPadBottom := defaultPadding, defaultPadding
+		if m.sessionViewPane != nil {
+			centerPadTop, centerPadBottom = m.sessionViewPane.GetChromePadding()
+		}
+
+		rightPadTop, rightPadBottom := defaultPadding, defaultPadding
+		if m.changesPane != nil {
+			rightPadTop, rightPadBottom = m.changesPane.GetChromePadding()
+		}
+
 		// Use layout's RenderPanes to render the 3-column layout
 		leftPane, tmuxPane, gitPane := m.layout.RenderPanes(
-			agentsContent,
-			sessionContent,
-			changesContent,
+			layout.PaneRenderParams{
+				Content:       agentsContent,
+				PaddingTop:    leftPadTop,
+				PaddingBottom: leftPadBottom,
+			},
+			layout.PaneRenderParams{
+				Content:       sessionContent,
+				PaddingTop:    centerPadTop,
+				PaddingBottom: centerPadBottom,
+			},
+			layout.PaneRenderParams{
+				Content:       changesContent,
+				PaddingTop:    rightPadTop,
+				PaddingBottom: rightPadBottom,
+			},
 			m.focus,
 			false, // isLoading - handled by SessionViewPane internally
 			nil,   // loadingState - not needed since SessionViewPane handles it
@@ -1891,13 +1941,13 @@ func (m model) View() string {
 	// If help dialog is visible, overlay it
 	if m.showHelp {
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.helpDialog.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.helpDialog.View(), mainView, true, true))
 	}
 
 	// If debug overlay is visible, overlay it (high priority)
 	if m.showDebugOverlay && m.debugOverlay != nil {
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.debugOverlay.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.debugOverlay.View(), mainView, true, true))
 	}
 
 	// TODO: Old worktree dialog removed, replaced with chat input
@@ -1908,7 +1958,7 @@ func (m model) View() string {
 		m.repoDialog.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.repoDialog.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.repoDialog.View(), mainView, true, true))
 	}
 
 	// If worktree deletion confirmation is visible, overlay it
@@ -1917,7 +1967,7 @@ func (m model) View() string {
 		m.worktreeConfirm.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.worktreeConfirm.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.worktreeConfirm.View(), mainView, true, true))
 	}
 
 	// If session deletion confirmation is visible, overlay it
@@ -1926,7 +1976,7 @@ func (m model) View() string {
 		m.sessionConfirm.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.sessionConfirm.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.sessionConfirm.View(), mainView, true, true))
 	}
 
 	// If commit overlay is visible, overlay it
@@ -1935,7 +1985,7 @@ func (m model) View() string {
 		m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 
 		// Use Claude Squad's overlay implementation
-		return overlay.PlaceOverlay(0, 0, m.commitOverlay.View(), mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.commitOverlay.View(), mainView, true, true))
 	}
 
 	// If agent selector is visible, overlay it
@@ -1965,20 +2015,20 @@ func (m model) View() string {
 				overlayY += (newSessionPaneHeight - overlayHeight) / 2
 			}
 
-			return overlay.PlaceOverlay(overlayX, overlayY, selectorView, mainView, true, false)
+			return zone.Scan(overlay.PlaceOverlay(overlayX, overlayY, selectorView, mainView, true, false))
 		}
 
 		// Default to centering on the entire screen
-		return overlay.PlaceOverlay(0, 0, selectorView, mainView, true, true)
+		return zone.Scan(overlay.PlaceOverlay(0, 0, selectorView, mainView, true, true))
 	}
 
 	// Render toast notifications (always rendered last, on top of everything)
 	// Toasts do NOT dim the background and do NOT block interaction
 	if m.toast != nil && m.toast.IsVisible() {
-		return m.toast.PlaceOverlay(mainView, m.layout.GetWidth(), m.layout.GetHeight())
+		return zone.Scan(m.toast.PlaceOverlay(mainView, m.layout.GetWidth(), m.layout.GetHeight()))
 	}
 
-	return mainView
+	return zone.Scan(mainView)
 }
 
 func checkTmuxInstalled() error {
@@ -2002,6 +2052,8 @@ func runAgent(subprocess string) error {
 }
 
 func main() {
+	zone.NewGlobal()
+
 	var showVersion bool
 
 	var rootCmd = &cobra.Command{

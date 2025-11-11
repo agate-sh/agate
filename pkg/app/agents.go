@@ -49,7 +49,7 @@ var CodexAgent = AgentConfig{
 
 // OpenCode agent configuration with the specific color
 var OpenCodeAgent = AgentConfig{
-	Name:           "opencode",
+	Name:           "Opencode",
 	BorderColor:    "#ffba88",
 	ExecutableName: "opencode",
 	CompanyName:    "opencode",

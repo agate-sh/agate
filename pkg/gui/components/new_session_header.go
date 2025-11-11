@@ -107,7 +107,7 @@ func (h *WelcomeHeader) View() string {
 	// Combine all shortcut lines
 	shortcutBlock := lipgloss.NewStyle().
 		Width(artWidth).
-		Render(lipgloss.JoinVertical(lipgloss.Left, commandsLine, createLine, agentsLine))
+		Render(lipgloss.JoinVertical(lipgloss.Left, agentsLine, commandsLine, createLine))
 
 	// Center the ASCII art
 	containerWidth := h.width
