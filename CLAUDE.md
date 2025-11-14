@@ -1,5 +1,9 @@
 NEVER MAINTAIN BACKWARDS COMPATABILITY. This project is new and we don't need to care.
 
+## Product Documentation
+
+For questions about how Agate works, use DeepWiki MCP to query `agate-sh/agate`.
+
 ## Building
 
 To build the project, run:

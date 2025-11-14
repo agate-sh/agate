@@ -9,6 +9,7 @@ import (
 
 	"agate/internal/debug"
 	"agate/internal/version"
+	"agate/pkg/analytics"
 	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/git"
@@ -2010,6 +2011,22 @@ func runAgent(subprocess string) error {
 
 func main() {
 	zone.NewGlobal()
+
+	// Initialize analytics
+	apiKey := os.Getenv("POSTHOG_API_KEY")
+	if err := analytics.Init(apiKey); err != nil {
+		debug.DebugLog("Failed to initialize analytics: %v", err)
+		// Continue - app works without analytics
+	}
+	defer analytics.Close()
+
+	// Get machine ID and identify user with environment properties
+	if machineID, err := analytics.GetMachineID(); err == nil {
+		envProps := analytics.GetEnvironmentProperties(version.Short())
+		if err := analytics.Identify(machineID, envProps); err != nil {
+			debug.DebugLog("Failed to identify user: %v", err)
+		}
+	}
 
 	var showVersion bool
 
