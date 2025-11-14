@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"agate/internal/debug"
+	"agate/pkg/telemetry"
 	"context"
 	"fmt"
 	"io"
@@ -195,6 +196,9 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 		return nil, fmt.Errorf("no PTY available for session %s", t.sanitizedName)
 	}
 
+	// Track agent attached
+	telemetry.TrackAgentAttached(t.program)
+
 	t.attachCh = make(chan struct{})
 
 	t.wg = &sync.WaitGroup{}
@@ -275,6 +279,9 @@ func (t *TmuxSession) Attach() (chan struct{}, error) {
 
 // Detach disconnects from the current tmux session.
 func (t *TmuxSession) Detach() {
+	// Track agent detached
+	telemetry.TrackAgentDetached(t.program)
+
 	// Store references to avoid race condition with cleanup
 	cancel := t.cancel
 	wg := t.wg

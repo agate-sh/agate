@@ -6,6 +6,7 @@ import (
 	"agate/pkg/gui/panes"
 	"agate/pkg/gui/theme"
 	"agate/pkg/session"
+	"agate/pkg/telemetry"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,6 +76,9 @@ type CommitMessageGeneratedMsg struct {
 
 // NewCommitOverlay creates a new commit overlay
 func NewCommitOverlay(sess *session.Session) *CommitOverlay {
+	// Track commit overlay opened
+	telemetry.TrackCommitOverlayOpened()
+
 	repoPath := ""
 	if sess != nil && sess.Worktree() != nil {
 		repoPath = sess.Worktree().Path
@@ -366,6 +370,11 @@ func (c *CommitOverlay) commit() tea.Cmd {
 		sha, err := git.CommitAll(c.repoPath, message)
 		if err != nil {
 			return CommitErrorMsg{Err: err}
+		}
+
+		// Track commit created
+		if c.session != nil {
+			telemetry.TrackCommitCreated(c.session.Agent().Name)
 		}
 
 		// Return first 6 characters of SHA

@@ -11,6 +11,7 @@ import (
 	"agate/pkg/app"
 	"agate/pkg/config"
 	"agate/pkg/git"
+	"agate/pkg/telemetry"
 	"agate/pkg/tmux"
 )
 
@@ -140,6 +141,12 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 	if err := m.PersistSessions(); err != nil {
 		debug.DebugLog("Failed to persist new session %s: %v", sessionID, err)
 	}
+
+	// Track session creation
+	isFirstSession := len(m.sessions) == 1
+	telemetry.TrackPromptEntered(prompt, agentNames)
+	telemetry.TrackAgentsSelected(agentNames)
+	telemetry.TrackSessionCreated(agentNames, isFirstSession)
 
 	debug.DebugLog("Created new multi-agent session: %s with %d agents", sessionID, len(session.Instances))
 	return session, nil
@@ -279,6 +286,9 @@ func (m *Manager) CycleActiveInstance(sessionID string) error {
 	session.ActiveInstanceIndex = (session.ActiveInstanceIndex + 1) % len(instances)
 	session.LastAccessed = time.Now()
 
+	// Track agent switched
+	telemetry.TrackAgentSwitched()
+
 	debug.DebugLog("Cycled active instance for session %s to index %d", sessionID, session.ActiveInstanceIndex)
 	return nil
 }
@@ -324,6 +334,9 @@ func (m *Manager) SwitchToSession(sessionID string) (*Session, error) {
 		debug.DebugLog("Failed to persist active session change: %v", err)
 	}
 
+	// Track session activation
+	telemetry.TrackSessionActivated(session.Agent().Name)
+
 	debug.DebugLog("Switched to session: %s", sessionID)
 	return session, nil
 }
@@ -365,6 +378,9 @@ func (m *Manager) DeleteSession(sessionID string) error {
 	if err := m.PersistSessions(); err != nil {
 		debug.DebugLog("Failed to persist after deleting session: %v", err)
 	}
+
+	// Track session deletion
+	telemetry.TrackSessionDeleted(session.Agent().Name)
 
 	debug.DebugLog("Successfully deleted session: %s", sessionID)
 	return nil

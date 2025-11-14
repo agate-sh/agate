@@ -185,6 +185,15 @@ All available commands can be viewed with:
 make help
 ```
 
+## Telemetry
+
+Agate collects anonymous usage data (sessions created, agents used, commits made) to improve the product. **We never collect your code, prompts, or personal information.**
+
+To opt out:
+```bash
+export AGATE_DISABLE_TELEMETRY=1
+```
+
 ## Website
 
 Visit [agate.sh](https://agate.sh) for more information and updates.

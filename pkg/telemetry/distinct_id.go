@@ -1,20 +1,30 @@
-package analytics
+package telemetry
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"agate/pkg/config"
 )
 
-// GetMachineID returns a stable machine identifier.
-// It first checks for an existing ID in ~/.agate/user_id.
-// If not found, generates a new random UUID and saves it.
-func GetMachineID() (string, error) {
+// GetDistinctId returns a stable user identifier for analytics.
+// Priority order:
+// 1. Hashed git email (if configured) - persists across ~/.agate deletions
+// 2. Existing ID from ~/.agate/user_id
+// 3. New random UUID saved to ~/.agate/user_id
+func GetDistinctId() (string, error) {
+	// Try git email first (most persistent)
+	if gitEmail := getGitEmail(); gitEmail != "" {
+		return hashEmail(gitEmail), nil
+	}
+
+	// Fall back to file-based ID
 	agateDir, err := config.GetAgateDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory: %w", err)
@@ -46,6 +56,23 @@ func GetMachineID() (string, error) {
 	}
 
 	return id, nil
+}
+
+// getGitEmail returns the user's git email if configured
+func getGitEmail() string {
+	cmd := exec.Command("git", "config", "user.email")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	email := strings.TrimSpace(string(output))
+	return email
+}
+
+// hashEmail creates a SHA256 hash of an email for privacy
+func hashEmail(email string) string {
+	hash := sha256.Sum256([]byte(email))
+	return hex.EncodeToString(hash[:])
 }
 
 // generateUUID generates a random UUID v4

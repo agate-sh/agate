@@ -9,8 +9,8 @@ import (
 
 	"agate/internal/debug"
 	"agate/internal/version"
-	"agate/pkg/analytics"
 	"agate/pkg/app"
+	"agate/pkg/telemetry"
 	"agate/pkg/common"
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
@@ -696,9 +696,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		debug.DebugLog("[tmuxDetachedMsg] ===== DETACHED FROM TMUX =====")
 		if m.sessionManager != nil {
 			activeSession := m.sessionManager.GetActiveSession()
-			if activeSession != nil && activeSession.Worktree() != nil {
-				debug.DebugLog("[tmuxDetachedMsg] Active session before switchToPane: path=%s, branch=%s",
-					activeSession.Worktree().Path, activeSession.Worktree().Branch)
+			if activeSession != nil {
+				if activeSession.Worktree() != nil {
+					debug.DebugLog("[tmuxDetachedMsg] Active session before switchToPane: path=%s, branch=%s",
+						activeSession.Worktree().Path, activeSession.Worktree().Branch)
+				}
 			} else {
 				debug.DebugLog("[tmuxDetachedMsg] No active session or worktree")
 			}
@@ -2002,6 +2004,9 @@ func runAgent(subprocess string) error {
 		return err
 	}
 
+	// Track TUI started
+	telemetry.TrackTUIStarted()
+
 	p := tea.NewProgram(initialModel(subprocess), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running program: %v", err)
@@ -2012,18 +2017,19 @@ func runAgent(subprocess string) error {
 func main() {
 	zone.NewGlobal()
 
-	// Initialize analytics
+	// Initialize analytics (disabled for dev builds)
 	apiKey := os.Getenv("POSTHOG_API_KEY")
-	if err := analytics.Init(apiKey); err != nil {
+	if err := telemetry.Init(apiKey, version.Short()); err != nil {
 		debug.DebugLog("Failed to initialize analytics: %v", err)
 		// Continue - app works without analytics
 	}
-	defer analytics.Close()
+	defer telemetry.Close()
 
-	// Get machine ID and identify user with environment properties
-	if machineID, err := analytics.GetMachineID(); err == nil {
-		envProps := analytics.GetEnvironmentProperties(version.Short())
-		if err := analytics.Identify(machineID, envProps); err != nil {
+	// Get distinct ID and identify user with environment properties
+	if distinctID, err := telemetry.GetDistinctId(); err == nil {
+		telemetry.SetDistinctId(distinctID)
+		envProps := telemetry.GetEnvironmentProperties(version.Short())
+		if err := telemetry.Identify(distinctID, envProps); err != nil {
 			debug.DebugLog("Failed to identify user: %v", err)
 		}
 	}

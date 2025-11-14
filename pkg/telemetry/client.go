@@ -1,4 +1,4 @@
-package analytics
+package telemetry
 
 import (
 	"os"
@@ -15,9 +15,16 @@ var (
 
 // Init initializes the PostHog analytics client.
 // Must be called before using Track or Identify.
-func Init(apiKey string) error {
+// Telemetry is disabled for dev builds (version == "dev").
+func Init(apiKey string, version string) error {
 	var err error
 	clientOnce.Do(func() {
+		// Disable telemetry for dev builds
+		if version == "dev" {
+			disabled = true
+			return
+		}
+
 		// Check if telemetry is disabled
 		if os.Getenv("AGATE_DISABLE_TELEMETRY") != "" {
 			disabled = true
