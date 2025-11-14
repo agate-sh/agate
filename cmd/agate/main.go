@@ -123,20 +123,33 @@ func initialModel(subprocess string) model {
 
 	// No automatic main session creation - users must explicitly create agents
 
-	// Get agent configuration based on subprocess name
-	agentConfig := app.GetAgentConfig(subprocess)
-
-	// Set the agent globally so all components can access it (for backwards compatibility)
-	app.SetCurrentAgent(agentConfig)
-
-	// Save as default agent for new sessions
-	if subprocess != "" && stateManager != nil {
-		if err := stateManager.SetDefaultAgent(subprocess); err != nil {
-			debug.DebugLog("Failed to save default agent: %v", err)
-			// Continue without saving - not critical
-		} else {
-			debug.DebugLog("Set default agent to: %s", subprocess)
+	// Resolve which agents to use for initialization
+	// Priority: CLI argument > Config > Default ["claude", "codex"]
+	var agentNames []string
+	if subprocess != "" {
+		// Parse comma-separated agents from CLI
+		agentNames = strings.Split(subprocess, ",")
+		// Trim whitespace from each agent name
+		for i := range agentNames {
+			agentNames[i] = strings.TrimSpace(agentNames[i])
 		}
+	} else if stateManager != nil {
+		// Load from config (returns ["claude", "codex"] if empty)
+		agentNames = stateManager.GetSelectedAgents()
+	} else {
+		// Fallback if no state manager
+		agentNames = []string{"claude", "codex"}
+	}
+
+	// Convert agent names to AgentConfig objects
+	agentConfigs := make([]app.AgentConfig, 0, len(agentNames))
+	for _, name := range agentNames {
+		agentConfigs = append(agentConfigs, app.GetAgentConfig(name))
+	}
+
+	// Set the first agent globally for backwards compatibility
+	if len(agentConfigs) > 0 {
+		app.SetCurrentAgent(agentConfigs[0])
 	}
 
 	// Create shortcut overlay using static GlobalKeys
@@ -166,8 +179,10 @@ func initialModel(subprocess string) model {
 	sessionViewPane := panes.NewSessionViewPane()
 	changesPane := panes.NewChangesPane()
 
-	// Initialize chat input with default agent
-	chatInput := components.NewChatInput(agentConfig)
+	// Initialize chat input with resolved agents
+	// Use first agent as the "default" for the chat input, then set all selected agents
+	chatInput := components.NewChatInput(agentConfigs[0])
+	chatInput.SetSelectedAgents(agentConfigs)
 
 	// Initialize welcome header
 	welcomeHeader := components.NewWelcomeHeader()
@@ -1208,6 +1223,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, waitForTmuxOutput(activeInstance.TmuxSession))
 		}
 
+		// Persist the selected agents to config for next session
+		if m.chatInput != nil && m.stateManager != nil {
+			selectedAgents := m.chatInput.GetSelectedAgents()
+			agentNames := make([]string, 0, len(selectedAgents))
+			for _, agent := range selectedAgents {
+				agentNames = append(agentNames, agent.Name)
+			}
+			if err := m.stateManager.SetSelectedAgents(agentNames); err != nil {
+				debug.DebugLog("Failed to persist selected agents: %v", err)
+				// Continue - not critical
+			} else {
+				debug.DebugLog("Persisted selected agents: %v", agentNames)
+			}
+		}
+
 		// Start async description generation
 		m.generatingDescription = true
 		prompt := msg.session.Prompt
@@ -2012,9 +2042,10 @@ func main() {
 	zone.NewGlobal()
 
 	var showVersion bool
+	var agentsFlag string
 
 	var rootCmd = &cobra.Command{
-		Use:   "agate <agent>",
+		Use:   "agate",
 		Short: "A tmux-based terminal UI for AI agents",
 		Long: `Agate provides a split-pane terminal interface for interacting with AI agents.
 
@@ -2030,23 +2061,23 @@ Press Ctrl+Q when attached to detach back to preview.
 Press ? for help once running.
 
 Examples:
-  agate claude    # Launch with Claude
-  agate amp       # Launch with Amp
-  agate cn        # Launch with Continue`,
-		Args: cobra.ArbitraryArgs,
+  agate                       # Launch with last selected agents (defaults to claude,codex)
+  agate -a claude             # Launch with Claude
+  agate --agents claude,codex # Launch with Claude and Codex`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showVersion {
 				fmt.Println(version.Short())
 				return nil
 			}
-			if len(args) != 1 {
-				return fmt.Errorf("exactly one agent name is required")
-			}
-			return runAgent(args[0])
+
+			// Use agents from flag if provided, otherwise runAgent will load from config
+			return runAgent(agentsFlag)
 		},
 	}
 
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
+	rootCmd.Flags().StringVarP(&agentsFlag, "agents", "a", "", "Comma-separated list of agents (e.g., claude,codex)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -9,7 +9,7 @@ type SessionState struct {
 	SessionMappings map[string]PersistedSession `json:"session_mappings"` // SessionID -> PersistedSession
 	ActiveSession   string                      `json:"active_session"`   // Currently active session ID
 	PinnedSessions  []string                    `json:"pinned_sessions"`  // Ordered list of pinned session IDs (max 4)
-	DefaultAgent    string                      `json:"default_agent"`    // Default agent for new sessions
+	SelectedAgents  []string                    `json:"selected_agents"`  // Last selected agents for new sessions
 }
 
 // PersistedSession represents a session's persistent data
@@ -111,22 +111,26 @@ func GetPinnedSessions() ([]string, error) {
 	return state.Sessions.PinnedSessions, nil
 }
 
-// GetDefaultAgent returns the default agent for new sessions
-func GetDefaultAgent() (string, error) {
+// GetSelectedAgents returns the selected agents for new sessions
+func GetSelectedAgents() ([]string, error) {
 	state, err := LoadState()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return state.Sessions.DefaultAgent, nil
+	// Default to claude and codex if empty
+	if len(state.Sessions.SelectedAgents) == 0 {
+		return []string{"claude", "codex"}, nil
+	}
+	return state.Sessions.SelectedAgents, nil
 }
 
-// SetDefaultAgent sets the default agent for new sessions
-func SetDefaultAgent(agent string) error {
+// SetSelectedAgents sets the selected agents for new sessions
+func SetSelectedAgents(agents []string) error {
 	state, err := LoadState()
 	if err != nil {
 		return err
 	}
 
-	state.Sessions.DefaultAgent = agent
+	state.Sessions.SelectedAgents = agents
 	return SaveState(state)
 }

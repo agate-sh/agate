@@ -185,9 +185,9 @@ func (a AgentConfig) HeadlessCommand(prompt string) []string {
 	}
 }
 
-// StateManager is an interface for accessing default agent configuration
+// StateManager is an interface for accessing selected agent configuration
 type StateManager interface {
-	GetDefaultAgent() string
+	GetSelectedAgents() []string
 }
 
 // GetDefaultAgent returns the default agent configuration from the state manager.
@@ -198,13 +198,19 @@ func GetDefaultAgent(stateMgr StateManager) AgentConfig {
 		return ClaudeAgent
 	}
 
-	defaultAgentName := stateMgr.GetDefaultAgent()
-	if defaultAgentName == "" {
+	selectedAgents := stateMgr.GetSelectedAgents()
+	if len(selectedAgents) == 0 {
+		return ClaudeAgent
+	}
+
+	// Use the first selected agent for operations like branch name generation
+	firstAgentName := selectedAgents[0]
+	if firstAgentName == "" {
 		return ClaudeAgent
 	}
 
 	// Try to get the agent config by name
-	agent := GetAgentConfig(defaultAgentName)
+	agent := GetAgentConfig(firstAgentName)
 
 	// If we got the default agent back, that means the name wasn't recognized
 	// So fall back to Claude

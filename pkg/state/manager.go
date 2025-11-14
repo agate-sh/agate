@@ -301,21 +301,26 @@ func (m *Manager) GetPinnedSessions() []string {
 	return result
 }
 
-// SetDefaultAgent sets the default agent for new sessions.
-func (m *Manager) SetDefaultAgent(agent string) error {
+// SetSelectedAgents sets the selected agents for new sessions.
+func (m *Manager) SetSelectedAgents(agents []string) error {
 	return m.UpdateSessions(func(s *config.SessionState) error {
-		s.DefaultAgent = agent
+		s.SelectedAgents = agents
 		return nil
 	})
 }
 
-// GetDefaultAgent returns the default agent for new sessions.
-func (m *Manager) GetDefaultAgent() string {
-	var result string
+// GetSelectedAgents returns the selected agents for new sessions.
+// Returns ["claude", "codex"] if no agents are selected.
+func (m *Manager) GetSelectedAgents() []string {
+	var result []string
 	m.ReadSessions(func(s *config.SessionState) error {
-		result = s.DefaultAgent
+		result = s.SelectedAgents
 		return nil
 	})
+	// Default to claude and codex if empty
+	if len(result) == 0 {
+		return []string{"claude", "codex"}
+	}
 	return result
 }
 
