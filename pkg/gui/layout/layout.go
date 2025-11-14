@@ -240,7 +240,7 @@ func (l *Layout) RenderPanes(left PaneRenderParams, tmux PaneRenderParams, git P
 		Render(leftContent)
 	leftContentAligned := lipgloss.PlaceVertical(leftContentHeight, lipgloss.Top, leftWrapped)
 	leftPane := leftStyle.
-		Height(l.paneHeight - 2).
+		Height(l.paneHeight - 1).
 		Render(leftContentAligned)
 
 	// Handle loading state for tmux pane
@@ -263,7 +263,7 @@ func (l *Layout) RenderPanes(left PaneRenderParams, tmux PaneRenderParams, git P
 	}
 
 	tmuxPane := tmuxStyle.
-		Height(l.paneHeight - 2).
+		Height(l.paneHeight - 1).
 		Render(tmuxContentToRender)
 
 	gitContentHeight := l.gitPaneHeight - gitStyle.GetVerticalFrameSize()
@@ -276,7 +276,7 @@ func (l *Layout) RenderPanes(left PaneRenderParams, tmux PaneRenderParams, git P
 		Render(gitContent)
 	gitContentAligned := lipgloss.PlaceVertical(gitContentHeight, lipgloss.Top, gitWrapped)
 	gitPane := gitStyle.
-		Height(l.gitPaneHeight - 2).
+		Height(l.gitPaneHeight - 1).
 		Render(gitContentAligned)
 
 	return leftPane, tmuxPane, gitPane

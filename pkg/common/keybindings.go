@@ -21,7 +21,6 @@ var (
 // conceptually pane-specific keybindings that need to be globally accessible.
 // For example:
 // - 'n' (new agent) conceptually belongs to the repos pane but works globally
-// - 'r' (add repo) conceptually belongs to the repos pane but works globally
 // - Git pane actions like "open in editor" are pane-specific and should be handled by the pane
 //
 // TODO: As pane components mature, consider moving more keybindings to individual panes
@@ -47,7 +46,6 @@ type GlobalKeyMap struct {
 
 	// Repository and session management - conceptually belong to repos pane
 	// but are globally accessible for convenience
-	AddRepo    key.Binding // r - add repository (repos pane action, but global)
 	NewSession key.Binding // Alt+N - create new session (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
@@ -97,12 +95,12 @@ var GlobalKeys = &GlobalKeyMap{
 
 	// Pane navigation with Option/Alt keys
 	AgentsPane: key.NewBinding(
-		key.WithKeys("alt+a"),
-		key.WithHelp("⌥a", "agents pane"),
+		key.WithKeys("alt+s"),
+		key.WithHelp("⌥s", "sessions pane"),
 	),
 	SessionPane: key.NewBinding(
-		key.WithKeys("alt+s"),
-		key.WithHelp("⌥s", "session pane"),
+		key.WithKeys("alt+a"),
+		key.WithHelp("⌥a", "agents pane"),
 	),
 	ChangesPane: key.NewBinding(
 		key.WithKeys("alt+c"),
@@ -120,10 +118,6 @@ var GlobalKeys = &GlobalKeyMap{
 	),
 
 	// Repository and Session management
-	AddRepo: key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "add repo"),
-	),
 	NewSession: key.NewBinding(
 		key.WithKeys("alt+n"),
 		key.WithHelp("⌥n", "new agent"),
@@ -214,7 +208,6 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.NextAgent, k.PrevAgent},                        // Agent cycling
 		{k.Up, k.Down},                                    // List navigation
 		{k.NewSession, k.AttachAgent, k.Commit},           // Quick actions (n, a, c)
-		{k.AddRepo},                                       // Repository
 		{k.DetachTmux},                                    // Session
 		{k.Filter, k.ClearFilter},                         // Filtering
 		{k.Confirm, k.Cancel},                             // Dialogs
@@ -245,9 +238,6 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 			k.NewSession,
 			k.AttachAgent,
 			k.Commit,
-		},
-		"Repository Management": {
-			k.AddRepo,
 		},
 		"Session Interaction": {
 			k.DetachTmux,

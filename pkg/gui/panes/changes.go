@@ -199,7 +199,7 @@ func (p *ChangesPane) renderHeader() string {
 
 	// Create full-height pipe separator
 	pipeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextDescription))
+		Foreground(lipgloss.Color(theme.BorderMuted))
 
 	var pipe string
 	if width > 1 {
@@ -236,7 +236,7 @@ func (p *ChangesPane) View() string {
 
 	// Render divider
 	dividerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextDescription))
+		Foreground(lipgloss.Color(theme.BorderMuted))
 	dividerWidth := p.GetWidth()
 	if dividerWidth < 0 {
 		dividerWidth = 0

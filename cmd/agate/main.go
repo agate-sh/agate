@@ -65,8 +65,6 @@ type model struct {
 	sessionConfirm      *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
 	showWorktreeConfirm bool                                 // Whether showing worktree deletion confirmation
 	showSessionConfirm  bool                                 // Whether showing session deletion confirmation
-	repoDialog          *overlays.RepoDialog                 // Repository search dialog
-	showRepoDialog      bool                                 // Whether showing repository dialog
 	debugLogger         *debug.DebugLogger                   // Debug logger for development
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
@@ -191,7 +189,6 @@ func initialModel(subprocess string) model {
 		worktreeList:          worktreeList,
 		showWorktreeConfirm:   false,
 		showSessionConfirm:    false,
-		showRepoDialog:        false,
 		debugLogger:           debugLogger,
 		debugOverlay:          debugOverlay,
 		showDebugOverlay:      false,
@@ -239,9 +236,9 @@ func (m model) switchToPane(targetPane layout.FocusState) (model, tea.Cmd) {
 	if m.repoPane != nil {
 		m.repoPane.SetActive(targetPane.IsAgentsFocus())
 	}
-	// Session view pane is active whenever we're on ANY session sub-pane
+	// Session view pane is active only when we're on the tmux sub-pane
 	if m.sessionViewPane != nil {
-		m.sessionViewPane.SetActive(targetPane.PaneType == layout.PaneTypeSession)
+		m.sessionViewPane.SetActive(targetPane.IsTmuxFocus())
 	}
 	if m.changesPane != nil {
 		m.changesPane.SetActive(targetPane.IsGitFocus())
@@ -1010,36 +1007,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showDebugOverlay = false
 		return m, nil
 
-	// Repository dialog messages
-	case overlays.RepoAddedMsg:
-		// Repository was successfully added
-		m.showRepoDialog = false
-		m.repoDialog = nil
-
-		// Add to persistent config
-		if m.stateManager != nil {
-			if err := m.stateManager.AddRepository(msg.Path); err != nil {
-				m.err = fmt.Errorf("failed to save repository: %v", err)
-			}
-		}
-		if m.err == nil {
-			// Refresh the worktree list to include the new repo
-			if m.worktreeList != nil {
-				if err := m.worktreeList.Refresh(); err != nil {
-					debug.DebugLog("Failed to refresh worktree list after adding repository: %v", err)
-					// Repository was saved successfully, but UI refresh failed
-				}
-				// Update Changes pane after adding repository
-				m.updateChangesPane()
-			}
-		}
-		return m, nil
-
-	case overlays.RepoDialogCancelledMsg:
-		// Repository dialog cancelled
-		m.showRepoDialog = false
-		m.repoDialog = nil
-		return m, nil
 
 	case loadingTimeoutMsg:
 		// After 3 seconds of loading, start periodic updates for stopwatch
@@ -1307,14 +1274,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Handle repo dialog input
-		if m.showRepoDialog && m.repoDialog != nil {
-			var cmd tea.Cmd
-			model, cmd := m.repoDialog.Update(msg)
-			m.repoDialog = model.(*overlays.RepoDialog)
-			return m, cmd
-		}
-
 		// Handle commit overlay input
 		if m.showCommitOverlay && m.commitOverlay != nil {
 			// Check for esc to close overlay
@@ -1458,15 +1417,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = true
 			return m, nil
 
-		case key.Matches(msg, common.GlobalKeys.AddRepo):
-			// Add new repository using fzf search
-			debug.DebugLog("Creating new repo dialog...")
-			m.repoDialog = overlays.NewRepoDialog()
-			m.showRepoDialog = true
-			// Initialize the repo dialog to start the repository discovery
-			initCmd := m.repoDialog.Init()
-			return m, initCmd
-
 		case key.Matches(msg, common.GlobalKeys.DebugOverlay):
 			// Show debug overlay
 			m.showDebugOverlay = true
@@ -1531,10 +1481,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case m.focus.IsAgentsFocus():
 				if m.repoPane != nil {
-					if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-						_, switchCmd := agentsPane.MoveUpWithCmd()
-						// Auto-switch session and update changes pane
-						return m, tea.Batch(switchCmd, m.updateChangesPane())
+					// Use HandleKey to ensure search exit logic runs
+					handled, cmd := m.repoPane.HandleKey("up")
+					if handled {
+						// Update changes pane after navigation
+						return m, tea.Batch(cmd, m.updateChangesPane())
 					}
 				}
 			case m.focus.IsGitFocus():
@@ -1553,10 +1504,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case m.focus.IsAgentsFocus():
 				if m.repoPane != nil {
-					if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-						_, switchCmd := agentsPane.MoveDownWithCmd()
-						// Auto-switch session and update changes pane
-						return m, tea.Batch(switchCmd, m.updateChangesPane())
+					// Use HandleKey to ensure search exit logic runs
+					handled, cmd := m.repoPane.HandleKey("down")
+					if handled {
+						// Update changes pane after navigation
+						return m, tea.Batch(cmd, m.updateChangesPane())
 					}
 				}
 			case m.focus.IsGitFocus():
@@ -1574,11 +1526,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No separate global keybinding needed
 
 		case key.Matches(msg, common.GlobalKeys.AgentsPane):
-			// Alt+A jumps to agents pane
+			// Alt+S jumps to sessions pane
 			return m.switchToPane(layout.NewAgentsFocus())
 
 		case key.Matches(msg, common.GlobalKeys.SessionPane):
-			// Alt+S jumps to session pane (if session exists)
+			// Alt+A jumps to agents pane (if session exists)
 			if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 				m.showNewSessionInput = false
 				return m.switchToPane(layout.NewSessionFocus(layout.SubPaneTmux))
@@ -1616,10 +1568,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		default:
-			// If agents pane is focused, pass all unhandled keys to it
-			// so the search input can receive them
+			// If agents pane is focused, try HandleKey first for navigation/special keys
+			// then fall back to Update for search input
 			if m.focus.IsAgentsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
-				var cmd tea.Cmd
+				// Try HandleKey first (handles navigation and search exit logic)
+				keyStr := msg.String()
+				debug.DebugLog("main.Update default: keyStr=%q, calling HandleKey", keyStr)
+				handled, cmd := m.repoPane.HandleKey(keyStr)
+				debug.DebugLog("main.Update default: HandleKey returned handled=%v", handled)
+				if handled {
+					return m, cmd
+				}
+				// If not handled by HandleKey, pass to Update for search input
 				m.repoPane, cmd = m.repoPane.Update(msg)
 				return m, cmd
 			}
@@ -1772,7 +1732,7 @@ func (m model) View() string {
 			Render(agentsContent)
 		agentsContentAligned := lipgloss.PlaceVertical(leftHeight, lipgloss.Top, agentsWrapped)
 		agentsPane := agentsStyle.
-			Height(availableHeight).
+			Height(availableHeight - 1).
 			Render(agentsContentAligned)
 
 		// Render center pane with header (ASCII art + version + shortcuts) + chat input
@@ -1821,13 +1781,19 @@ func (m model) View() string {
 		centerPaneStyle := components.PaneBaseStyle.
 			BorderForeground(lipgloss.Color(theme.BorderActive))
 		centerPane := centerPaneStyle.
-			Height(availableHeight).
+			Height(availableHeight - 1).
 			Render(centeredContent)
 
 		// Render pane titles with padding
 		leftTitle := lipgloss.NewStyle().PaddingLeft(1).Render(m.renderPaneTitle(m.repoPane))
-		// For new session input, we don't have a session pane title, so leave it empty
-		centerTitle := ""
+		// For new session input, show "New Session" as the title
+		titleText := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextPrimary)).
+			Render("New Session")
+		shortcut := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextMuted)).
+			Render("(⌥n)")
+		centerTitle := lipgloss.NewStyle().PaddingLeft(1).Render(titleText + " " + shortcut)
 
 		// Join titles with panes vertically (title above pane)
 		leftWithTitle := lipgloss.JoinVertical(lipgloss.Left, leftTitle, agentsPane)
@@ -1951,15 +1917,6 @@ func (m model) View() string {
 	}
 
 	// TODO: Old worktree dialog removed, replaced with chat input
-
-	// If repository dialog is visible, overlay it
-	if m.showRepoDialog && m.repoDialog != nil {
-		// Update dialog size
-		m.repoDialog.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-
-		// Use Claude Squad's overlay implementation
-		return zone.Scan(overlay.PlaceOverlay(0, 0, m.repoDialog.View(), mainView, true, true))
-	}
 
 	// If worktree deletion confirmation is visible, overlay it
 	if m.showWorktreeConfirm && m.worktreeConfirm != nil {

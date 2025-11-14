@@ -71,6 +71,7 @@ type itemDelegate struct {
 	isActive       bool
 	isMainWorktree *git.WorktreeInfo
 	activeWorktree *git.WorktreeInfo
+	searching      bool
 }
 
 type itemStyles struct {
@@ -160,7 +161,12 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	leftPad := strings.Repeat(" ", paddingLeft)
 	rightPad := strings.Repeat(" ", paddingRight)
 
-	highlight := selected && d.isActive
+	// Don't highlight when searching - only show highlight after user navigates
+	highlight := selected && d.isActive && !d.searching
+	if index == m.Index() && d.isActive {
+		git.DebugLog("[AgentsPane.Render] index=%d, selected=%v, isActive=%v, searching=%v, highlight=%v",
+			index, selected, d.isActive, d.searching, highlight)
+	}
 
 	var linePlain string
 	var lineStyled string
@@ -349,7 +355,7 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 
 	// Create search input
 	ti := textinput.New()
-	ti.Prompt = " > "
+	ti.Prompt = "> "
 	ti.Placeholder = "Search by description"
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
@@ -423,6 +429,9 @@ func (r *AgentsPane) SetSize(width, height int) {
 
 // SetActive sets whether the pane is focused and updates row highlighting state
 func (r *AgentsPane) SetActive(active bool) {
+	wasAlreadyActive := r.IsActive()
+	git.DebugLog("[AgentsPane.SetActive] called with active=%v, wasAlreadyActive=%v", active, wasAlreadyActive)
+
 	r.BasePane.SetActive(active)
 	r.delegate.isActive = active
 	r.list.SetDelegate(r.delegate)
@@ -432,13 +441,27 @@ func (r *AgentsPane) SetActive(active bool) {
 		// Sync active worktree from session manager before refreshing
 		r.SyncActiveSessionFromManager()
 		r.Refresh()
-		// Focus search input and enter searching mode
-		r.searchInput.Focus()
-		r.searching = true
+
+		// Only enable search mode if we're transitioning from inactive to active
+		// Don't re-enable search if we're already active (e.g., during navigation)
+		if !wasAlreadyActive {
+			git.DebugLog("[AgentsPane.SetActive] enabling search mode (was inactive)")
+			r.searchInput.Focus()
+			r.searching = true
+			r.delegate.searching = true
+			r.list.SetDelegate(r.delegate)
+			// Reset list index to 0 so Down arrow starts from the first item
+			r.list.Select(0)
+		} else {
+			git.DebugLog("[AgentsPane.SetActive] keeping search state unchanged (was already active)")
+		}
 	} else {
+		git.DebugLog("[AgentsPane.SetActive] disabling search mode")
 		// Blur search input when inactive
 		r.searchInput.Blur()
 		r.searching = false
+		r.delegate.searching = false
+		r.list.SetDelegate(r.delegate)
 	}
 }
 
@@ -478,19 +501,15 @@ func (r *AgentsPane) updateHoveredMainWorktree() {
 // GetTitleStyle returns the title style for the repo worktree pane
 func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
-	if r.IsActive() {
-		// When active, show only the add repo shortcut
-		repoHelp := common.GlobalKeys.AddRepo.Help()
-		shortcuts = fmt.Sprintf("%s %s", repoHelp.Key, repoHelp.Desc)
-	} else {
+	if !r.IsActive() {
 		// When not active, show keyboard shortcut to activate
-		shortcuts = "(⌥a)"
+		shortcuts = "(⌥s)"
 	}
 
 	return components.TitleStyle{
 		Type:      "plain",
 		Color:     "",
-		Text:      "Agents",
+		Text:      "Sessions",
 		Shortcuts: shortcuts,
 	}
 }
@@ -560,8 +579,51 @@ func (r *AgentsPane) View() string {
 func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Update search input if searching
+	// When searching, intercept up/down keys to exit search mode
 	if r.searching {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "up", "down", "k", "j":
+				// Exit search mode and navigate
+				git.DebugLog("[AgentsPane.Update] Intercepted %s key, exiting search", keyMsg.String())
+				r.searching = false
+				r.searchInput.Blur()
+				git.DebugLog("[AgentsPane.Update] Set r.searching=false, r.searchInput.Focused()=%v", r.searchInput.Focused())
+
+				// Find first selectable item for down, last for up
+				var navCmd tea.Cmd
+				if keyMsg.String() == "up" || keyMsg.String() == "k" {
+					// For up, find the last selectable item
+					for i := len(r.items) - 1; i >= 0; i-- {
+						if r.isSelectableItem(i) {
+							r.list.Select(i)
+							navCmd = r.onSelectionChanged()
+							break
+						}
+					}
+				} else {
+					// For down, find the first selectable item
+					for i := 0; i < len(r.items); i++ {
+						if r.isSelectableItem(i) {
+							r.list.Select(i)
+							navCmd = r.onSelectionChanged()
+							break
+						}
+					}
+				}
+
+				// Update delegate after navigation
+				r.delegate.searching = false
+				r.list.SetDelegate(r.delegate)
+				git.DebugLog("[AgentsPane.Update] Set delegate.searching=false, returning navCmd")
+
+				if navCmd != nil {
+					return r, navCmd
+				}
+				return r, nil
+			}
+		}
+
 		oldValue := r.searchInput.Value()
 		var searchCmd tea.Cmd
 		r.searchInput, searchCmd = r.searchInput.Update(msg)
@@ -601,30 +663,56 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		switch key {
 		case "up", "k", "down", "j":
 			// Exit search mode and navigate
+			git.DebugLog("[AgentsPane.HandleKey] up/down pressed, exiting search mode")
 			r.searching = false
 			r.searchInput.Blur()
-			// Then handle the key as normal
+			git.DebugLog("[AgentsPane.HandleKey] r.searching=%v, r.searchInput.Focused()=%v", r.searching, r.searchInput.Focused())
+
+			// Find first selectable item for down, last for up
+			var cmd tea.Cmd
 			if key == "up" || key == "k" {
-				r.MoveUp()
+				// For up, find the last selectable item
+				for i := len(r.items) - 1; i >= 0; i-- {
+					if r.isSelectableItem(i) {
+						r.list.Select(i)
+						cmd = r.onSelectionChanged()
+						break
+					}
+				}
 			} else {
-				r.MoveDown()
+				// For down, find the first selectable item
+				for i := 0; i < len(r.items); i++ {
+					if r.isSelectableItem(i) {
+						r.list.Select(i)
+						cmd = r.onSelectionChanged()
+						break
+					}
+				}
 			}
-			return true, nil
+
+			// Update delegate after navigation (which may have updated other fields)
+			r.delegate.searching = false
+			r.list.SetDelegate(r.delegate)
+			git.DebugLog("[AgentsPane.HandleKey] after SetDelegate, r.delegate.searching=%v", r.delegate.searching)
+			return true, cmd
 		case "esc":
 			// Clear filter and exit search mode
 			r.clearFilter()
 			r.searching = false
+			r.delegate.searching = false
+			r.list.SetDelegate(r.delegate)
 			r.searchInput.Blur()
 			return true, nil
 		case "alt+d":
 			// Exit search mode and trigger deletion
 			r.searching = false
+			r.delegate.searching = false
+			r.list.SetDelegate(r.delegate)
 			r.searchInput.Blur()
 			// Fall through to normal alt+d handling below
 		default:
-			// Mark all other keys as handled so they go to Update method
-			// which will pass them to the search input
-			return true, nil
+			// Return false so typing keys go to Update method for search input
+			return false, nil
 		}
 	}
 
@@ -1115,8 +1203,9 @@ func (r *AgentsPane) Refresh() error {
 
 	r.buildItemList()
 
-	// Update the list with new items
+	// Update the list with new items and delegate
 	r.list.SetItems(r.items)
+	r.list.SetDelegate(r.delegate)
 	if !r.isSelectableItem(r.list.Index()) {
 		r.moveDown()
 	}
@@ -1324,6 +1413,8 @@ func (r *AgentsPane) buildItemList() {
 	r.delegate.expandedRepos = r.expandedRepos
 	r.delegate.isMainWorktree = r.mainWorktree
 	r.delegate.activeWorktree = r.activeWorktree
+	// Don't overwrite delegate.searching - it should only be set by SetActive or HandleKey
+	// r.delegate.searching = r.searching
 }
 
 func (r *AgentsPane) firstRepoName() string {
@@ -1351,7 +1442,8 @@ func (r *AgentsPane) setActiveWorktree(worktree *git.WorktreeInfo) {
 		git.DebugLog("[AgentsPane] setActiveWorktree: worktree is nil, returning")
 		return
 	}
-	git.DebugLog("[AgentsPane] setActiveWorktree: setting to path=%s, branch=%s", worktree.Path, worktree.Branch)
+	git.DebugLog("[AgentsPane] setActiveWorktree: setting to path=%s, branch=%s, r.searching=%v, r.delegate.searching=%v",
+		worktree.Path, worktree.Branch, r.searching, r.delegate.searching)
 	clone := *worktree
 	r.activeWorktree = &clone
 	if worktree.RepoName != "" {
@@ -1360,6 +1452,11 @@ func (r *AgentsPane) setActiveWorktree(worktree *git.WorktreeInfo) {
 	r.delegate.currentRepo = r.currentRepo
 	r.delegate.isMainWorktree = r.mainWorktree
 	r.delegate.activeWorktree = r.activeWorktree
+	// Don't overwrite delegate.searching - it may have been explicitly set to false during navigation
+	// r.delegate.searching = r.searching
+	git.DebugLog("[AgentsPane] setActiveWorktree: keeping delegate.searching=%v (not copying from r.searching=%v)",
+		r.delegate.searching, r.searching)
+	r.list.SetDelegate(r.delegate)
 	if r.expandedRepos != nil {
 		r.expandedRepos[r.currentRepo] = true
 	}
@@ -1505,7 +1602,6 @@ func (r *AgentsPane) SetCurrentRepo(repoName string) {
 func (r *AgentsPane) GetPaneSpecificKeybindings() []key.Binding {
 	// Use the global keybindings to ensure consistency
 	return []key.Binding{
-		common.GlobalKeys.AddRepo,
 		common.GlobalKeys.NewSession,
 	}
 }

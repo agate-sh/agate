@@ -130,14 +130,14 @@ func (p *SessionViewPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 
 // GetTitleStyle returns the title style based on the active agent
 func (p *SessionViewPane) GetTitleStyle() components.TitleStyle {
-	shortcuts := "(⌥s)"
+	shortcuts := "(⌥a)"
 	if p.IsActive() {
 		shortcuts = "tab cycle agents"
 	}
 
 	return components.TitleStyle{
 		Type:      "standard",
-		Text:      "Session",
+		Text:      "Agents",
 		Shortcuts: shortcuts,
 	}
 }
