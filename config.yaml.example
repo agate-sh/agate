@@ -1,0 +1,69 @@
+# Agate User Configuration File
+# Place this file at ~/.agate/config.yaml to customize keybindings
+#
+# All keybindings are optional - only specify the ones you want to override.
+# The default keybindings will be used for any that are not specified.
+#
+# Key format: Use Bubble Tea key names (e.g., "ctrl+c", "alt+n", "a", "tab")
+# Multiple keys can be specified as a list for alternative bindings
+
+keybindings:
+  # Truly global keys - work from any pane, any context
+  quit:
+    - "ctrl+c"
+  keybindings:
+    - "alt+p"
+  debug_overlay:
+    - "ctrl+d"
+
+  # Global navigation keys - work within any focusable pane
+  up:
+    - "up"
+    - "k"
+  down:
+    - "down"
+    - "j"
+
+  # Pane navigation with Option/Alt keys
+  agents_pane:
+    - "alt+s"
+  session_pane:
+    - "alt+a"
+  changes_pane:
+    - "alt+c"
+
+  # Agent cycling (only works on session pane)
+  next_agent:
+    - "tab"
+  prev_agent:
+    - "shift+tab"
+
+  # Repository and session management
+  new_session:
+    - "alt+n"
+
+  # Session interaction
+  attach_agent:
+    - "a"
+  commit:
+    - "c"
+  detach_tmux:
+    - "ctrl+q"
+
+  # Dialog actions - global because dialogs overlay all content
+  confirm:
+    - "enter"
+    - "y"
+  cancel:
+    - "esc"
+    - "n"
+
+  # List interaction - used by multiple panes (repos, git, etc.)
+  filter:
+    - "/"
+  clear_filter:
+    - "esc"
+
+  # Git pane actions
+  open_in_editor:
+    - "enter"

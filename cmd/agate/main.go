@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 	"agate/internal/version"
 	"agate/pkg/agents"
 	"agate/pkg/app"
-	"agate/pkg/telemetry"
 	"agate/pkg/common"
+	"agate/pkg/config"
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/layout"
@@ -23,6 +24,7 @@ import (
 	"agate/pkg/overlay"
 	"agate/pkg/session"
 	"agate/pkg/state"
+	"agate/pkg/telemetry"
 	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -73,8 +75,8 @@ type model struct {
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
 	toast               *components.Toast                    // Toast notification manager
-	mergeOverlay       *overlays.MergeOverlay              // Merge overlay for merging changes
-	showMergeOverlay   bool                                 // Whether showing merge overlay
+	mergeOverlay        *overlays.MergeOverlay               // Merge overlay for merging changes
+	showMergeOverlay    bool                                 // Whether showing merge overlay
 	agentSelector       *components.AgentSelector            // Agent selector modal
 	showAgentSelector   bool                                 // Whether showing agent selector
 
@@ -96,6 +98,33 @@ func initialModel(subprocess string) model {
 	// Initialize debug logger FIRST so all subsequent logs are captured
 	debugLogger := debug.InitDebugLogger()
 	debug.DebugLog("Debug logger initialized successfully")
+
+	// Load user configuration and apply keybinding overrides
+	configFile, err := config.GetAgateDir()
+	if err == nil {
+		configFile = filepath.Join(configFile, "config.yaml")
+		debug.DebugLog("LoadUserConfig: checking for config file at %s", configFile)
+	}
+	userConfig, err := config.LoadUserConfig()
+	if err != nil {
+		debug.DebugLog("LoadUserConfig: failed to load user config: %v (using defaults)", err)
+		// Continue with defaults - not critical
+	} else {
+		if configFile != "" {
+			if _, err := os.Stat(configFile); err == nil {
+				debug.DebugLog("LoadUserConfig: config file found at %s", configFile)
+			} else {
+				debug.DebugLog("LoadUserConfig: config file not found at %s, using defaults", configFile)
+			}
+		}
+		if userConfig != nil {
+			debug.DebugLog("LoadUserConfig: parsed config - agents_pane=%v, session_pane=%v, changes_pane=%v",
+				userConfig.Keybindings.AgentsPane, userConfig.Keybindings.SessionPane, userConfig.Keybindings.ChangesPane)
+		}
+		debug.DebugLog("User config loaded successfully, calling ApplyUserConfig...")
+		common.ApplyUserConfig(userConfig)
+		debug.DebugLog("ApplyUserConfig call completed")
+	}
 
 	// Initialize state manager (thread-safe state persistence)
 	stateManager, err := state.NewManager()
@@ -1056,7 +1085,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showDebugOverlay = false
 		return m, nil
 
-
 	case loadingTimeoutMsg:
 		// After 3 seconds of loading, start periodic updates for stopwatch
 		if m.loadingState.IsLoading() {
@@ -1306,6 +1334,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Log raw key input
+		debug.DebugLog("KeyInput: raw key message - String()=%q, Type=%v, Runes=%v, Alt=%v",
+			msg.String(), msg.Type, msg.Runes, msg.Alt)
+
 		// If help dialog is visible, any key closes it
 		if m.showHelp {
 			m.showHelp = false
@@ -1460,6 +1492,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, common.GlobalKeys.Quit):
+			debug.DebugLog("KeyMatch: matched 'quit' keybinding")
 			// Persist sessions before quitting
 			if m.sessionManager != nil {
 				debug.DebugLog("Quit: Persisting sessions before exit")
@@ -1477,16 +1510,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, common.GlobalKeys.Keybindings):
+			debug.DebugLog("KeyMatch: matched 'keybindings' keybinding")
 			// Show help dialog
 			m.showHelp = true
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.DebugOverlay):
+			debug.DebugLog("KeyMatch: matched 'debug_overlay' keybinding")
 			// Show debug overlay
 			m.showDebugOverlay = true
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.NewSession):
+			debug.DebugLog("KeyMatch: matched 'new_session' keybinding")
 			// Step 5.5: 'n' key shows new chat input interface
 			m.showNewSessionInput = true
 			var focusCmd tea.Cmd
@@ -1507,6 +1543,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, combineCmds(focusCmd)
 
 		case key.Matches(msg, common.GlobalKeys.AttachAgent):
+			debug.DebugLog("KeyMatch: matched 'attach_agent' keybinding")
 			// Attach to agent tmux session (global shortcut)
 			if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
 				m.shortcutOverlay.SetMode("attached")
@@ -1519,8 +1556,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, common.GlobalKeys.MergeChanges):
-			// Show merge overlay (global shortcut)
+		case key.Matches(msg, common.GlobalKeys.Commit):
+			debug.DebugLog("KeyMatch: matched 'commit' keybinding")
+			// Show commit overlay (global shortcut)
 			activeSession := m.sessionManager.GetActiveSession()
 			if activeSession != nil && activeSession.Worktree() != nil {
 				// Check if there are any changes to merge
@@ -1541,6 +1579,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.Up):
+			debug.DebugLog("KeyMatch: matched 'up' keybinding")
 			// Navigate up in focused pane
 			switch {
 			case m.focus.IsAgentsFocus():
@@ -1564,6 +1603,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.Down):
+			debug.DebugLog("KeyMatch: matched 'down' keybinding")
 			// Navigate down in focused pane
 			switch {
 			case m.focus.IsAgentsFocus():
@@ -1590,10 +1630,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No separate global keybinding needed
 
 		case key.Matches(msg, common.GlobalKeys.AgentsPane):
+			debug.DebugLog("KeyMatch: matched 'agents_pane' keybinding")
 			// Alt+S jumps to sessions pane
 			return m.switchToPane(layout.NewAgentsFocus())
 
 		case key.Matches(msg, common.GlobalKeys.SessionPane):
+			debug.DebugLog("KeyMatch: matched 'session_pane' keybinding")
 			// Alt+A jumps to agents pane (if session exists)
 			if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 				m.showNewSessionInput = false
@@ -1602,6 +1644,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.ChangesPane):
+			debug.DebugLog("KeyMatch: matched 'changes_pane' keybinding")
 			// Alt+C jumps to changes pane (if session exists)
 			if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 				m.showNewSessionInput = false
@@ -1610,6 +1653,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.NextAgent):
+			debug.DebugLog("KeyMatch: matched 'next_agent' keybinding")
 			// Tab toggles sub-panes in changes pane, or cycles agents in session pane
 			// Check git focus first since it's also PaneTypeSession
 			if m.focus.IsGitFocus() && m.changesPane != nil {
@@ -1624,6 +1668,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, common.GlobalKeys.PrevAgent):
+			debug.DebugLog("KeyMatch: matched 'prev_agent' keybinding")
 			// Shift+Tab cycles to previous agent (only on session pane)
 			if m.focus.PaneType == layout.PaneTypeSession {
 				// TODO: Implement backwards agent cycling
@@ -1632,6 +1677,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		default:
+			debug.DebugLog("KeyMatch: no global keybinding matched for key %q", msg.String())
 			// If agents pane is focused, try HandleKey first for navigation/special keys
 			// then fall back to Update for search input
 			if m.focus.IsAgentsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
@@ -1856,7 +1902,7 @@ func (m model) View() string {
 			Render("New Session")
 		shortcut := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextMuted)).
-			Render("(⌥n)")
+			Render("(" + common.GlobalKeys.NewSession.Help().Key + ")")
 		centerTitle := lipgloss.NewStyle().PaddingLeft(1).Render(titleText + " " + shortcut)
 
 		// Join titles with panes vertically (title above pane)

@@ -1,4 +1,4 @@
-.PHONY: help build clean fmt lint lint-fix vet test install-tools list-tmux-sessions
+.PHONY: help build clean fmt lint lint-fix vet test install-tools list-tmux-sessions logs
 
 # Default target
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  fix          - Run fmt and lint-fix"
 	@echo "  install-tools - Install required development tools"
 	@echo "  list-tmux-sessions - List all tmux sessions grouped by server"
+	@echo "  logs         - Tail debug logs at ~/.agate/debug.log"
 
 # Build the binary
 build:
@@ -79,3 +80,7 @@ list-tmux-sessions:
 	else \
 		echo "  No tmux servers found for current user"; \
 	fi
+
+# Tail debug logs
+logs:
+	tail -f ~/.agate/debug.log

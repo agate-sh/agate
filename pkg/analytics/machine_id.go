@@ -10,14 +10,18 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/agate-sh/agate/pkg/paths"
+	"agate/pkg/config"
 )
 
 // GetMachineID returns a stable machine identifier.
 // It first checks for an existing ID in ~/.agate/user_id.
 // If not found, generates a new ID from hardware fingerprint and saves it.
 func GetMachineID() (string, error) {
-	userIDPath := filepath.Join(paths.ConfigDir(), "user_id")
+	agateDir, err := config.GetAgateDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get agate directory: %w", err)
+	}
+	userIDPath := filepath.Join(agateDir, "user_id")
 
 	// Try to read existing ID
 	if data, err := os.ReadFile(userIDPath); err == nil {

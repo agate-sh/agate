@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"agate/internal/version"
+	"agate/pkg/common"
 	"agate/pkg/gui/theme"
 
 	"github.com/charmbracelet/lipgloss"
@@ -79,7 +80,7 @@ func (h *WelcomeHeader) View() string {
 
 	// Commands shortcut
 	commandsInstruction := instructionStyle.Render("Commands")
-	commandsShortcut := shortcutStyle.Render("⌥p")
+	commandsShortcut := shortcutStyle.Render(common.GlobalKeys.Keybindings.Help().Key)
 	commandsGap := artWidth - lipgloss.Width(commandsInstruction) - lipgloss.Width(commandsShortcut)
 	if commandsGap < 1 {
 		commandsGap = 1
@@ -88,7 +89,7 @@ func (h *WelcomeHeader) View() string {
 
 	// New session shortcut
 	createInstruction := instructionStyle.Render("New session")
-	createShortcut := shortcutStyle.Render("⌥n")
+	createShortcut := shortcutStyle.Render(common.GlobalKeys.NewSession.Help().Key)
 	createGap := artWidth - lipgloss.Width(createInstruction) - lipgloss.Width(createShortcut)
 	if createGap < 1 {
 		createGap = 1
@@ -97,7 +98,7 @@ func (h *WelcomeHeader) View() string {
 
 	// Add/remove agents shortcut
 	instruction := instructionStyle.Render("Add/remove agents")
-	shortcut := shortcutStyle.Render("tab")
+	shortcut := shortcutStyle.Render(common.GlobalKeys.AddRemoveAgents.Help().Key)
 	gap := artWidth - lipgloss.Width(instruction) - lipgloss.Width(shortcut)
 	if gap < 1 {
 		gap = 1

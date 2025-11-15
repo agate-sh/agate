@@ -5,7 +5,6 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
-	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"fmt"
 	"io"
@@ -51,9 +50,9 @@ type AgentListItem struct {
 	RepoName  string
 	RepoPath  string // Full path to repository
 	Worktree  *git.WorktreeInfo
-	SessionID string // Session ID
+	SessionID string           // Session ID
 	Session   *session.Session // Session object for accessing description and timestamps
-	Index     int    // Index in original repo list
+	Index     int              // Index in original repo list
 }
 
 // FilterValue implements list.Item
@@ -504,7 +503,7 @@ func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if !r.IsActive() {
 		// When not active, show keyboard shortcut to activate
-		shortcuts = "(" + icons.GetOptionKey() + "s)"
+		shortcuts = "(" + common.GlobalKeys.AgentsPane.Help().Key + ")"
 	}
 
 	return components.TitleStyle{
