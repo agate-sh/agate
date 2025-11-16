@@ -15,6 +15,7 @@ import (
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/layout"
+	"agate/pkg/gui/metrics"
 	"agate/pkg/gui/overlays"
 	"agate/pkg/gui/panes"
 	"agate/pkg/gui/theme"
@@ -198,6 +199,7 @@ func initialModel(subprocess string) model {
 		focus:                 layout.NewAgentsFocus(), // Always start with focus on Agents pane
 		subprocess:            subprocess,
 		mode:                  modePreview, // Start in preview mode
+		ready:                 true,        // Ready immediately since we show new session view
 		shortcutOverlay:       shortcutOverlay,
 		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
 		showHelp:              false,
@@ -362,7 +364,7 @@ func (m *model) cycleNextAgent() tea.Cmd {
 		return nil
 	}
 
-	if err := m.sessionManager.CycleActiveInstance(activeSession.ID); err != nil {
+	if err := m.sessionManager.CycleActiveAgent(activeSession.ID); err != nil {
 		debug.DebugLog("Failed to cycle active agent: %v", err)
 		return nil
 	}
@@ -386,23 +388,23 @@ func (m *model) cycleNextAgent() tea.Cmd {
 		m.shortcutOverlay.SetFocus(m.focus.String())
 	}
 
-	activeInstance := activeSession.GetActiveInstance()
+	activeAgent := activeSession.GetActiveAgent()
 	var cmds []tea.Cmd
 
-	if activeInstance != nil {
-		if activeInstance.Worktree != nil {
+	if activeAgent != nil {
+		if activeAgent.Worktree != nil {
 			if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-				if !repoPane.SelectWorktreeByPath(activeInstance.Worktree.Path) {
-					debug.DebugLog("cycleNextAgent: worktree %s not found in agents pane", activeInstance.Worktree.Path)
+				if !repoPane.SelectWorktreeByPath(activeAgent.Worktree.Path) {
+					debug.DebugLog("cycleNextAgent: worktree %s not found in agents pane", activeAgent.Worktree.Path)
 				}
 			}
 			if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
-				changesPane.SetRepository(activeInstance.Worktree.Path)
+				changesPane.SetRepository(activeAgent.Worktree.Path)
 			}
 		}
 
-		if activeInstance.TmuxSession != nil {
-			tmuxSession := activeInstance.TmuxSession
+		if activeSession.SharedTmux != nil {
+			tmuxSession := activeSession.SharedTmux
 
 			// Force capture immediately so the pane reflects the newly selected agent
 			cmds = append(cmds, func() tea.Msg {
@@ -1182,48 +1184,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var cmds []tea.Cmd
 
-		// Set first agent's tmux content
-		activeInstance := msg.session.GetActiveInstance()
-		if activeInstance != nil && activeInstance.TmuxSession != nil {
+		// Set tmux content from shared session
+		activeAgent := msg.session.GetActiveAgent()
+		if activeAgent != nil && msg.session.SharedTmux != nil {
 			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
-				content, _ := activeInstance.TmuxSession.CapturePaneContent()
+				content, _ := msg.session.SharedTmux.CapturePaneContent()
 				sessionView.SetTmuxContent(content)
 			}
 
 			// Ensure the agents pane selects this worktree so focus/changes pane stay in sync
-			if m.repoPane != nil && activeInstance.Worktree != nil {
+			if m.repoPane != nil && activeAgent.Worktree != nil {
 				if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
 					if err := repoPane.Refresh(); err != nil {
 						debug.DebugLog("Failed to refresh agents pane after session creation: %v", err)
 					}
-					if !repoPane.SelectWorktreeByPath(activeInstance.Worktree.Path) {
-						debug.DebugLog("Agents pane could not find worktree %s right after session creation", activeInstance.Worktree.Path)
+					if !repoPane.SelectWorktreeByPath(activeAgent.Worktree.Path) {
+						debug.DebugLog("Agents pane could not find worktree %s right after session creation", activeAgent.Worktree.Path)
 					}
 				}
 			}
 
 			// Update changes pane
-			if m.changesPane != nil && activeInstance.Worktree != nil {
+			if m.changesPane != nil && activeAgent.Worktree != nil {
 				if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
-					changesPane.SetRepository(activeInstance.Worktree.Path)
+					changesPane.SetRepository(activeAgent.Worktree.Path)
 				}
 			}
 
 			// Force an immediate tmux capture to populate the pane, then start monitoring
 			cmds = append(cmds, func() tea.Msg {
-				if activeInstance.TmuxSession == nil {
+				if msg.session.SharedTmux == nil {
 					return tmuxOutputMsg{content: ""}
 				}
-				content, err := activeInstance.TmuxSession.CapturePaneContent()
+				content, err := msg.session.SharedTmux.CapturePaneContent()
 				if err != nil {
 					debug.DebugLog("ERROR capturing pane content for new session %s: %v", msg.session.ID, err)
 					return tmuxOutputMsg{content: ""}
 				}
-				debug.DebugLog("Captured %d bytes of content for new session %s", len(content), activeInstance.TmuxSession.GetSessionName())
+				debug.DebugLog("Captured %d bytes of content for new session %s", len(content), msg.session.SharedTmux.GetSessionName())
 				return tmuxOutputMsg{content: content, hasPrompt: true}
 			})
 
-			cmds = append(cmds, waitForTmuxOutput(activeInstance.TmuxSession))
+			cmds = append(cmds, waitForTmuxOutput(msg.session.SharedTmux))
 		}
 
 		// Persist the selected agents to config for next session
@@ -2084,23 +2086,72 @@ Press Ctrl+Q when attached to detach back to preview.
 Press ? for help once running.
 
 Examples:
-  agate                       # Launch with last selected agents (defaults to claude,codex)
-  agate -a claude             # Launch with Claude
-  agate --agents claude,codex # Launch with Claude and Codex`,
-		Args: cobra.NoArgs,
+  agate                                           # Launch with last selected agents (defaults to claude,codex)
+  agate -a claude                                 # Launch with Claude
+  agate --agents claude,codex                     # Launch with Claude and Codex
+  agate --agents claude,codex "add a new feature" # Create session with prompt and attach directly`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showVersion {
 				fmt.Println(version.Short())
 				return nil
 			}
 
-			// Use agents from flag if provided, otherwise runAgent will load from config
+			// If a prompt is provided, create session directly and attach
+			if len(args) > 0 {
+				prompt := args[0]
+				return newSessionFromCLI(agentsFlag, prompt)
+			}
+
+			// Otherwise, launch TUI
 			return runAgent(agentsFlag)
 		},
 	}
 
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
 	rootCmd.Flags().StringVarP(&agentsFlag, "agents", "a", "", "Comma-separated list of agents (e.g., claude,codex)")
+
+	// Metrics subcommand
+	var metricsSessionID string
+	var metricsCmd = &cobra.Command{
+		Use:   "metrics",
+		Short: "View live metrics for a session",
+		Long:  `Display a live metrics view for the specified session ID.`,
+		RunE: func(_ *cobra.Command, args []string) error {
+			if metricsSessionID == "" {
+				return fmt.Errorf("--session-id is required")
+			}
+
+			// Initialize state manager to load session
+			stateManager, err := state.NewManager()
+			if err != nil {
+				return fmt.Errorf("failed to initialize state manager: %w", err)
+			}
+
+			// Load sessions from state
+			sessionMappings := stateManager.GetSessionMappings()
+			persistedSession, exists := sessionMappings[metricsSessionID]
+			if !exists {
+				return fmt.Errorf("session not found: %s", metricsSessionID)
+			}
+
+			// Reconstruct session object from persisted state
+			sess := &session.Session{
+				ID:             persistedSession.ID,
+				Prompt:         persistedSession.Prompt,
+				Description:    persistedSession.Description,
+				BranchBaseName: persistedSession.BranchBaseName,
+				CreatedAt:      persistedSession.CreatedAt,
+				LastAccessed:   persistedSession.LastAccessed,
+			}
+
+			// Run metrics TUI
+			return metrics.Run(sess)
+		},
+	}
+	metricsCmd.Flags().StringVar(&metricsSessionID, "session-id", "", "Session ID to view metrics for (required)")
+
+	rootCmd.AddCommand(metricsCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

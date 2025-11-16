@@ -14,24 +14,26 @@ type SessionState struct {
 
 // PersistedSession represents a session's persistent data
 type PersistedSession struct {
-	ID                  string                      `json:"id"`
-	Prompt              string                      `json:"prompt"`
-	Description         string                      `json:"description"` // Can be empty
-	BranchBaseName      string                      `json:"branch_base_name"`
-	ActiveInstanceIndex int                         `json:"active_instance_index"`
-	Instances           []PersistedAgentInstance    `json:"instances"`
-	CreatedAt           time.Time                   `json:"created_at"`
-	LastAccessed        time.Time                   `json:"last_accessed"`
+	ID               string                   `json:"id"`
+	Prompt           string                   `json:"prompt"`
+	Description      string                   `json:"description"` // Can be empty
+	BranchBaseName   string                   `json:"branch_base_name"`
+	ActiveAgentIndex int                      `json:"active_agent_index"`
+	Agents           []PersistedAgentInstance `json:"agents"`
+	SharedTmuxName   string                   `json:"shared_tmux_name"` // Shared tmux session for all agents
+	CreatedAt        time.Time                `json:"created_at"`
+	LastAccessed     time.Time                `json:"last_accessed"`
 }
 
-// PersistedAgentInstance represents an agent instance's persistent data
+// PersistedAgentInstance represents an agent's persistent data
 type PersistedAgentInstance struct {
 	ID           string    `json:"id"`
 	AgentName    string    `json:"agent_name"`
-	TmuxName     string    `json:"tmux_name"`
+	TmuxName     string    `json:"tmux_name"`      // Deprecated, kept for backward compat
 	WorktreePath string    `json:"worktree_path"`
 	Branch       string    `json:"branch"`
 	RepoName     string    `json:"repo_name"`
+	PaneIndex    int       `json:"pane_index"`     // Which pane in the shared tmux session
 	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 }

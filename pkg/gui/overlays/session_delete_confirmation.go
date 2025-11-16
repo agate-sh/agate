@@ -183,10 +183,10 @@ func (d *SessionDeleteConfirmDialog) View() string {
 		}
 
 		// Get agent names
-		if len(d.session.Instances) > 0 {
-			instances := d.session.GetOrderedInstances()
-			for _, instance := range instances {
-				agentName := instance.AgentConfig.Name
+		if len(d.session.Agents) > 0 {
+			agents := d.session.GetOrderedAgents()
+			for _, agent := range agents {
+				agentName := agent.AgentConfig.Name
 				if len(agentName) > 0 {
 					agentName = strings.ToUpper(agentName[:1]) + agentName[1:]
 				}

@@ -38,10 +38,10 @@ func (p *SessionViewPane) SetSession(s *session.Session) {
 	}
 
 	// Build agent configs and determine active index
-	instances := s.GetOrderedInstances()
-	agentConfigs := make([]app.AgentConfig, 0, len(instances))
-	for _, instance := range instances {
-		agentConfigs = append(agentConfigs, instance.AgentConfig)
+	agents := s.GetOrderedAgents()
+	agentConfigs := make([]app.AgentConfig, 0, len(agents))
+	for _, agent := range agents {
+		agentConfigs = append(agentConfigs, agent.AgentConfig)
 	}
 
 	// Create/update session header
@@ -49,7 +49,7 @@ func (p *SessionViewPane) SetSession(s *session.Session) {
 		s.Description,
 		s.BranchBaseName,
 		agentConfigs,
-		s.ActiveInstanceIndex,
+		s.ActiveAgentIndex,
 	)
 	if p.sessionHeader != nil {
 		p.sessionHeader.SetWidth(p.GetWidth())

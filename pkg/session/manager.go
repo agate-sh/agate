@@ -77,36 +77,39 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 
 	// Create session object
 	session := &Session{
-		ID:                  sessionID,
-		Prompt:              prompt,
-		Description:         "", // Empty initially, populated async
-		BranchBaseName:      branchName,
-		Instances:           make(map[string]*AgentInstance),
-		ActiveInstanceIndex: 0,
-		CreatedAt:           time.Now(),
-		LastAccessed:        time.Now(),
+		ID:               sessionID,
+		Prompt:           prompt,
+		Description:      "", // Empty initially, populated async
+		BranchBaseName:   branchName,
+		Agents:           make(map[string]*Agent),
+		ActiveAgentIndex: 0,
+		CreatedAt:        time.Now(),
+		LastAccessed:     time.Now(),
 	}
 
-	// Create all agent instances concurrently
-	type instanceResult struct {
+	// Get pane layout to determine correct pane indices
+	layout := tmux.CalculatePaneLayout(len(agentNames))
+
+	// Create all agents concurrently (just worktrees, no tmux yet)
+	type agentResult struct {
 		agentName string
-		instance  *AgentInstance
+		agent     *Agent
 		err       error
 	}
 
-	results := make(chan instanceResult, len(agentNames))
+	results := make(chan agentResult, len(agentNames))
 	var wg sync.WaitGroup
 
-	for _, agentName := range agentNames {
+	for i, agentName := range agentNames {
 		wg.Add(1)
-		go func(name string) {
+		go func(name string, paneIndex int) {
 			defer wg.Done()
-			instance, err := m.createAgentInstance(sessionID, branchName, name)
-			results <- instanceResult{agentName: name, instance: instance, err: err}
-		}(agentName)
+			agent, err := m.createAgent(sessionID, branchName, name, paneIndex)
+			results <- agentResult{agentName: name, agent: agent, err: err}
+		}(agentName, layout.AgentToPaneMap[i])
 	}
 
-	// Wait for all instances to complete
+	// Wait for all agents to complete
 	go func() {
 		wg.Wait()
 		close(results)
@@ -119,19 +122,28 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 			errors = append(errors, fmt.Sprintf("%s: %v", result.agentName, result.err))
 			continue
 		}
-		session.Instances[result.agentName] = result.instance
+		session.Agents[result.agentName] = result.agent
 	}
 
 	if len(errors) > 0 {
-		// Clean up any successfully created instances
-		for _, instance := range session.Instances {
-			m.cleanupAgentInstance(instance)
+		// Clean up any successfully created agents
+		for _, agent := range session.Agents {
+			m.cleanupAgent(agent)
 		}
-		return nil, fmt.Errorf("failed to create agent instances: %s", strings.Join(errors, "; "))
+		return nil, fmt.Errorf("failed to create agents: %s", strings.Join(errors, "; "))
 	}
 
-	if len(session.Instances) == 0 {
-		return nil, fmt.Errorf("no agent instances were created")
+	if len(session.Agents) == 0 {
+		return nil, fmt.Errorf("no agents were created")
+	}
+
+	// Now create the shared tmux session with all agents
+	if err := m.setupTmuxSession(session); err != nil {
+		// Clean up all agents on failure
+		for _, agent := range session.Agents {
+			m.cleanupAgent(agent)
+		}
+		return nil, fmt.Errorf("failed to setup tmux session: %w", err)
 	}
 
 	// Store session
@@ -148,13 +160,13 @@ func (m *Manager) CreateSession(prompt string, branchName string, agentNames []s
 	telemetry.TrackAgentsSelected(agentNames)
 	telemetry.TrackSessionCreated(agentNames, isFirstSession)
 
-	debug.DebugLog("Created new multi-agent session: %s with %d agents", sessionID, len(session.Instances))
+	debug.DebugLog("Created new multi-agent session: %s with %d agents", sessionID, len(session.Agents))
 	return session, nil
 }
 
-// createAgentInstance creates a single agent instance for a session
-func (m *Manager) createAgentInstance(sessionID string, branchName string, agentName string) (*AgentInstance, error) {
-	debug.DebugLog("createAgentInstance: Creating instance for agent=%s, baseBranch=%s, sessionID=%s", agentName, branchName, sessionID)
+// createAgent creates a single agent for a session (worktree only, no tmux)
+func (m *Manager) createAgent(sessionID string, branchName string, agentName string, paneIndex int) (*Agent, error) {
+	debug.DebugLog("createAgent: Creating agent=%s, baseBranch=%s, sessionID=%s, paneIndex=%d", agentName, branchName, sessionID, paneIndex)
 
 	// Get agent configuration
 	agentConfig := app.GetAgentConfig(agentName)
@@ -162,52 +174,86 @@ func (m *Manager) createAgentInstance(sessionID string, branchName string, agent
 	// Create worktree for this agent
 	// For multi-agent sessions, append agent name to branch to make it unique
 	agentBranchName := fmt.Sprintf("%s_%s", branchName, agentName)
-	debug.DebugLog("createAgentInstance: Creating worktree with unique branch=%s for agent=%s", agentBranchName, agentName)
+	debug.DebugLog("createAgent: Creating worktree with unique branch=%s for agent=%s", agentBranchName, agentName)
 
 	worktree, err := m.worktreeMgr.CreateWorktree(agentBranchName)
 	if err != nil {
-		debug.DebugLog("createAgentInstance: Failed to create worktree for agent=%s, branch=%s: %v", agentName, agentBranchName, err)
+		debug.DebugLog("createAgent: Failed to create worktree for agent=%s, branch=%s: %v", agentName, agentBranchName, err)
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
-	debug.DebugLog("createAgentInstance: Successfully created worktree at %s for agent=%s", worktree.Path, agentName)
+	debug.DebugLog("createAgent: Successfully created worktree at %s for agent=%s", worktree.Path, agentName)
 
-	// Generate instance ID
-	instanceID := fmt.Sprintf("%s_%s", sessionID, agentName)
+	// Generate agent ID
+	agentID := fmt.Sprintf("%s_%s", sessionID, agentName)
 
-	// Create tmux session
-	tmuxSessionName := generateTmuxSessionName(worktree, agentName)
-	tmuxSession := tmux.NewTmuxSession(tmuxSessionName, agentName)
-	err = tmuxSession.Start(worktree.Path)
-	if err != nil {
-		// Clean up worktree on failure
-		m.worktreeMgr.DeleteWorktree(*worktree)
-		return nil, fmt.Errorf("failed to start tmux session: %w", err)
-	}
-
-	instance := &AgentInstance{
-		ID:           instanceID,
+	agent := &Agent{
+		ID:           agentID,
 		AgentConfig:  agentConfig,
 		SessionID:    sessionID,
-		TmuxSession:  tmuxSession,
 		Worktree:     worktree,
+		PaneIndex:    paneIndex,
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
 	}
 
-	return instance, nil
+	return agent, nil
 }
 
-// cleanupAgentInstance cleans up resources for an agent instance
-func (m *Manager) cleanupAgentInstance(instance *AgentInstance) {
-	if instance.TmuxSession != nil {
-		if err := instance.TmuxSession.Kill(); err != nil {
-			debug.DebugLog("Failed to kill tmux session for instance %s: %v", instance.ID, err)
-		}
+// setupTmuxSession creates a single tmux session with panes for all agents
+func (m *Manager) setupTmuxSession(session *Session) error {
+	debug.DebugLog("setupTmuxSession: Creating shared tmux session for %d agents", len(session.Agents))
+
+	// Get ordered list of agents
+	agents := session.GetOrderedAgents()
+	if len(agents) == 0 {
+		return fmt.Errorf("no agents in session")
 	}
 
-	if instance.Worktree != nil && m.worktreeMgr != nil {
-		if err := m.worktreeMgr.DeleteWorktree(*instance.Worktree); err != nil {
-			debug.DebugLog("Failed to delete worktree for instance %s: %v", instance.ID, err)
+	// Use the first agent's worktree to generate the tmux session name
+	// (all agents share one tmux session now)
+	tmuxSessionName := generateTmuxSessionName(agents[0].Worktree, session.BranchBaseName)
+
+	// Create the tmux session (starts in first agent's worktree)
+	tmuxSession := tmux.NewTmuxSession(tmuxSessionName, agents[0].AgentConfig.ExecutableName)
+	err := tmuxSession.Start(agents[0].Worktree.Path)
+	if err != nil {
+		return fmt.Errorf("failed to start tmux session: %w", err)
+	}
+
+	// Store tmux session in the Session
+	session.SharedTmux = tmuxSession
+
+	// Build agent configs and worktrees in order
+	agentConfigs := make([]app.AgentConfig, len(agents))
+	worktrees := make([]*git.WorktreeInfo, len(agents))
+	for i, agent := range agents {
+		agentConfigs[i] = agent.AgentConfig
+		worktrees[i] = agent.Worktree
+	}
+
+	// Create panes and start agents
+	if err := tmux.CreatePanes(tmuxSessionName, agentConfigs, worktrees); err != nil {
+		// Kill the tmux session on failure
+		tmuxSession.Kill()
+		return fmt.Errorf("failed to create panes: %w", err)
+	}
+
+	// Focus the first agent's pane to match ActiveAgentIndex = 0
+	// This ensures CapturePaneContent() captures the correct agent at launch
+	if err := tmux.SelectPane(tmuxSessionName, agents[0].PaneIndex); err != nil {
+		debug.DebugLog("Warning: failed to select first agent's pane: %v", err)
+		// Don't fail - this is just for UI consistency
+	}
+
+	debug.DebugLog("setupTmuxSession: Successfully created tmux session with %d panes", len(agents))
+	return nil
+}
+
+// cleanupAgent cleans up resources for an agent
+func (m *Manager) cleanupAgent(agent *Agent) {
+	if agent.Worktree != nil && m.worktreeMgr != nil {
+		if err := m.worktreeMgr.DeleteWorktree(*agent.Worktree); err != nil {
+			debug.DebugLog("Failed to delete worktree for agent %s: %v", agent.ID, err)
 		}
 	}
 }
@@ -236,7 +282,8 @@ func (m *Manager) UpdateSessionDescription(sessionID string, description string)
 }
 
 // AddAgentToSession adds a new agent to an existing session
-func (m *Manager) AddAgentToSession(sessionID string, agentName string) (*AgentInstance, error) {
+// TODO: This needs to be reworked for shared tmux sessions - need to recreate panes
+func (m *Manager) AddAgentToSession(sessionID string, agentName string) (*Agent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -246,18 +293,27 @@ func (m *Manager) AddAgentToSession(sessionID string, agentName string) (*AgentI
 	}
 
 	// Check if agent already exists in this session
-	if _, exists := session.Instances[agentName]; exists {
+	if _, exists := session.Agents[agentName]; exists {
 		return nil, fmt.Errorf("agent %s already exists in session %s", agentName, sessionID)
 	}
 
-	// Create the new agent instance
-	instance, err := m.createAgentInstance(sessionID, session.BranchBaseName, agentName)
+	// Check if we've hit the limit
+	if len(session.Agents) >= 6 {
+		return nil, fmt.Errorf("maximum 6 agents per session, cannot add more")
+	}
+
+	// Create the new agent (worktree only)
+	paneIndex := len(session.Agents) // New agent gets the next pane index
+	agent, err := m.createAgent(sessionID, session.BranchBaseName, agentName, paneIndex)
 	if err != nil {
 		return nil, err
 	}
 
-	session.Instances[agentName] = instance
+	session.Agents[agentName] = agent
 	session.LastAccessed = time.Now()
+
+	// TODO: Rebuild tmux panes layout with the new agent
+	// For now, this function is not fully implemented for shared sessions
 
 	// Persist the update
 	if err := m.PersistSessions(); err != nil {
@@ -265,11 +321,11 @@ func (m *Manager) AddAgentToSession(sessionID string, agentName string) (*AgentI
 	}
 
 	debug.DebugLog("Added agent %s to session %s", agentName, sessionID)
-	return instance, nil
+	return agent, nil
 }
 
-// CycleActiveInstance increments the active instance index (wraps around)
-func (m *Manager) CycleActiveInstance(sessionID string) error {
+// CycleActiveAgent increments the active agent index (wraps around) and focuses that pane
+func (m *Manager) CycleActiveAgent(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -278,23 +334,31 @@ func (m *Manager) CycleActiveInstance(sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	instances := session.GetOrderedInstances()
-	if len(instances) == 0 {
-		return fmt.Errorf("no instances in session")
+	agents := session.GetOrderedAgents()
+	if len(agents) == 0 {
+		return fmt.Errorf("no agents in session")
 	}
 
-	session.ActiveInstanceIndex = (session.ActiveInstanceIndex + 1) % len(instances)
+	session.ActiveAgentIndex = (session.ActiveAgentIndex + 1) % len(agents)
 	session.LastAccessed = time.Now()
+
+	// Focus the newly active agent's pane
+	if session.SharedTmux != nil {
+		activeAgent := agents[session.ActiveAgentIndex]
+		if err := tmux.SelectPane(session.SharedTmux.GetSessionName(), activeAgent.PaneIndex); err != nil {
+			debug.DebugLog("Failed to select pane %d: %v", activeAgent.PaneIndex, err)
+		}
+	}
 
 	// Track agent switched
 	telemetry.TrackAgentSwitched()
 
-	debug.DebugLog("Cycled active instance for session %s to index %d", sessionID, session.ActiveInstanceIndex)
+	debug.DebugLog("Cycled active agent for session %s to index %d", sessionID, session.ActiveAgentIndex)
 	return nil
 }
 
-// SetActiveInstance sets a specific agent as active by index
-func (m *Manager) SetActiveInstance(sessionID string, index int) error {
+// SetActiveAgent sets a specific agent as active by index and focuses that pane
+func (m *Manager) SetActiveAgent(sessionID string, index int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -303,13 +367,21 @@ func (m *Manager) SetActiveInstance(sessionID string, index int) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	instances := session.GetOrderedInstances()
-	if index < 0 || index >= len(instances) {
-		return fmt.Errorf("invalid instance index: %d (valid range: 0-%d)", index, len(instances)-1)
+	agents := session.GetOrderedAgents()
+	if index < 0 || index >= len(agents) {
+		return fmt.Errorf("invalid agent index: %d (valid range: 0-%d)", index, len(agents)-1)
 	}
 
-	session.ActiveInstanceIndex = index
+	session.ActiveAgentIndex = index
 	session.LastAccessed = time.Now()
+
+	// Focus the newly active agent's pane
+	if session.SharedTmux != nil {
+		activeAgent := agents[index]
+		if err := tmux.SelectPane(session.SharedTmux.GetSessionName(), activeAgent.PaneIndex); err != nil {
+			debug.DebugLog("Failed to select pane %d: %v", activeAgent.PaneIndex, err)
+		}
+	}
 
 	debug.DebugLog("Set active instance for session %s to index %d", sessionID, index)
 	return nil
@@ -360,10 +432,17 @@ func (m *Manager) DeleteSession(sessionID string) error {
 
 	debug.DebugLog("Deleting session: %s", sessionID)
 
-	// Clean up all agent instances
-	for agentName, instance := range session.Instances {
-		debug.DebugLog("Cleaning up instance for agent %s", agentName)
-		m.cleanupAgentInstance(instance)
+	// Kill shared tmux session
+	if session.SharedTmux != nil {
+		if err := session.SharedTmux.Kill(); err != nil {
+			debug.DebugLog("Failed to kill tmux session: %v", err)
+		}
+	}
+
+	// Clean up all agents
+	for agentName, agent := range session.Agents {
+		debug.DebugLog("Cleaning up agent %s", agentName)
+		m.cleanupAgent(agent)
 	}
 
 	// Remove from sessions map
@@ -421,9 +500,9 @@ func (m *Manager) GetRepositoryPath(repoName string) (string, error) {
 
 	// Search through sessions for a worktree with this repo name
 	for _, session := range m.sessions {
-		for _, instance := range session.Instances {
-			if instance != nil && instance.Worktree != nil && instance.Worktree.RepoName == repoName {
-				path := strings.TrimSpace(instance.Worktree.Path)
+		for _, agent := range session.Agents {
+			if agent != nil && agent.Worktree != nil && agent.Worktree.RepoName == repoName {
+				path := strings.TrimSpace(agent.Worktree.Path)
 				if path != "" {
 					return filepath.Clean(path), nil
 				}
@@ -493,25 +572,15 @@ func (m *Manager) CleanupOrphanedSessions() {
 	defer m.mu.Unlock()
 
 	for sessionID, session := range m.sessions {
-		hasValidInstances := false
-		for agentName, instance := range session.Instances {
-			if instance.TmuxSession != nil {
-				exists, err := instance.TmuxSession.SessionExists()
-				if err != nil || !exists {
-					debug.DebugLog("Removing orphaned instance for agent %s in session %s", agentName, sessionID)
-					delete(session.Instances, agentName)
-				} else {
-					hasValidInstances = true
+		// Check if the shared tmux session still exists
+		if session.SharedTmux != nil {
+			exists, err := session.SharedTmux.SessionExists()
+			if err != nil || !exists {
+				debug.DebugLog("Removing orphaned session: %s (tmux session no longer exists)", sessionID)
+				delete(m.sessions, sessionID)
+				if m.activeSession == session {
+					m.activeSession = nil
 				}
-			}
-		}
-
-		// If no valid instances remain, remove the entire session
-		if !hasValidInstances {
-			debug.DebugLog("Removing orphaned session: %s", sessionID)
-			delete(m.sessions, sessionID)
-			if m.activeSession == session {
-				m.activeSession = nil
 			}
 		}
 	}
@@ -524,7 +593,7 @@ func (m *Manager) GetWorktreeManager() *git.WorktreeManager {
 	return m.worktreeMgr
 }
 
-// GetSessionForWorktree returns the session containing an instance with the given worktree (for backward compatibility)
+// GetSessionForWorktree returns the session containing an agent with the given worktree
 func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -533,10 +602,10 @@ func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
 		return nil
 	}
 
-	// Search through all sessions for an instance with this worktree path
+	// Search through all sessions for an agent with this worktree path
 	for _, session := range m.sessions {
-		for _, instance := range session.Instances {
-			if instance != nil && instance.Worktree != nil && instance.Worktree.Path == worktree.Path {
+		for _, agent := range session.Agents {
+			if agent != nil && agent.Worktree != nil && agent.Worktree.Path == worktree.Path {
 				return session
 			}
 		}
@@ -544,16 +613,16 @@ func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
 	return nil
 }
 
-// GetOrCreateSession is deprecated - creates a new single-agent session (for backward compatibility)
+// GetOrCreateSession is deprecated - creates a new single-agent session
 // For new code, use CreateSession instead
 func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if a session exists with an instance using this worktree
+	// Check if a session exists with an agent using this worktree
 	for _, session := range m.sessions {
-		for _, instance := range session.Instances {
-			if instance != nil && instance.Worktree != nil && instance.Worktree.Path == worktree.Path {
+		for _, agent := range session.Agents {
+			if agent != nil && agent.Worktree != nil && agent.Worktree.Path == worktree.Path {
 				session.LastAccessed = time.Now()
 				debug.DebugLog("Reusing existing session: %s for worktree %s", session.ID, worktree.Path)
 				return session, nil
