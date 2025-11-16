@@ -4,6 +4,7 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/gui/theme"
 	"os"
 	"os/exec"
@@ -470,9 +471,9 @@ func (p *ChangesPane) openSelectedFile() tea.Cmd {
 func (p *ChangesPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if p.IsActive() {
-		shortcuts = "tab cycle • ⌥c commit"
+		shortcuts = "tab cycle"
 	} else {
-		shortcuts = "(⌥c)"
+		shortcuts = "(" + icons.GetOptionKey() + "c)"
 	}
 
 	return components.TitleStyle{

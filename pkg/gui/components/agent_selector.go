@@ -5,6 +5,7 @@ import (
 	"agate/pkg/gui/theme"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -15,11 +16,16 @@ import (
 
 // AgentItem represents an agent in the selection list
 type AgentItem struct {
-	agent    app.AgentConfig
-	selected bool
+	agent      app.AgentConfig
+	selected   bool
+	isHeader   bool
+	headerText string
 }
 
 func (i AgentItem) FilterValue() string {
+	if i.isHeader {
+		return ""
+	}
 	return i.agent.Name
 }
 
@@ -35,6 +41,15 @@ func (d agentDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd {
 func (d agentDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	agentItem, ok := item.(AgentItem)
 	if !ok {
+		return
+	}
+
+	// Render section headers
+	if agentItem.isHeader {
+		headerStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextMuted)).
+			Bold(true)
+		fmt.Fprint(w, headerStyle.Render(agentItem.headerText))
 		return
 	}
 
@@ -84,15 +99,8 @@ func NewAgentSelector(initialAgents []app.AgentConfig) *AgentSelector {
 		selectedMap[agent.Name] = true
 	}
 
-	// Create list items for all available agents
-	allAgents := app.GetAllAgents()
-	items := make([]list.Item, len(allAgents))
-	for i, agent := range allAgents {
-		items[i] = AgentItem{
-			agent:    agent,
-			selected: selectedMap[agent.Name],
-		}
-	}
+	// Create list items with sections
+	items := buildAgentListItems(selectedMap)
 
 	delegate := agentDelegate{}
 	l := list.New(items, delegate, 0, 0)
@@ -114,7 +122,7 @@ func NewAgentSelector(initialAgents []app.AgentConfig) *AgentSelector {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
 	focusCmd := ti.Focus()
 
-	return &AgentSelector{
+	selector := &AgentSelector{
 		list:           l,
 		filterInput:    ti,
 		selectedAgents: selectedMap,
@@ -123,6 +131,86 @@ func NewAgentSelector(initialAgents []app.AgentConfig) *AgentSelector {
 		filtering:      false, // Start in navigation mode; focus moves to the input on demand
 		initCmd:        focusCmd,
 	}
+
+	// Ensure initial selection is on a selectable item
+	selector.ensureSelectableItemSelected()
+
+	return selector
+}
+
+// buildAgentListItems creates the list items with "Top" and "All" sections
+func buildAgentListItems(selectedMap map[string]bool) []list.Item {
+	var items []list.Item
+
+	// Define top agents in alphabetical order: Claude, Codex, Gemini
+	topAgents := []app.AgentConfig{
+		app.ClaudeAgent,
+		app.CodexAgent,
+		app.GeminiAgent,
+	}
+
+	// Create a map of top agent names for filtering
+	topAgentNames := make(map[string]bool)
+	for _, agent := range topAgents {
+		topAgentNames[agent.Name] = true
+	}
+
+	// Add "Top" section header
+	items = append(items, AgentItem{
+		isHeader:   true,
+		headerText: "Top",
+	})
+
+	// Add top agents
+	for _, agent := range topAgents {
+		items = append(items, AgentItem{
+			agent:    agent,
+			selected: selectedMap[agent.Name],
+		})
+	}
+
+	// Add empty row
+	items = append(items, AgentItem{
+		isHeader:   true,
+		headerText: "",
+	})
+
+	// Add "All" section header
+	items = append(items, AgentItem{
+		isHeader:   true,
+		headerText: "All",
+	})
+
+	// Add remaining agents (excluding top agents) in alphabetical order
+	allAgents := app.GetAllAgents()
+	var remainingAgents []app.AgentConfig
+	for _, agent := range allAgents {
+		if !topAgentNames[agent.Name] {
+			remainingAgents = append(remainingAgents, agent)
+		}
+	}
+
+	// Sort remaining agents alphabetically by CompanyName
+	sort.Slice(remainingAgents, func(i, j int) bool {
+		nameI := remainingAgents[i].CompanyName
+		if nameI == "" {
+			nameI = remainingAgents[i].Name
+		}
+		nameJ := remainingAgents[j].CompanyName
+		if nameJ == "" {
+			nameJ = remainingAgents[j].Name
+		}
+		return strings.ToLower(nameI) < strings.ToLower(nameJ)
+	})
+
+	for _, agent := range remainingAgents {
+		items = append(items, AgentItem{
+			agent:    agent,
+			selected: selectedMap[agent.Name],
+		})
+	}
+
+	return items
 }
 
 // SetSize updates the dimensions of the selector
@@ -177,9 +265,8 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 			case "down", "up":
 				// Arrow keys exit filter mode and navigate list
 				s.filtering = false
-				var cmd tea.Cmd
-				s.list, cmd = s.list.Update(msg)
-				return s, cmd
+				s.navigateToSelectableItem(keyMsg.String())
+				return s, nil
 			case "enter":
 				// Enter key toggles the currently selected item in the list
 				// Keep the filter and stay in filter mode
@@ -206,10 +293,9 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 				// Ignore tab keys when not filtering
 				return s, nil
 			case "up", "down", "j", "k":
-				// Navigation keys - let list handle them
-				var cmd tea.Cmd
-				s.list, cmd = s.list.Update(msg)
-				return s, cmd
+				// Navigation keys - skip headers
+				s.navigateToSelectableItem(keyMsg.String())
+				return s, nil
 			default:
 				// Any other key starts filtering
 				var cmds []tea.Cmd
@@ -247,15 +333,63 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 	return s, tea.Batch(cmds...)
 }
 
+// navigateToSelectableItem moves to the next/previous selectable item, skipping headers
+func (s *AgentSelector) navigateToSelectableItem(direction string) {
+	items := s.list.Items()
+	if len(items) == 0 {
+		return
+	}
+
+	current := s.list.Index()
+	step := 1
+	if direction == "up" || direction == "k" {
+		step = -1
+	}
+
+	// Try to find next selectable item
+	for i := 0; i < len(items); i++ {
+		current += step
+
+		// Wrap around
+		if current < 0 {
+			current = len(items) - 1
+		} else if current >= len(items) {
+			current = 0
+		}
+
+		if item, ok := items[current].(AgentItem); ok {
+			if !item.isHeader {
+				s.list.Select(current)
+				return
+			}
+		}
+	}
+}
+
 // filterList filters the list based on the filter input
 func (s *AgentSelector) filterList() {
 	filterText := strings.ToLower(s.filterInput.Value())
 
+	// If no filter, show sectioned list
+	if filterText == "" {
+		items := buildAgentListItems(s.selectedAgents)
+		s.list.SetItems(items)
+		// Select first selectable item
+		s.ensureSelectableItemSelected()
+		return
+	}
+
+	// When filtering, show flat list without sections
 	allAgents := app.GetAllAgents()
 	var items []list.Item
 
 	for _, agent := range allAgents {
-		if filterText == "" || strings.Contains(strings.ToLower(agent.Name), filterText) {
+		// Search against human-readable name (CompanyName) if available, otherwise use Name
+		searchName := agent.CompanyName
+		if searchName == "" {
+			searchName = agent.Name
+		}
+		if strings.Contains(strings.ToLower(searchName), filterText) {
 			items = append(items, AgentItem{
 				agent:    agent,
 				selected: s.selectedAgents[agent.Name],
@@ -264,6 +398,31 @@ func (s *AgentSelector) filterList() {
 	}
 
 	s.list.SetItems(items)
+	// Select first selectable item
+	s.ensureSelectableItemSelected()
+}
+
+// ensureSelectableItemSelected ensures a selectable item is selected
+func (s *AgentSelector) ensureSelectableItemSelected() {
+	items := s.list.Items()
+	if len(items) == 0 {
+		return
+	}
+
+	current := s.list.Index()
+	if current < len(items) {
+		if item, ok := items[current].(AgentItem); ok && !item.isHeader {
+			return // Current selection is valid
+		}
+	}
+
+	// Find first selectable item
+	for i, item := range items {
+		if agentItem, ok := item.(AgentItem); ok && !agentItem.isHeader {
+			s.list.Select(i)
+			return
+		}
+	}
 }
 
 func renderAgentRow(checkbox string, agent app.AgentConfig, rowWidth int) string {
@@ -295,19 +454,25 @@ func renderAgentRow(checkbox string, agent app.AgentConfig, rowWidth int) string
 func (s *AgentSelector) clearFilter() {
 	s.filterInput.Reset()
 	s.filterList()
+	s.ensureSelectableItemSelected()
 }
 
 // toggleCurrentAgent toggles the selection state of the currently highlighted agent
 func (s *AgentSelector) toggleCurrentAgent() {
 	selectedItem := s.list.SelectedItem()
 	if agentItem, ok := selectedItem.(AgentItem); ok {
+		// Skip if it's a header
+		if agentItem.isHeader {
+			return
+		}
+
 		// Toggle in the map
 		s.selectedAgents[agentItem.agent.Name] = !s.selectedAgents[agentItem.agent.Name]
 
 		// Update the list item
 		items := s.list.Items()
 		for i, item := range items {
-			if ai, ok := item.(AgentItem); ok && ai.agent.Name == agentItem.agent.Name {
+			if ai, ok := item.(AgentItem); ok && !ai.isHeader && ai.agent.Name == agentItem.agent.Name {
 				items[i] = AgentItem{
 					agent:    ai.agent,
 					selected: s.selectedAgents[agentItem.agent.Name],

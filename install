@@ -214,19 +214,6 @@ check_dependencies() {
     #     missing_deps+=("gh")
     # fi
 
-    # Check for fzf and install if missing
-    if ! command_exists fzf; then
-        print_info "Installing fzf, a command-line fuzzy finder"
-        install_fzf
-        if command_exists fzf; then
-            found_deps+=("fzf")
-        else
-            missing_deps+=("fzf")
-        fi
-    else
-        found_deps+=("fzf")
-    fi
-
     # Check for delta (git diff pager)
     if ! command_exists delta; then
         print_info "Installing delta, a syntax-highlighting git diff pager"
@@ -280,24 +267,6 @@ check_dependencies() {
         deps_list=$(printf '%s, ' "${found_deps[@]}")
         deps_list=${deps_list%, }  # Remove trailing comma and space
         printf "${GREEN}${BOLD}✓${NC} All dependencies found \033[2m($deps_list)${NC}\n"
-    fi
-}
-
-# Install fzf using the universal git method
-install_fzf() {
-    # Use the official fzf installation method that works across all platforms
-    if [[ -d ~/.fzf ]]; then
-        # fzf directory already exists, try to update
-        cd ~/.fzf && git pull >/dev/null 2>&1 && ./install --bin >/dev/null 2>&1
-    else
-        # Clone and install fzf
-        git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf >/dev/null 2>&1 && \
-        ~/.fzf/install --bin >/dev/null 2>&1
-    fi
-
-    # Add to PATH for current session if not already there
-    if [[ ":$PATH:" != *":$HOME/.fzf/bin:"* ]]; then
-        export PATH="$HOME/.fzf/bin:$PATH"
     fi
 }
 

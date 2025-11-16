@@ -103,6 +103,12 @@ var (
 		NerdFont: "\uf078", // Font Awesome chevron-down (available in Nerd Fonts)
 		Fallback: "⌄",
 	}
+
+	// Keyboard modifier keys
+	OptionKey = Icon{
+		NerdFont: "\u2325", // Option/Alt symbol
+		Fallback: "\u2325", // Unicode option symbol (same for both)
+	}
 )
 
 var useNerdFonts *bool
@@ -197,4 +203,9 @@ func GetGitStatusIcon(status string) string {
 // GetChevronDown returns the dropdown chevron icon
 func GetChevronDown() string {
 	return ChevronDown.Get()
+}
+
+// GetOptionKey returns the Option/Alt key symbol
+func GetOptionKey() string {
+	return OptionKey.Get()
 }

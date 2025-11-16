@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // SessionHeader represents the header section of a session view
@@ -108,21 +109,35 @@ func (h *SessionHeader) Render() string {
 
 // renderDescription renders the description row with loader if generating
 func (h *SessionHeader) renderDescription() string {
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary)).
-		Width(h.width)
+	var plainText string
 
 	if h.generatingDescription {
 		// Show blinking loader
 		loader := loaderFrames[h.loaderFrame]
-		return style.Render(loader + " Generating description...")
-	}
-
-	if h.description == "" {
+		plainText = loader + " Generating description..."
+	} else if h.description == "" {
 		return "" // Don't show anything if no description and not generating
+	} else {
+		plainText = h.description
 	}
 
-	return style.Render(h.description)
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextPrimary))
+
+	// Always show merge badge on right
+	badge := RenderMergeBadge()
+	// Calculate spacing to right-align badge with 1 char margin
+	descWidth := runewidth.StringWidth(plainText) // Use runewidth for accurate display width
+	badgeWidth := lipgloss.Width(badge)
+	spacing := h.width - descWidth - badgeWidth - 1 // 1 char right margin
+	if spacing < 1 {
+		spacing = 1
+	}
+
+	spacer := strings.Repeat(" ", spacing)
+	// Apply style only to the plain text, then add spacer and badge
+	styledDesc := descStyle.Render(plainText)
+	return styledDesc + spacer + badge
 }
 
 // renderBranchName renders the branch name row

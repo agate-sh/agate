@@ -5,6 +5,7 @@ import (
 	"agate/pkg/common"
 	"agate/pkg/config"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"fmt"
 	"io"
@@ -503,7 +504,7 @@ func (r *AgentsPane) GetTitleStyle() components.TitleStyle {
 	shortcuts := ""
 	if !r.IsActive() {
 		// When not active, show keyboard shortcut to activate
-		shortcuts = "(⌥s)"
+		shortcuts = "(" + icons.GetOptionKey() + "s)"
 	}
 
 	return components.TitleStyle{
@@ -1619,4 +1620,25 @@ type SessionSwitchedMsg struct {
 // AttachToSessionMsg is sent when the user wants to attach to a tmux session
 type AttachToSessionMsg struct {
 	Session *session.Session
+}
+
+// hasChanges checks if the active session has uncommitted changes
+func (r *AgentsPane) hasChanges() bool {
+	if r.sessionManager == nil {
+		return false
+	}
+
+	activeSession := r.sessionManager.GetActiveSession()
+	if activeSession == nil || activeSession.Worktree() == nil {
+		return false
+	}
+
+	// Get file status for the active session's worktree
+	fileStatus := git.GetFileStatuses(activeSession.Worktree().Path)
+	if fileStatus == nil {
+		return false
+	}
+
+	// Check if there are any changes (not clean)
+	return !fileStatus.IsClean
 }

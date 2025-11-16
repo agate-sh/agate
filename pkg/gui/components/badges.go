@@ -50,3 +50,29 @@ func RenderChangeCountBadge(count int) string {
 
 	return left + middle + right
 }
+
+// RenderMergeBadge returns a badge for the merge action
+func RenderMergeBadge() string {
+	bg := theme.BorderMuted
+	fg := theme.TextPrimary
+
+	display := "Merge ⌥m"
+
+	left := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(bg)).
+		Render("")
+
+	middle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(fg)).
+		Background(lipgloss.Color(bg)).
+		PaddingLeft(1).
+		PaddingRight(1).
+		Render(display)
+
+	right := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(bg)).
+		Render("")
+
+	return left + middle + right
+}

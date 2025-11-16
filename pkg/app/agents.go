@@ -52,7 +52,7 @@ var OpenCodeAgent = AgentConfig{
 	Name:           "Opencode",
 	BorderColor:    "#ffba88",
 	ExecutableName: "opencode",
-	CompanyName:    "opencode",
+	CompanyName:    "Opencode",
 }
 
 // Cursor agent configuration with the specific color

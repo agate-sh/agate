@@ -71,8 +71,8 @@ type model struct {
 	showDebugOverlay    bool                                 // Whether showing debug overlay
 	loadingState        *tmux.LoadingState                   // Loading state manager with spinner and stopwatch
 	toast               *components.Toast                    // Toast notification manager
-	commitOverlay       *overlays.CommitOverlay              // Commit overlay for creating commits
-	showCommitOverlay   bool                                 // Whether showing commit overlay
+	mergeOverlay       *overlays.MergeOverlay              // Merge overlay for merging changes
+	showMergeOverlay   bool                                 // Whether showing merge overlay
 	agentSelector       *components.AgentSelector            // Agent selector modal
 	showAgentSelector   bool                                 // Whether showing agent selector
 
@@ -135,11 +135,11 @@ func initialModel(subprocess string) model {
 			agentNames[i] = strings.TrimSpace(agentNames[i])
 		}
 	} else if stateManager != nil {
-		// Load from config (returns ["claude", "codex"] if empty)
+		// Load from config (returns ["claude", "codex", "gemini"] if empty)
 		agentNames = stateManager.GetSelectedAgents()
 	} else {
 		// Fallback if no state manager
-		agentNames = []string{"claude", "codex"}
+		agentNames = []string{"claude", "codex", "gemini"}
 	}
 
 	// Convert agent names to AgentConfig objects
@@ -1048,10 +1048,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Update commit overlay's spinner
-		if m.showCommitOverlay && m.commitOverlay != nil {
-			model, cmd := m.commitOverlay.Update(msg)
-			m.commitOverlay = model.(*overlays.CommitOverlay)
+		// Update merge overlay's spinner
+		if m.showMergeOverlay && m.mergeOverlay != nil {
+			model, cmd := m.mergeOverlay.Update(msg)
+			m.mergeOverlay = model.(*overlays.MergeOverlay)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -1074,23 +1074,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case time.Time:
-		// Pass time ticks to commit overlay for elapsed time updates
-		if m.showCommitOverlay && m.commitOverlay != nil {
-			model, cmd := m.commitOverlay.Update(msg)
-			m.commitOverlay = model.(*overlays.CommitOverlay)
+		// Pass time ticks to merge overlay for elapsed time updates
+		if m.showMergeOverlay && m.mergeOverlay != nil {
+			model, cmd := m.mergeOverlay.Update(msg)
+			m.mergeOverlay = model.(*overlays.MergeOverlay)
 			return m, cmd
 		}
 		return m, nil
 
-	case overlays.CommitSuccessMsg:
-		// Commit succeeded - show success toast and close overlay
-		m.showCommitOverlay = false
-		m.commitOverlay = nil
+	case overlays.MergeSuccessMsg:
+		// Merge succeeded - show success toast and close overlay
+		m.showMergeOverlay = false
+		m.mergeOverlay = nil
 
 		// Show success toast with green checkmark
 		checkmarkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.SuccessStatus))
 		checkmark := checkmarkStyle.Render("✓")
-		message := fmt.Sprintf("%s Created commit %s", checkmark, msg.SHA)
+		message := fmt.Sprintf("%s Merged %s to main", checkmark, msg.SHA)
 		toastCmd := m.toast.Show(message, 0)
 
 		// Refresh changes pane to show updated status
@@ -1102,18 +1102,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, toastCmd
 
-	case overlays.CommitMessageGeneratedMsg, overlays.FileDiscardedMsg:
-		// Pass overlay-specific messages to commit overlay
-		if m.showCommitOverlay && m.commitOverlay != nil {
-			model, cmd := m.commitOverlay.Update(msg)
-			m.commitOverlay = model.(*overlays.CommitOverlay)
+	case overlays.MergeMessageGeneratedMsg, overlays.FileDiscardedMsg:
+		// Pass overlay-specific messages to merge overlay
+		if m.showMergeOverlay && m.mergeOverlay != nil {
+			model, cmd := m.mergeOverlay.Update(msg)
+			m.mergeOverlay = model.(*overlays.MergeOverlay)
 			return m, cmd
 		}
 		return m, nil
 
-	case overlays.CommitErrorMsg:
-		// Commit failed - show error toast and keep overlay open
-		toastCmd := m.toast.Show(fmt.Sprintf("✗ Failed to create commit: %s", msg.Err.Error()), 0)
+	case overlays.MergeErrorMsg:
+		// Merge failed - show error toast and keep overlay open
+		toastCmd := m.toast.Show(fmt.Sprintf("✗ Failed to merge: %s", msg.Err.Error()), 0)
 		return m, toastCmd
 
 	case branchNameGeneratedMsg:
@@ -1307,18 +1307,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Handle commit overlay input
-		if m.showCommitOverlay && m.commitOverlay != nil {
+		// Handle merge overlay input
+		if m.showMergeOverlay && m.mergeOverlay != nil {
 			// Check for esc to close overlay
 			if msg.String() == "esc" {
-				m.showCommitOverlay = false
-				m.commitOverlay = nil
+				m.showMergeOverlay = false
+				m.mergeOverlay = nil
 				return m, nil
 			}
 
 			var cmd tea.Cmd
-			model, cmd := m.commitOverlay.Update(msg)
-			m.commitOverlay = model.(*overlays.CommitOverlay)
+			model, cmd := m.mergeOverlay.Update(msg)
+			m.mergeOverlay = model.(*overlays.MergeOverlay)
 			return m, cmd
 		}
 
@@ -1488,23 +1488,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, common.GlobalKeys.Commit):
-			// Show commit overlay (global shortcut)
+		case key.Matches(msg, common.GlobalKeys.MergeChanges):
+			// Show merge overlay (global shortcut)
 			activeSession := m.sessionManager.GetActiveSession()
 			if activeSession != nil && activeSession.Worktree() != nil {
-				// Check if there are any changes to commit
+				// Check if there are any changes to merge
 				fileStatus := git.GetFileStatuses(activeSession.Worktree().Path)
 				if fileStatus == nil || fileStatus.IsClean {
-					// No changes to commit - show toast
-					toastCmd := m.toast.Show("No changes to commit", 0)
+					// No changes to merge - show toast
+					toastCmd := m.toast.Show("No changes to merge", 0)
 					return m, toastCmd
 				}
 
-				// There are changes - show commit overlay
-				m.commitOverlay = overlays.NewCommitOverlay(activeSession)
-				m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-				m.showCommitOverlay = true
-				initCmd := m.commitOverlay.Init()
+				// There are changes - show merge overlay
+				m.mergeOverlay = overlays.NewMergeOverlay(activeSession)
+				m.mergeOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+				m.showMergeOverlay = true
+				initCmd := m.mergeOverlay.Init()
 				return m, initCmd
 			}
 			return m, nil
@@ -1969,13 +1969,13 @@ func (m model) View() string {
 		return zone.Scan(overlay.PlaceOverlay(0, 0, m.sessionConfirm.View(), mainView, true, true))
 	}
 
-	// If commit overlay is visible, overlay it
-	if m.showCommitOverlay && m.commitOverlay != nil {
+	// If merge overlay is visible, overlay it
+	if m.showMergeOverlay && m.mergeOverlay != nil {
 		// Update dialog size
-		m.commitOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
+		m.mergeOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 
 		// Use Claude Squad's overlay implementation
-		return zone.Scan(overlay.PlaceOverlay(0, 0, m.commitOverlay.View(), mainView, true, true))
+		return zone.Scan(overlay.PlaceOverlay(0, 0, m.mergeOverlay.View(), mainView, true, true))
 	}
 
 	// If agent selector is visible, overlay it

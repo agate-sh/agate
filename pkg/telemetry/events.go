@@ -86,14 +86,14 @@ func TrackAgentSwitched() {
 	trackEvent("agent_switched", map[string]interface{}{})
 }
 
-// TrackCommitOverlayOpened tracks when the commit overlay is opened
-func TrackCommitOverlayOpened() {
-	trackEvent("commit_overlay_opened", map[string]interface{}{})
+// TrackMergeOverlayOpened tracks when the merge overlay is opened
+func TrackMergeOverlayOpened() {
+	trackEvent("merge_overlay_opened", map[string]interface{}{})
 }
 
-// TrackCommitCreated tracks when a commit is successfully created
-func TrackCommitCreated(agentName string) {
-	trackEvent("commit_created", map[string]interface{}{
+// TrackMergeCompleted tracks when a merge is successfully completed
+func TrackMergeCompleted(agentName string) {
+	trackEvent("merge_completed", map[string]interface{}{
 		"agent_name": agentName,
 	})
 }

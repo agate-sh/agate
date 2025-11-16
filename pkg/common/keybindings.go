@@ -49,9 +49,9 @@ type GlobalKeyMap struct {
 	NewSession key.Binding // Alt+N - create new session (repos pane action, but global)
 
 	// Session interaction - conceptually belongs to panes but globally accessible
-	AttachAgent key.Binding // a - attach to agent tmux session
-	Commit      key.Binding // c - create commit (git pane action, but global)
-	DetachTmux  key.Binding // Ctrl+Q - detach from tmux session
+	AttachAgent  key.Binding // a - attach to agent tmux session
+	MergeChanges key.Binding // m - merge changes to main worktree (global)
+	DetachTmux   key.Binding // Ctrl+Q - detach from tmux session
 
 	// Dialog actions - global because dialogs overlay all content
 	Confirm key.Binding // Enter, y - confirm dialog action
@@ -128,9 +128,9 @@ var GlobalKeys = &GlobalKeyMap{
 		key.WithKeys("a"),
 		key.WithHelp("a", "attach to agent"),
 	),
-	Commit: key.NewBinding(
-		key.WithKeys("c"),
-		key.WithHelp("c", "commit"),
+	MergeChanges: key.NewBinding(
+		key.WithKeys("alt+m"),
+		key.WithHelp("⌥m", "merge changes"),
 	),
 	DetachTmux: key.NewBinding(
 		key.WithKeys("ctrl+q"),
@@ -207,7 +207,7 @@ func (k *GlobalKeyMap) FullHelp() [][]key.Binding {
 		{k.AgentsPane, k.SessionPane, k.ChangesPane},      // Pane navigation
 		{k.NextAgent, k.PrevAgent},                        // Agent cycling
 		{k.Up, k.Down},                                    // List navigation
-		{k.NewSession, k.AttachAgent, k.Commit},           // Quick actions (n, a, c)
+		{k.NewSession, k.AttachAgent, k.MergeChanges},     // Quick actions (n, a, m)
 		{k.DetachTmux},                                    // Session
 		{k.Filter, k.ClearFilter},                         // Filtering
 		{k.Confirm, k.Cancel},                             // Dialogs
@@ -237,7 +237,7 @@ func (k *GlobalKeyMap) GetHelpSections() map[string][]key.Binding {
 		"Quick Actions": {
 			k.NewSession,
 			k.AttachAgent,
-			k.Commit,
+			k.MergeChanges,
 		},
 		"Session Interaction": {
 			k.DetachTmux,

@@ -3,6 +3,7 @@ package panes
 import (
 	"agate/pkg/app"
 	"agate/pkg/gui/components"
+	"agate/pkg/gui/icons"
 	"agate/pkg/session"
 	"strings"
 
@@ -130,7 +131,7 @@ func (p *SessionViewPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 
 // GetTitleStyle returns the title style based on the active agent
 func (p *SessionViewPane) GetTitleStyle() components.TitleStyle {
-	shortcuts := "(⌥a)"
+	shortcuts := "(" + icons.GetOptionKey() + "a)"
 	if p.IsActive() {
 		shortcuts = "tab cycle agents"
 	}

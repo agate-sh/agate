@@ -20,9 +20,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// CommitOverlay represents the commit dialog
-type CommitOverlay struct {
-	commitInput  *components.LabeledInput
+// MergeOverlay represents the merge dialog
+type MergeOverlay struct {
+	mergeInput   *components.LabeledInput
 	fileList     *components.GitFileList
 	focusedField int // 0 = input, 1 = list
 	repoPath     string
@@ -34,59 +34,60 @@ type CommitOverlay struct {
 	executor     git.CommandExecutor
 	startTime    *time.Time
 	help         help.Model
-	keys         commitKeyMap
+	keys         mergeKeyMap
 }
 
-// commitKeyMap defines the keybindings for the commit overlay
-type commitKeyMap struct {
+// mergeKeyMap defines the keybindings for the merge overlay
+type mergeKeyMap struct {
 	Tab    key.Binding
 	Escape key.Binding
 }
 
 // ShortHelp returns keybindings to show in the mini help view
-func (k commitKeyMap) ShortHelp() []key.Binding {
+func (k mergeKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Tab, k.Escape}
 }
 
 // FullHelp returns keybindings to show in the full help view
-func (k commitKeyMap) FullHelp() [][]key.Binding {
+func (k mergeKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Tab, k.Escape},
 	}
 }
 
-// CommitSuccessMsg is sent when a commit is successfully created
-type CommitSuccessMsg struct {
-	SHA string // First 6 characters of commit SHA
+// MergeSuccessMsg is sent when a merge is successfully created
+type MergeSuccessMsg struct {
+	SHA        string // First 6 characters of commit SHA
+	BranchName string // Name of the branch that was merged
 }
 
-// CommitErrorMsg is sent when a commit fails
-type CommitErrorMsg struct {
+// MergeErrorMsg is sent when a merge fails
+type MergeErrorMsg struct {
 	Err error
 }
 
 // FileDiscardedMsg is sent when a file is successfully discarded
 type FileDiscardedMsg struct{}
 
-// CommitMessageGeneratedMsg is sent when the commit message generation completes
-type CommitMessageGeneratedMsg struct {
+// MergeMessageGeneratedMsg is sent when the merge message generation completes
+type MergeMessageGeneratedMsg struct {
 	Message string
 }
 
 
-// NewCommitOverlay creates a new commit overlay
-func NewCommitOverlay(sess *session.Session) *CommitOverlay {
-	// Track commit overlay opened
-	telemetry.TrackCommitOverlayOpened()
+// NewMergeOverlay creates a new merge overlay
+func NewMergeOverlay(sess *session.Session) *MergeOverlay {
+	// Track merge overlay opened
+	telemetry.TrackMergeOverlayOpened()
 
 	repoPath := ""
 	if sess != nil && sess.Worktree() != nil {
 		repoPath = sess.Worktree().Path
 	}
 
-	// Create labeled input for commit message
-	commitInput := components.NewLabeledInput("Commit message", "Summary (required)")
-	commitInput.Focus()
+	// Create labeled input for merge message
+	mergeInput := components.NewLabeledInput("Commit message", "Summary (required)")
+	mergeInput.Focus()
 
 	// Create file list (same component as git pane!)
 	fileList := components.NewGitFileList(repoPath, false) // Don't show summary line
@@ -101,7 +102,7 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	h.ShowAll = false // Only show short help
 
 	// Initialize keybindings
-	keys := commitKeyMap{
+	keys := mergeKeyMap{
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "navigate fields"),
@@ -112,8 +113,8 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 		),
 	}
 
-	return &CommitOverlay{
-		commitInput:  commitInput,
+	return &MergeOverlay{
+		mergeInput:  mergeInput,
 		fileList:     fileList,
 		focusedField: 0, // Start with input focused
 		repoPath:     repoPath,
@@ -126,36 +127,36 @@ func NewCommitOverlay(sess *session.Session) *CommitOverlay {
 	}
 }
 
-// SetSize sets the dimensions for the commit overlay
-func (c *CommitOverlay) SetSize(width, height int) {
-	c.width = width
-	c.height = height
+// SetSize sets the dimensions for the merge overlay
+func (m *MergeOverlay) SetSize(width, height int) {
+	m.width = width
+	m.height = height
 	// File list width will be set dynamically in View()
 
 	// Set input width to use most of the available dialog width
 	// Dialog max width is 100, minus borders and padding
-	if c.commitInput != nil {
-		c.commitInput.SetWidth(90)
+	if m.mergeInput != nil {
+		m.mergeInput.SetWidth(90)
 	}
 }
 
 // Init initializes the commit overlay and starts AI generation if supported
-func (c *CommitOverlay) Init() tea.Cmd {
+func (m *MergeOverlay) Init() tea.Cmd {
 	// Check if agent has fast headless support
-	if c.session == nil {
-		c.generating = false
-		c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
-		c.commitInput.Focus()
+	if m.session == nil {
+		m.generating = false
+		m.mergeInput = components.NewLabeledInput("Commit message", "Summary (required)")
+		m.mergeInput.Focus()
 		return nil
 	}
 
-	testCmd := c.session.Agent().HeadlessCommand("")
+	testCmd := m.session.Agent().HeadlessCommand("")
 
 	if testCmd == nil {
 		// No fast headless support - skip generation, recreate input with proper placeholder
-		c.generating = false
-		c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
-		c.commitInput.Focus()
+		m.generating = false
+		m.mergeInput = components.NewLabeledInput("Commit message", "Summary (required)")
+		m.mergeInput.Focus()
 		return nil
 	}
 
@@ -164,62 +165,62 @@ func (c *CommitOverlay) Init() tea.Cmd {
 
 	// Track start time for elapsed display
 	now := time.Now()
-	c.startTime = &now
+	m.startTime = &now
 
-	c.loader.SetLabel(fmt.Sprintf("%s is generating a commit message", c.session.Agent().CompanyName))
-	cmds = append(cmds, c.loader.TickCmd())
-	cmds = append(cmds, c.generateCommitMessage())
+	m.loader.SetLabel(fmt.Sprintf("%s is generating a commit message", m.session.Agent().CompanyName))
+	cmds = append(cmds, m.loader.TickCmd())
+	cmds = append(cmds, m.generateCommitMessage())
 
 	// Tick every second to update elapsed time
-	cmds = append(cmds, c.tickEverySecond())
+	cmds = append(cmds, m.tickEverySecond())
 
 	return tea.Batch(cmds...)
 }
 
 // Update handles messages for the commit overlay
-func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *MergeOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case CommitMessageGeneratedMsg:
+	case MergeMessageGeneratedMsg:
 		// Generation complete (or timed out) - set value and stop generating
-		c.generating = false
-		c.startTime = nil
-		c.commitInput.SetValue(msg.Message)
-		c.commitInput.Focus()
-		return c, nil
+		m.generating = false
+		m.startTime = nil
+		m.mergeInput.SetValue(msg.Message)
+		m.mergeInput.Focus()
+		return m, nil
 
 	case FileDiscardedMsg:
 		// Refresh file list after discard
-		c.fileList.Refresh()
-		return c, nil
+		m.fileList.Refresh()
+		return m, nil
 
-	case CommitSuccessMsg:
+	case MergeSuccessMsg:
 		// Refresh file list after successful commit and send message to refresh git pane
-		c.fileList.Refresh()
-		return c, func() tea.Msg {
+		m.fileList.Refresh()
+		return m, func() tea.Msg {
 			return panes.GitRefreshMsg{}
 		}
 
-	case CommitErrorMsg:
+	case MergeErrorMsg:
 		// Handle discard errors (and commit errors)
 		// For now, just refresh to show current state
-		c.fileList.Refresh()
-		return c, nil
+		m.fileList.Refresh()
+		return m, nil
 
 	case tea.KeyMsg:
 		// Handle 'c' to cancel generation
-		if c.generating && msg.String() == "c" {
-			c.generating = false
-			c.startTime = nil
-			c.commitInput = components.NewLabeledInput("Commit message", "Summary (required)")
-			c.commitInput.Focus()
-			return c, nil
+		if m.generating && msg.String() == "c" {
+			m.generating = false
+			m.startTime = nil
+			m.mergeInput = components.NewLabeledInput("Commit message", "Summary (required)")
+			m.mergeInput.Focus()
+			return m, nil
 		}
 
 		// Don't process other keyboard input if we're generating
-		if c.generating {
-			return c, nil
+		if m.generating {
+			return m, nil
 		}
 
 		switch msg.String() {
@@ -227,71 +228,71 @@ func (c *CommitOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Close overlay - handled by returning tea.Quit-like message
 			// Actually, let main model handle it by not consuming the message
 			// But we need to pass it through - return without handling
-			return c, nil
+			return m, nil
 
 		case "tab":
 			// Switch focus between input and file list
-			if c.focusedField == 0 {
-				c.focusedField = 1
-				c.commitInput.Blur()
-				c.fileList.SetActive(true)
+			if m.focusedField == 0 {
+				m.focusedField = 1
+				m.mergeInput.Blur()
+				m.fileList.SetActive(true)
 			} else {
-				c.focusedField = 0
-				c.commitInput.Focus()
-				c.fileList.SetActive(false)
+				m.focusedField = 0
+				m.mergeInput.Focus()
+				m.fileList.SetActive(false)
 			}
-			return c, nil
+			return m, nil
 
 		case "enter":
 			// Commit! Only if valid (and only when input is focused)
-			if c.focusedField == 0 && c.isValid() {
-				return c, c.commit()
+			if m.focusedField == 0 && m.isValid() {
+				return m, m.commit()
 			}
-			return c, nil
+			return m, nil
 
 		default:
 			// Delegate to focused component
-			if c.focusedField == 0 {
+			if m.focusedField == 0 {
 				// Input focused - update text input
-				cmd := c.commitInput.Update(msg)
+				cmd := m.mergeInput.Update(msg)
 				cmds = append(cmds, cmd)
 			} else {
 				// File list focused - handle navigation and actions manually
 				switch msg.String() {
 				case "up", "k":
-					c.fileList.MoveUp()
+					m.fileList.MoveUp()
 				case "down", "j":
-					c.fileList.MoveDown()
+					m.fileList.MoveDown()
 				case "d":
 					// Discard selected file
-					return c, c.discardFile()
+					return m, m.discardFile()
 				case "enter":
 					// Open selected file in editor
-					return c, c.openSelectedFile()
+					return m, m.openSelectedFile()
 				}
 			}
 		}
 
 	case time.Time:
 		// Tick every second for elapsed time updates
-		if c.generating {
-			cmds = append(cmds, c.tickEverySecond())
+		if m.generating {
+			cmds = append(cmds, m.tickEverySecond())
 		}
 	}
 
 	// Update loader if generating
-	if c.generating && c.loader != nil {
-		if cmd := c.loader.Update(msg); cmd != nil {
+	if m.generating && m.loader != nil {
+		if cmd := m.loader.Update(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
 
-	return c, tea.Batch(cmds...)
+	return m, tea.Batch(cmds...)
 }
 
 // tickEverySecond returns a command that ticks every second while generating
-func (c *CommitOverlay) tickEverySecond() tea.Cmd {
-	if !c.generating {
+func (m *MergeOverlay) tickEverySecond() tea.Cmd {
+	if !m.generating {
 		return nil
 	}
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -300,8 +301,8 @@ func (c *CommitOverlay) tickEverySecond() tea.Cmd {
 }
 
 // discardFile discards changes to the selected file
-func (c *CommitOverlay) discardFile() tea.Cmd {
-	file := c.fileList.GetSelectedFile()
+func (m *MergeOverlay) discardFile() tea.Cmd {
+	file := m.fileList.GetSelectedFile()
 	if file == nil {
 		return nil
 	}
@@ -309,23 +310,23 @@ func (c *CommitOverlay) discardFile() tea.Cmd {
 	filePath := file.FilePath
 
 	return func() tea.Msg {
-		err := git.DiscardFile(c.repoPath, filePath)
+		err := git.DiscardFile(m.repoPath, filePath)
 		if err == nil {
 			return FileDiscardedMsg{}
 		}
-		return CommitErrorMsg{Err: err}
+		return MergeErrorMsg{Err: err}
 	}
 }
 
 // openSelectedFile opens the selected file in the user's editor
-func (c *CommitOverlay) openSelectedFile() tea.Cmd {
-	file := c.fileList.GetSelectedFile()
+func (m *MergeOverlay) openSelectedFile() tea.Cmd {
+	file := m.fileList.GetSelectedFile()
 	if file == nil {
 		return nil
 	}
 
 	// Build full file path (same as git pane)
-	fullPath := filepath.Join(c.repoPath, file.DirPath, file.FileName)
+	fullPath := filepath.Join(m.repoPath, file.DirPath, file.FileName)
 
 	// Get editor from environment
 	editor := os.Getenv("EDITOR")
@@ -350,31 +351,45 @@ func (c *CommitOverlay) openSelectedFile() tea.Cmd {
 }
 
 // generateCommitMessage starts the commit message generation
-func (c *CommitOverlay) generateCommitMessage() tea.Cmd {
+func (m *MergeOverlay) generateCommitMessage() tea.Cmd {
 	return func() tea.Msg {
-		agentConfig := c.session.Agent()
-		message, err := git.GenerateCommitMessage(&agentConfig, c.repoPath, c.executor)
+		agentConfig := m.session.Agent()
+		message, err := git.GenerateCommitMessage(&agentConfig, m.repoPath, m.executor)
 		if err != nil {
 			// On error, return empty message (will show empty input)
-			return CommitMessageGeneratedMsg{Message: ""}
+			return MergeMessageGeneratedMsg{Message: ""}
 		}
-		return CommitMessageGeneratedMsg{Message: message}
+		return MergeMessageGeneratedMsg{Message: message}
 	}
 }
 
-// commit performs the commit operation
-func (c *CommitOverlay) commit() tea.Cmd {
-	message := c.commitInput.Value()
+// commit performs the commit and merge operation
+func (m *MergeOverlay) commit() tea.Cmd {
+	message := m.mergeInput.Value()
 
 	return func() tea.Msg {
-		sha, err := git.CommitAll(c.repoPath, message)
+		// Step 1: Commit all changes in the worktree
+		sha, err := git.CommitAll(m.repoPath, message)
 		if err != nil {
-			return CommitErrorMsg{Err: err}
+			return MergeErrorMsg{Err: err}
 		}
 
-		// Track commit created
-		if c.session != nil {
-			telemetry.TrackCommitCreated(c.session.Agent().Name)
+		// Step 2: Get the branch name for the success message
+		var branchName string
+		if m.session != nil && m.session.Worktree() != nil {
+			branchName = m.session.Worktree().Branch
+
+			// TODO: Implement actual merge logic to merge changes back to main worktree
+			// This will require:
+			// 1. Getting the main repository path from session manager
+			// 2. Switching to main branch
+			// 3. Merging the worktree branch
+			// 4. Handling merge conflicts if any
+		}
+
+		// Track merge completed
+		if m.session != nil {
+			telemetry.TrackMergeCompleted(m.session.Agent().Name)
 		}
 
 		// Return first 6 characters of SHA
@@ -383,12 +398,12 @@ func (c *CommitOverlay) commit() tea.Cmd {
 			shortSHA = sha[:6]
 		}
 
-		return CommitSuccessMsg{SHA: shortSHA}
+		return MergeSuccessMsg{SHA: shortSHA, BranchName: branchName}
 	}
 }
 
 // View renders the commit overlay
-func (c *CommitOverlay) View() string {
+func (m *MergeOverlay) View() string {
 	// Don't refresh here - it resets selection! Refresh when overlay is created instead
 
 	var content []string
@@ -404,9 +419,9 @@ func (c *CommitOverlay) View() string {
 	// Header: Repo > Branch > Commit changes (same style as session dialog)
 	repoName := "unknown"
 	branchName := "unknown"
-	if c.session != nil && c.session.Worktree() != nil {
-		repoName = c.session.Worktree().RepoName
-		branchName = c.session.Worktree().Branch
+	if m.session != nil && m.session.Worktree() != nil {
+		repoName = m.session.Worktree().RepoName
+		branchName = m.session.Worktree().Branch
 	}
 
 	repoStyle := lipgloss.NewStyle().
@@ -417,7 +432,7 @@ func (c *CommitOverlay) View() string {
 	arrow1Text := titleStyle.Render(" > ")
 	branchText := repoStyle.Render(branchName)
 	arrow2Text := titleStyle.Render(" > ")
-	actionText := titleStyle.Render("Commit changes")
+	actionText := titleStyle.Render("Commit & merge changes")
 
 	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, repoText, arrow1Text, branchText, arrow2Text, actionText)
 	appendLine(headerLine)
@@ -426,32 +441,32 @@ func (c *CommitOverlay) View() string {
 	content = append(content, "DIVIDER_PLACEHOLDER")
 	content = append(content, "")
 
-	if c.generating {
+	if m.generating {
 		// Only show loader when generating
-		loaderView := c.loader.View()
+		loaderView := m.loader.View()
 		loaderStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(c.session.Agent().BorderColor)).
+			Foreground(lipgloss.Color(m.session.Agent().BorderColor)).
 			Bold(true)
 		appendLine(loaderStyle.Render(loaderView))
 		content = append(content, "")
 
 		// Show elapsed time and quit option after 3 seconds
-		if c.startTime != nil && time.Since(*c.startTime) >= 3*time.Second {
-			stopwatch := components.FormatElapsedTime(*c.startTime, "c", "cancel")
+		if m.startTime != nil && time.Since(*m.startTime) >= 3*time.Second {
+			stopwatch := components.FormatElapsedTime(*m.startTime, "c", "cancel")
 			// Add left padding to align with loader label text (spinner + space = 2 chars)
 			appendLine("  " + stopwatch)
 		}
 	} else {
 		// Show normal commit UI
 		// Commit message input
-		commitInputLines := strings.Split(c.commitInput.View(), "\n")
+		commitInputLines := strings.Split(m.mergeInput.View(), "\n")
 		for _, line := range commitInputLines {
 			appendLine(line)
 		}
 		content = append(content, "")
 
 		// File list
-		fileStatus := c.fileList.GetFileStatus()
+		fileStatus := m.fileList.GetFileStatus()
 		fileCount := 0
 		if fileStatus != nil {
 			fileCount = fileStatus.TotalFiles
@@ -474,8 +489,8 @@ func (c *CommitOverlay) View() string {
 	// Calculate widths
 	frameWidth := dialogStyle.GetHorizontalFrameSize()
 	maxAllowedContentWidth := 0
-	if c.width > 0 {
-		maxAllowedContentWidth = c.width - frameWidth
+	if m.width > 0 {
+		maxAllowedContentWidth = m.width - frameWidth
 		if maxAllowedContentWidth < 0 {
 			maxAllowedContentWidth = 0
 		}
@@ -505,7 +520,7 @@ func (c *CommitOverlay) View() string {
 
 	// Set file list width to match dialog content width
 	// File list has padding=0 for dialogs, so it renders to full actualContentWidth
-	c.fileList.SetSize(actualContentWidth)
+	m.fileList.SetSize(actualContentWidth)
 
 	// Replace divider placeholder (full width to match file list with padding)
 	dividerStyle := lipgloss.NewStyle().
@@ -513,20 +528,20 @@ func (c *CommitOverlay) View() string {
 	divider := dividerStyle.Render(strings.Repeat("─", actualContentWidth))
 
 	// Render file list now that width is set
-	fileListView := c.fileList.View()
+	fileListView := m.fileList.View()
 
 	// Create commit button
-	commitButton := components.NewButton("Commit", "↵", components.ButtonVariantAgent)
-	commitButton.SetWidth(actualContentWidth)
+	mergeButton := components.NewButton("Commit & merge changes", "↵", components.ButtonVariantAgent)
+	mergeButton.SetWidth(actualContentWidth)
 	// Use the agent color from the session
-	if c.session != nil && c.session.Agent().BorderColor != "" {
-		commitButton.SetAgentColor(c.session.Agent().BorderColor)
+	if m.session != nil && m.session.Agent().BorderColor != "" {
+		mergeButton.SetAgentColor(m.session.Agent().BorderColor)
 	}
-	commitButton.SetDisabled(!c.isValid())
-	button := commitButton.Render()
+	mergeButton.SetDisabled(!m.isValid())
+	button := mergeButton.Render()
 
 	// Create help text using shortcut component - using default variant (bubbles style)
-	helpContent := components.RenderShortcutsFromBindings([]key.Binding{c.keys.Tab, c.keys.Escape}, components.ShortcutDefault, "")
+	helpContent := components.RenderShortcutsFromBindings([]key.Binding{m.keys.Tab, m.keys.Escape}, components.ShortcutDefault, "")
 	helpStyle := lipgloss.NewStyle().
 		Width(actualContentWidth).
 		Align(lipgloss.Center)
@@ -552,7 +567,7 @@ func (c *CommitOverlay) View() string {
 }
 
 // isValid checks if the commit message is valid (at least 1 character)
-func (c *CommitOverlay) isValid() bool {
-	message := strings.TrimSpace(c.commitInput.Value())
+func (m *MergeOverlay) isValid() bool {
+	message := strings.TrimSpace(m.mergeInput.Value())
 	return len(message) > 0
 }
