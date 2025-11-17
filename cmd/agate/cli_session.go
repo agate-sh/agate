@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"agate/internal/debug"
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/git"
 	"agate/pkg/session"
 	"agate/pkg/state"
@@ -59,9 +59,9 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	}
 
 	// Convert to agent configs
-	agentConfigs := make([]app.AgentConfig, 0, len(agentNames))
+	agentConfigs := make([]agents.AgentConfig, 0, len(agentNames))
 	for _, name := range agentNames {
-		agentConfigs = append(agentConfigs, app.GetAgentConfig(name))
+		agentConfigs = append(agentConfigs, agents.GetAgentConfig(name))
 	}
 
 	// Start spinner

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"agate/internal/debug"
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/config"
 	"agate/pkg/git"
 	"agate/pkg/telemetry"
@@ -177,7 +177,7 @@ func (m *Manager) createAgent(sessionID string, branchName string, agentName str
 	debug.DebugLog("createAgent: Creating agent=%s, baseBranch=%s, sessionID=%s, paneIndex=%d", agentName, branchName, sessionID, paneIndex)
 
 	// Get agent configuration
-	agentConfig := app.GetAgentConfig(agentName)
+	agentConfig := agents.GetAgentConfig(agentName)
 
 	// Create worktree for this agent
 	// For multi-agent sessions, append agent name to branch to make it unique
@@ -190,6 +190,12 @@ func (m *Manager) createAgent(sessionID string, branchName string, agentName str
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 	debug.DebugLog("createAgent: Successfully created worktree at %s for agent=%s", worktree.Path, agentName)
+
+	// Perform agent-specific worktree setup (e.g., Claude creates .claude/settings.local.json)
+	if err := agentConfig.SetupWorktree(worktree.Path); err != nil {
+		debug.DebugLog("createAgent: Warning - agent setup failed for %s: %v", agentName, err)
+		// Don't fail the whole operation, just log the warning
+	}
 
 	// Generate agent ID
 	agentID := fmt.Sprintf("%s_%s", sessionID, agentName)
@@ -212,18 +218,18 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 	debug.DebugLog("setupTmuxSession: Creating shared tmux session for %d agents", len(session.Agents))
 
 	// Get ordered list of agents
-	agents := session.GetOrderedAgents()
-	if len(agents) == 0 {
+	sessionAgents := session.GetOrderedAgents()
+	if len(sessionAgents) == 0 {
 		return fmt.Errorf("no agents in session")
 	}
 
 	// Use the first agent's worktree to generate the tmux session name
 	// (all agents share one tmux session now)
-	tmuxSessionName := generateTmuxSessionName(agents[0].Worktree, session.BranchBaseName)
+	tmuxSessionName := generateTmuxSessionName(sessionAgents[0].Worktree, session.BranchBaseName)
 
 	// Create the tmux session (starts in first agent's worktree)
-	tmuxSession := tmux.NewTmuxSession(tmuxSessionName, agents[0].AgentConfig.ExecutableName)
-	err := tmuxSession.Start(agents[0].Worktree.Path)
+	tmuxSession := tmux.NewTmuxSession(tmuxSessionName, sessionAgents[0].AgentConfig.ExecutableName)
+	err := tmuxSession.Start(sessionAgents[0].Worktree.Path)
 	if err != nil {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
@@ -241,9 +247,9 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 	}
 
 	// Build agent configs and worktrees in order
-	agentConfigs := make([]app.AgentConfig, len(agents))
-	worktrees := make([]*git.WorktreeInfo, len(agents))
-	for i, agent := range agents {
+	agentConfigs := make([]agents.AgentConfig, len(sessionAgents))
+	worktrees := make([]*git.WorktreeInfo, len(sessionAgents))
+	for i, agent := range sessionAgents {
 		agentConfigs[i] = agent.AgentConfig
 		worktrees[i] = agent.Worktree
 	}
@@ -269,12 +275,12 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 
 	// Focus the first agent's pane to match ActiveAgentIndex = 0
 	// This ensures CapturePaneContent() captures the correct agent at launch
-	if err := tmux.SelectPane(tmuxSessionName, agents[0].PaneIndex); err != nil {
+	if err := tmux.SelectPane(tmuxSessionName, sessionAgents[0].PaneIndex); err != nil {
 		debug.DebugLog("Warning: failed to select first agent's pane: %v", err)
 		// Don't fail - this is just for UI consistency
 	}
 
-	debug.DebugLog("setupTmuxSession: Successfully created tmux session with %d panes + metrics", len(agents))
+	debug.DebugLog("setupTmuxSession: Successfully created tmux session with %d panes + metrics", len(sessionAgents))
 	return nil
 }
 

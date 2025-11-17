@@ -1,5 +1,5 @@
-// Package app provides the core application logic for agate
-package app
+// Package agents provides AI agent configurations and setup logic
+package agents
 
 import (
 	"os/exec"
@@ -12,6 +12,18 @@ type AgentConfig struct {
 	BorderColor    string // Hex color value for pane borders
 	ExecutableName string // What to match against in subprocess names
 	CompanyName    string // Company name to display in UI
+}
+
+// SetupWorktree performs agent-specific setup for a worktree directory.
+// This is called after worktree creation to configure the agent environment.
+func (a AgentConfig) SetupWorktree(worktreePath string) error {
+	// Claude agent needs to create .claude/settings.local.json
+	if a.ExecutableName == "claude" {
+		return setupClaudeWorktree(worktreePath)
+	}
+
+	// Other agents: no setup needed
+	return nil
 }
 
 // Claude agent configuration with the specific color

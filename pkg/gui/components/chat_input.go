@@ -1,7 +1,7 @@
 package components
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/icons"
 	"agate/pkg/gui/theme"
 	"strings"
@@ -18,20 +18,20 @@ type OpenAgentSelectorMsg struct{}
 
 // AgentsSelectedMsg is sent when agents are selected from the selector
 type AgentsSelectedMsg struct {
-	Agents []app.AgentConfig
+	Agents []agents.AgentConfig
 }
 
 // ChatInput represents a chat-style input component with agent selection support
 type ChatInput struct {
 	textarea       textarea.Model
-	selectedAgents []app.AgentConfig
-	defaultAgent   app.AgentConfig
+	selectedAgents []agents.AgentConfig
+	defaultAgent   agents.AgentConfig
 	width          int
 	height         int
 }
 
 // NewChatInput creates a new chat input with a default agent pre-selected
-func NewChatInput(defaultAgent app.AgentConfig) *ChatInput {
+func NewChatInput(defaultAgent agents.AgentConfig) *ChatInput {
 	ta := textarea.New()
 	ta.Placeholder = ""
 	ta.SetHeight(3)
@@ -52,7 +52,7 @@ func NewChatInput(defaultAgent app.AgentConfig) *ChatInput {
 
 	ci := &ChatInput{
 		textarea:       ta,
-		selectedAgents: []app.AgentConfig{defaultAgent},
+		selectedAgents: []agents.AgentConfig{defaultAgent},
 		defaultAgent:   defaultAgent,
 		width:          80,
 		height:         3,
@@ -130,22 +130,22 @@ func (c *ChatInput) GetValue() string {
 }
 
 // GetSelectedAgents returns the selected agents
-func (c *ChatInput) GetSelectedAgents() []app.AgentConfig {
+func (c *ChatInput) GetSelectedAgents() []agents.AgentConfig {
 	return c.selectedAgents
 }
 
 // SetSelectedAgents updates the selected agents
-func (c *ChatInput) SetSelectedAgents(agents []app.AgentConfig) {
-	if len(agents) == 0 {
-		agents = []app.AgentConfig{c.defaultAgent}
+func (c *ChatInput) SetSelectedAgents(selectedAgents []agents.AgentConfig) {
+	if len(selectedAgents) == 0 {
+		selectedAgents = []agents.AgentConfig{c.defaultAgent}
 	}
-	c.selectedAgents = agents
+	c.selectedAgents = selectedAgents
 }
 
 // Reset clears the input and resets to default agent only
 func (c *ChatInput) Reset() {
 	c.textarea.Reset()
-	c.selectedAgents = []app.AgentConfig{c.defaultAgent}
+	c.selectedAgents = []agents.AgentConfig{c.defaultAgent}
 	c.adjustHeight()
 }
 

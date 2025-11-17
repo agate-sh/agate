@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/git"
 	"agate/pkg/naming"
 )
@@ -13,7 +13,7 @@ import (
 type Agent struct {
 	// Identification
 	ID          string          `json:"id"`
-	AgentConfig app.AgentConfig `json:"agent_config"` // The agent configuration (Claude, Codex, etc.)
+	AgentConfig agents.AgentConfig `json:"agent_config"` // The agent configuration (Claude, Codex, etc.)
 	SessionID   string          `json:"session_id"`   // Reference to parent Session
 
 	// Resources

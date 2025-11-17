@@ -3,7 +3,7 @@
 package git
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +23,7 @@ func TestGenerateCommitMessage_RealCLI_Claude(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
-	testGenerateCommitMessageWithRealCLI(t, app.ClaudeAgent)
+	testGenerateCommitMessageWithRealCLI(t, agents.ClaudeAgent)
 }
 
 // TestGenerateCommitMessage_RealCLI_Gemini tests commit message generation with real Gemini CLI
@@ -38,7 +38,7 @@ func TestGenerateCommitMessage_RealCLI_Gemini(t *testing.T) {
 		t.Skip("GOOGLE_API_KEY not set")
 	}
 
-	testGenerateCommitMessageWithRealCLI(t, app.GeminiAgent)
+	testGenerateCommitMessageWithRealCLI(t, agents.GeminiAgent)
 }
 
 // TestGenerateCommitMessage_RealCLI_Codex tests commit message generation with real Codex CLI
@@ -53,12 +53,12 @@ func TestGenerateCommitMessage_RealCLI_Codex(t *testing.T) {
 		t.Skip("OPENAI_API_KEY not set")
 	}
 
-	testGenerateCommitMessageWithRealCLI(t, app.CodexAgent)
+	testGenerateCommitMessageWithRealCLI(t, agents.CodexAgent)
 }
 
 // testGenerateCommitMessageWithRealCLI is a helper that tests commit message generation
 // with a real agent CLI by creating a temporary git repo with changes
-func testGenerateCommitMessageWithRealCLI(t *testing.T, agent app.AgentConfig) {
+func testGenerateCommitMessageWithRealCLI(t *testing.T, agent agents.AgentConfig) {
 	// Create temporary directory for test repo
 	tempDir, err := os.MkdirTemp("", "agate-test-*")
 	if err != nil {

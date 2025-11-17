@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/git"
 	"agate/pkg/tmux"
 )
@@ -93,10 +93,10 @@ func (s *Session) TmuxSession() *tmux.TmuxSession {
 }
 
 // Agent returns the active agent's config (for backward compatibility)
-func (s *Session) Agent() app.AgentConfig {
+func (s *Session) Agent() agents.AgentConfig {
 	activeAgent := s.GetActiveAgent()
 	if activeAgent == nil {
-		return app.AgentConfig{}
+		return agents.AgentConfig{}
 	}
 	return activeAgent.AgentConfig
 }

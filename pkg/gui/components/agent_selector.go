@@ -1,7 +1,7 @@
 package components
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/theme"
 	"fmt"
 	"io"
@@ -16,7 +16,7 @@ import (
 
 // AgentItem represents an agent in the selection list
 type AgentItem struct {
-	agent      app.AgentConfig
+	agent      agents.AgentConfig
 	selected   bool
 	isHeader   bool
 	headerText string
@@ -92,7 +92,7 @@ type AgentSelector struct {
 }
 
 // NewAgentSelector creates a new agent selection modal
-func NewAgentSelector(initialAgents []app.AgentConfig) *AgentSelector {
+func NewAgentSelector(initialAgents []agents.AgentConfig) *AgentSelector {
 	// Build selection map from initial agents
 	selectedMap := make(map[string]bool)
 	for _, agent := range initialAgents {
@@ -143,10 +143,10 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 	var items []list.Item
 
 	// Define top agents in alphabetical order: Claude, Codex, Gemini
-	topAgents := []app.AgentConfig{
-		app.ClaudeAgent,
-		app.CodexAgent,
-		app.GeminiAgent,
+	topAgents := []agents.AgentConfig{
+		agents.ClaudeAgent,
+		agents.CodexAgent,
+		agents.GeminiAgent,
 	}
 
 	// Create a map of top agent names for filtering
@@ -182,8 +182,8 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 	})
 
 	// Add remaining agents (excluding top agents) in alphabetical order
-	allAgents := app.GetAllAgents()
-	var remainingAgents []app.AgentConfig
+	allAgents := agents.GetAllAgents()
+	var remainingAgents []agents.AgentConfig
 	for _, agent := range allAgents {
 		if !topAgentNames[agent.Name] {
 			remainingAgents = append(remainingAgents, agent)
@@ -380,7 +380,7 @@ func (s *AgentSelector) filterList() {
 	}
 
 	// When filtering, show flat list without sections
-	allAgents := app.GetAllAgents()
+	allAgents := agents.GetAllAgents()
 	var items []list.Item
 
 	for _, agent := range allAgents {
@@ -425,7 +425,7 @@ func (s *AgentSelector) ensureSelectableItemSelected() {
 	}
 }
 
-func renderAgentRow(checkbox string, agent app.AgentConfig, rowWidth int) string {
+func renderAgentRow(checkbox string, agent agents.AgentConfig, rowWidth int) string {
 	displayName := agent.CompanyName
 	if displayName == "" {
 		displayName = agent.Name
@@ -485,22 +485,22 @@ func (s *AgentSelector) toggleCurrentAgent() {
 }
 
 // GetSelectedAgents returns the list of selected agents
-func (s *AgentSelector) GetSelectedAgents() []app.AgentConfig {
-	var agents []app.AgentConfig
-	allAgents := app.GetAllAgents()
+func (s *AgentSelector) GetSelectedAgents() []agents.AgentConfig {
+	var selectedList []agents.AgentConfig
+	allAgents := agents.GetAllAgents()
 
 	for _, agent := range allAgents {
 		if s.selectedAgents[agent.Name] {
-			agents = append(agents, agent)
+			selectedList = append(selectedList, agent)
 		}
 	}
 
 	// Ensure at least one agent is selected (return Claude as fallback)
-	if len(agents) == 0 {
-		agents = []app.AgentConfig{app.ClaudeAgent}
+	if len(selectedList) == 0 {
+		selectedList = []agents.AgentConfig{agents.ClaudeAgent}
 	}
 
-	return agents
+	return selectedList
 }
 
 // View renders the agent selector modal

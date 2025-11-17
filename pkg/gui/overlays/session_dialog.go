@@ -1,7 +1,7 @@
 package overlays
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"fmt"
 	"strings"
 	"time"
@@ -29,7 +29,7 @@ type SessionDialog struct {
 	height          int
 	creating        bool
 	initializing    bool
-	selectedAgent   app.AgentConfig
+	selectedAgent   agents.AgentConfig
 	defaultAgent    string
 	loader          *components.LaunchAgentLoader
 	help            help.Model
@@ -116,7 +116,7 @@ func NewSessionDialog(worktreeManager *git.WorktreeManager, defaultAgent string)
 	loader := components.NewLaunchAgentLoader("")
 
 	// Get initial selected agent
-	selectedAgent := app.GetAgentConfig(defaultAgent)
+	selectedAgent := agents.GetAgentConfig(defaultAgent)
 
 	// Initialize help
 	h := help.New()
@@ -240,8 +240,8 @@ func (d *SessionDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			inputCmd = d.agentInput.Update(msg)
 			// Update selected agent when agent input changes
-			if app.IsValidAgent(d.agentInput.Value()) {
-				d.selectedAgent = app.GetAgentConfig(d.agentInput.Value())
+			if agents.IsValidAgent(d.agentInput.Value()) {
+				d.selectedAgent = agents.GetAgentConfig(d.agentInput.Value())
 			}
 		}
 		cmds = append(cmds, inputCmd)
@@ -512,7 +512,7 @@ type WorktreeInitializationCompleteMsg struct {
 // isValid checks if the agent command is valid (branch name is optional)
 func (d *SessionDialog) isValid() bool {
 	agentCommand := strings.TrimSpace(d.agentInput.Value())
-	return app.IsValidAgent(agentCommand)
+	return agents.IsValidAgent(agentCommand)
 }
 
 // updateFocus updates which input field is focused

@@ -1,7 +1,7 @@
 package overlays
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/git"
 	"agate/pkg/session"
 	"strings"
@@ -15,7 +15,7 @@ import (
 func TestCommitOverlay_LoaderAnimation(t *testing.T) {
 	// Create a session with Claude agent
 	sess := &session.Session{
-		Agent: app.ClaudeAgent,
+		Agent: agents.ClaudeAgent,
 		Worktree: &git.WorktreeInfo{
 			Path:     "/tmp/test",
 			Branch:   "test-branch",
@@ -85,7 +85,7 @@ func TestCommitOverlay_LoaderAnimation(t *testing.T) {
 // TestCommitOverlay_LoaderTickFlow verifies tick messages flow through the overlay
 func TestCommitOverlay_LoaderTickFlow(t *testing.T) {
 	sess := &session.Session{
-		Agent: app.ClaudeAgent,
+		Agent: agents.ClaudeAgent,
 		Worktree: &git.WorktreeInfo{
 			Path:     "/tmp/test",
 			Branch:   "test-branch",
@@ -128,7 +128,7 @@ func TestCommitOverlay_LoaderTickFlow(t *testing.T) {
 // TestCommitOverlay_LoaderColorStyling verifies the loader uses agent color
 func TestCommitOverlay_LoaderColorStyling(t *testing.T) {
 	sess := &session.Session{
-		Agent: app.ClaudeAgent, // Has BorderColor: "#da7756"
+		Agent: agents.ClaudeAgent, // Has BorderColor: "#da7756"
 		Worktree: &git.WorktreeInfo{
 			Path:     "/tmp/test",
 			Branch:   "test-branch",

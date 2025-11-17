@@ -1,7 +1,7 @@
 package components
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/theme"
 	"strings"
 
@@ -10,12 +10,12 @@ import (
 
 // AgentCard represents a simple agent card component
 type AgentCard struct {
-	agent    app.AgentConfig
+	agent    agents.AgentConfig
 	isActive bool
 }
 
 // NewAgentCard creates a new agent card
-func NewAgentCard(agent app.AgentConfig, isActive bool) *AgentCard {
+func NewAgentCard(agent agents.AgentConfig, isActive bool) *AgentCard {
 	return &AgentCard{
 		agent:    agent,
 		isActive: isActive,

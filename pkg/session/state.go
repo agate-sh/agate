@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"agate/internal/debug"
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/config"
 	"agate/pkg/git"
 	"agate/pkg/tmux"
@@ -213,7 +213,7 @@ func (m *Manager) restoreSessionFromPersisted(persistedSession config.PersistedS
 // restoreAgentFromPersisted recreates an agent from persisted data
 func (m *Manager) restoreAgentFromPersisted(persistedAgent config.PersistedAgentInstance) (*Agent, error) {
 	// Get agent configuration
-	agentConfig := app.GetAgentConfig(persistedAgent.AgentName)
+	agentConfig := agents.GetAgentConfig(persistedAgent.AgentName)
 
 	// Recreate worktree info
 	worktree := &git.WorktreeInfo{

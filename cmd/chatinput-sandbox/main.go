@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/components"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,7 +19,7 @@ type model struct {
 
 func newModel() model {
 	return model{
-		input: components.NewChatInput(app.ClaudeAgent),
+		input: components.NewChatInput(agents.ClaudeAgent),
 	}
 }
 

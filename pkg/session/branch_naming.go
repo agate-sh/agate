@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"agate/internal/debug"
-	"agate/pkg/app"
+	"agate/pkg/agents"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -51,7 +51,7 @@ func GenerateRandomBranchName() string {
 // This is a SYNCHRONOUS operation that blocks until the agent responds or times out.
 // Returns the generated branch name or an error if generation fails.
 // The caller should use GenerateRandomBranchName() as a fallback if this returns an error.
-func GenerateBranchNameFromPrompt(prompt string, agent app.AgentConfig) (string, error) {
+func GenerateBranchNameFromPrompt(prompt string, agent agents.AgentConfig) (string, error) {
 	debug.DebugLog("Generating branch name from prompt using agent: %s", agent.Name)
 
 	// Get the headless command for the agent
@@ -130,7 +130,7 @@ type SessionDescriptionGeneratedMsg struct {
 // GenerateSessionDescription returns a tea.Cmd that generates a session description asynchronously.
 // This is NON-BLOCKING - the session can proceed without the description.
 // When complete, it sends a SessionDescriptionGeneratedMsg with the result.
-func GenerateSessionDescription(prompt string, agent app.AgentConfig, session *Session, manager *Manager) tea.Cmd {
+func GenerateSessionDescription(prompt string, agent agents.AgentConfig, session *Session, manager *Manager) tea.Cmd {
 	return func() tea.Msg {
 		debug.DebugLog("Generating session description asynchronously for session: %s", session.ID)
 

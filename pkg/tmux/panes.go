@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"agate/internal/debug"
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/git"
 )
 
@@ -125,7 +125,7 @@ func CalculatePaneLayout(count int) *PaneLayout {
 // agents: ordered list of agent configs
 // worktrees: ordered list of worktree paths (matches agents order)
 // sessionID: the session ID (used for metrics pane)
-func CreatePanes(sessionName string, agents []app.AgentConfig, worktrees []*git.WorktreeInfo, sessionID string) error {
+func CreatePanes(sessionName string, agents []agents.AgentConfig, worktrees []*git.WorktreeInfo, sessionID string) error {
 	if len(agents) != len(worktrees) {
 		return fmt.Errorf("agent count (%d) must match worktree count (%d)", len(agents), len(worktrees))
 	}
@@ -225,7 +225,7 @@ func CreateMetricsPane(sessionName string, sessionID string) error {
 }
 
 // startAgentInPane starts an agent CLI in a specific pane
-func startAgentInPane(sessionName string, paneIndex int, agent app.AgentConfig, worktree *git.WorktreeInfo) error {
+func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfig, worktree *git.WorktreeInfo) error {
 	debug.DebugLog("startAgentInPane: Starting %s in pane %d at %s", agent.Name, paneIndex, worktree.Path)
 
 	// Select the target pane

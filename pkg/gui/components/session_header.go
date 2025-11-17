@@ -1,7 +1,7 @@
 package components
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/theme"
 	"strings"
 
@@ -23,7 +23,7 @@ type SessionHeader struct {
 var loaderFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // NewSessionHeader creates a new session header
-func NewSessionHeader(description, branchName string, agents []app.AgentConfig, activeIndex int) *SessionHeader {
+func NewSessionHeader(description, branchName string, agents []agents.AgentConfig, activeIndex int) *SessionHeader {
 	// Create agent cards
 	cards := make([]*AgentCard, 0, len(agents))
 	for i, agent := range agents {

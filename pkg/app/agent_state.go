@@ -2,28 +2,30 @@ package app
 
 import (
 	"sync"
+
+	"agate/pkg/agents"
 )
 
 // agentState holds the global agent configuration state
 type agentState struct {
 	mu     sync.RWMutex
-	config AgentConfig
+	config agents.AgentConfig
 }
 
 // globalAgentState is the singleton instance
 var globalAgentState = &agentState{
-	config: DefaultAgent, // Start with default agent
+	config: agents.DefaultAgent, // Start with default agent
 }
 
 // SetCurrentAgent sets the current agent configuration globally
-func SetCurrentAgent(config AgentConfig) {
+func SetCurrentAgent(config agents.AgentConfig) {
 	globalAgentState.mu.Lock()
 	defer globalAgentState.mu.Unlock()
 	globalAgentState.config = config
 }
 
 // GetCurrentAgent returns the current agent configuration
-func GetCurrentAgent() AgentConfig {
+func GetCurrentAgent() agents.AgentConfig {
 	globalAgentState.mu.RLock()
 	defer globalAgentState.mu.RUnlock()
 	return globalAgentState.config

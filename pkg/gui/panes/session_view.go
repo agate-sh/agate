@@ -1,7 +1,7 @@
 package panes
 
 import (
-	"agate/pkg/app"
+	"agate/pkg/agents"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/icons"
 	"agate/pkg/session"
@@ -38,9 +38,9 @@ func (p *SessionViewPane) SetSession(s *session.Session) {
 	}
 
 	// Build agent configs and determine active index
-	agents := s.GetOrderedAgents()
-	agentConfigs := make([]app.AgentConfig, 0, len(agents))
-	for _, agent := range agents {
+	sessionAgents := s.GetOrderedAgents()
+	agentConfigs := make([]agents.AgentConfig, 0, len(sessionAgents))
+	for _, agent := range sessionAgents {
 		agentConfigs = append(agentConfigs, agent.AgentConfig)
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"agate/internal/debug"
 	"agate/internal/version"
+	"agate/pkg/agents"
 	"agate/pkg/app"
 	"agate/pkg/telemetry"
 	"agate/pkg/common"
@@ -144,9 +145,9 @@ func initialModel(subprocess string) model {
 	}
 
 	// Convert agent names to AgentConfig objects
-	agentConfigs := make([]app.AgentConfig, 0, len(agentNames))
+	agentConfigs := make([]agents.AgentConfig, 0, len(agentNames))
 	for _, name := range agentNames {
-		agentConfigs = append(agentConfigs, app.GetAgentConfig(name))
+		agentConfigs = append(agentConfigs, agents.GetAgentConfig(name))
 	}
 
 	// Set the first agent globally for backwards compatibility
@@ -1274,7 +1275,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Start async description generation
 		m.generatingDescription = true
 		prompt := msg.session.Prompt
-		defaultAgent := app.GetAgentConfig(m.subprocess)
+		defaultAgent := agents.GetAgentConfig(m.subprocess)
 		descCmd := session.GenerateSessionDescription(prompt, defaultAgent, msg.session, m.sessionManager)
 
 		cmds = append(cmds, descCmd)
