@@ -35,7 +35,6 @@ type KeybindingsConfig struct {
 
 	// Session interaction
 	AttachAgent []string `yaml:"attach_agent,omitempty"`
-	Commit      []string `yaml:"commit,omitempty"`
 	DetachTmux  []string `yaml:"detach_tmux,omitempty"`
 
 	// Dialog actions

@@ -504,15 +504,6 @@ func ApplyUserConfig(userConfig *config.UserConfig) {
 		overrideCount++
 	}
 
-	if len(kb.Commit) > 0 {
-		debug.DebugLog("ApplyUserConfig: overriding 'commit' keybinding with %v", kb.Commit)
-		GlobalKeys.Commit = key.NewBinding(
-			key.WithKeys(kb.Commit...),
-			key.WithHelp(formatHelpKey(kb.Commit), formatHelpDesc(GlobalKeys.Commit, "commit")),
-		)
-		overrideCount++
-	}
-
 	if len(kb.DetachTmux) > 0 {
 		debug.DebugLog("ApplyUserConfig: overriding 'detach_tmux' keybinding with %v", kb.DetachTmux)
 		GlobalKeys.DetachTmux = key.NewBinding(
@@ -590,7 +581,6 @@ func LogGlobalKeys(prefix string) {
 	debug.DebugLog("  AddRemoveAgents: key=%s, desc=%s", GlobalKeys.AddRemoveAgents.Help().Key, GlobalKeys.AddRemoveAgents.Help().Desc)
 	debug.DebugLog("  NewSession: key=%s, desc=%s", GlobalKeys.NewSession.Help().Key, GlobalKeys.NewSession.Help().Desc)
 	debug.DebugLog("  AttachAgent: key=%s, desc=%s", GlobalKeys.AttachAgent.Help().Key, GlobalKeys.AttachAgent.Help().Desc)
-	debug.DebugLog("  Commit: key=%s, desc=%s", GlobalKeys.Commit.Help().Key, GlobalKeys.Commit.Help().Desc)
 	debug.DebugLog("  DetachTmux: key=%s, desc=%s", GlobalKeys.DetachTmux.Help().Key, GlobalKeys.DetachTmux.Help().Desc)
 	debug.DebugLog("  Confirm: key=%s, desc=%s", GlobalKeys.Confirm.Help().Key, GlobalKeys.Confirm.Help().Desc)
 	debug.DebugLog("  Cancel: key=%s, desc=%s", GlobalKeys.Cancel.Help().Key, GlobalKeys.Cancel.Help().Desc)
