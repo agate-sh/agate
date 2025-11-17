@@ -22,6 +22,10 @@ type Session struct {
 	SharedTmux       *tmux.TmuxSession `json:"-"`                  // Shared tmux session for all agents (not persisted)
 	ActiveAgentIndex int               `json:"active_agent_index"` // which agent is currently focused
 
+	// Terminal dimensions
+	TermWidth  int `json:"term_width"`  // Terminal width detected at creation
+	TermHeight int `json:"term_height"` // Terminal height detected at creation
+
 	// State tracking
 	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`

@@ -100,21 +100,15 @@ die() {
 }
 
 success_box() {
-    local agent="$1"
+    local agents_list="$1"
     local shell_config="$2"
-    local agent_color
-
-    # Get agent color
-    agent_color=$(get_agent_color "$agent")
-    if [[ -z "$agent_color" ]]; then
-        agent_color="${NC}"  # Default to no color if agent not found
-    fi
 
     printf "\n${GREEN}${BOLD}✓${NC}${BOLD} Installation successful${NC}\n\n"
+    printf "${BOLD}📋 Get started${NC}\n\n"
     printf "${BOLD}1.${NC} Reload shell\n"
     printf "   \033[2msource ${shell_config}${NC}\n\n"
-    printf "${BOLD}2.${NC} Launch a ${agent_color}${BOLD}${agent}${NC} agent\n"
-    printf "   \033[2magate ${agent}${NC}\n\n"
+    printf "${BOLD}2.${NC} Run agate with your agents\n"
+    printf "   \033[2magate --agents ${agents_list} \"Create or update AGENTS.md\"${NC}\n\n"
 }
 
 # Detect OS and architecture
@@ -485,12 +479,31 @@ check_existing_installation() {
 
 # Main installation flow
 main() {
-    # First argument is the agent name (if provided)
+    # Parse arguments for --agents flag
+    local agents_list=""
     local agent=""
     local agent_display=""
 
-    if [[ $# -gt 0 ]]; then
-        agent="$1"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --agents)
+                shift
+                agents_list="$1"
+                shift
+                ;;
+            *)
+                # Legacy support: first argument without flag is treated as single agent
+                if [[ -z "$agent" ]]; then
+                    agent="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # If --agents was provided, use the first agent from the list for dependency checking
+    if [[ -n "$agents_list" ]]; then
+        agent="${agents_list%%,*}"  # Get first agent from comma-separated list
     fi
 
     # Always show installer header
@@ -560,7 +573,9 @@ main() {
     shell_config_path=$(update_shell_config)
 
     # Final success message
-    if [[ -n "$agent" ]]; then
+    if [[ -n "$agents_list" ]]; then
+        success_box "$agents_list" "$shell_config_path"
+    elif [[ -n "$agent" ]]; then
         success_box "$agent" "$shell_config_path"
     else
         success_box "claude" "$shell_config_path"

@@ -70,9 +70,6 @@ func (m model) View() string {
 	if m.session.Description != "" {
 		sessionInfo += fmt.Sprintf("Description: %s\n", m.session.Description)
 	}
-	if m.session.BranchBaseName != "" {
-		sessionInfo += fmt.Sprintf("Branch: %s\n", m.session.BranchBaseName)
-	}
 
 	infoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextPrimary)).
@@ -148,27 +145,27 @@ func (m model) View() string {
 		PaddingLeft(2).
 		Render(leftFooter)
 
-	// Create right footer with branding (reversed order: agate.sh | Run... | Agate)
+	// Create right footer with branding (Run... | agate.sh | Agate)
 	// Use muted color to match the left side shortcut style
-	link := lipgloss.NewStyle().
+	tagline := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted)).
-		Underline(true).
-		Render("agate.sh")
+		Render("Run and evaluate any CLI coding agent")
 
 	pipe := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted)).
 		Render(" | ")
 
-	tagline := lipgloss.NewStyle().
+	link := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted)).
-		Render("Run and evaluate any CLI coding agent")
+		Underline(true).
+		Render("agate.sh")
 
 	agateName := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.AgateColor)).
 		Bold(true).
 		Render("Agate")
 
-	rightFooter := lipgloss.JoinHorizontal(lipgloss.Left, link, pipe, tagline, pipe, agateName)
+	rightFooter := lipgloss.JoinHorizontal(lipgloss.Left, tagline, pipe, link, pipe, agateName)
 	rightFooterStyled := lipgloss.NewStyle().
 		PaddingRight(2).
 		Render(rightFooter)

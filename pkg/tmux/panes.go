@@ -124,7 +124,8 @@ func CalculatePaneLayout(count int) *PaneLayout {
 // sessionName: the tmux session name (already created)
 // agents: ordered list of agent configs
 // worktrees: ordered list of worktree paths (matches agents order)
-func CreatePanes(sessionName string, agents []app.AgentConfig, worktrees []*git.WorktreeInfo) error {
+// sessionID: the session ID (used for metrics pane)
+func CreatePanes(sessionName string, agents []app.AgentConfig, worktrees []*git.WorktreeInfo, sessionID string) error {
 	if len(agents) != len(worktrees) {
 		return fmt.Errorf("agent count (%d) must match worktree count (%d)", len(agents), len(worktrees))
 	}
@@ -171,7 +172,7 @@ func CreatePanes(sessionName string, agents []app.AgentConfig, worktrees []*git.
 		debug.DebugLog("CreatePanes: Executed layout command: %s", cmd)
 	}
 
-	// Apply layout to equalize pane sizes
+	// Apply layout to equalize agent pane sizes FIRST
 	layoutName := getLayoutName(len(agents))
 	if layoutName != "" {
 		selectLayoutCmd := Command("select-layout", "-t", sessionName, layoutName)
@@ -191,7 +192,35 @@ func CreatePanes(sessionName string, agents []app.AgentConfig, worktrees []*git.
 		}
 	}
 
-	debug.DebugLog("CreatePanes: Successfully created %d panes and started all agents", len(agents))
+	debug.DebugLog("CreatePanes: Successfully created %d agent panes", len(agents))
+	return nil
+}
+
+// CreateMetricsPane creates the metrics pane at the bottom of the session
+// This should be called AFTER the window has been resized to its final size
+// to avoid proportional scaling of the pane height
+func CreateMetricsPane(sessionName string, sessionID string) error {
+	// Create metrics pane at bottom using 10 absolute lines
+	// This pane is only visible when attached to tmux, not in Bubble Tea preview
+	// Use -f flag to create a full-width split (not nested within current pane)
+	splitCmd := Command("split-window", "-v", "-f", "-l", "10", "-t", sessionName)
+	if err := splitCmd.Run(); err != nil {
+		debug.DebugLog("Warning: failed to create metrics pane: %v", err)
+		return fmt.Errorf("failed to create metrics pane: %w", err)
+	}
+
+	debug.DebugLog("CreateMetricsPane: Created metrics pane at bottom (10 lines)")
+
+	// Start metrics command in the bottom pane
+	metricsCmd := fmt.Sprintf("agate metrics --session-id %s", sessionID)
+	sendKeysCmd := Command("send-keys", "-t", sessionName, metricsCmd, "C-m")
+	if err := sendKeysCmd.Run(); err != nil {
+		debug.DebugLog("Warning: failed to start metrics command: %v", err)
+		// Don't fail - metrics is optional
+	} else {
+		debug.DebugLog("CreateMetricsPane: Started metrics command in bottom pane")
+	}
+
 	return nil
 }
 

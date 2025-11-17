@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"agate/pkg/git"
 	"agate/pkg/session"
 	"agate/pkg/state"
+
+	"golang.org/x/term"
 )
 
 // newSessionFromCLI creates a new session from CLI arguments and attaches directly to tmux
@@ -21,7 +24,6 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	// Initialize debug logger
 	debugLogger := debug.InitDebugLogger()
 	defer debugLogger.Close()
-	debug.DebugLog("CLI: newSessionFromCLI started with agents=%s, prompt=%s", agentsFlag, prompt)
 
 	// Initialize state manager
 	stateManager, err := state.NewManager()
@@ -66,6 +68,15 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	stopSpinner := startSpinner("Starting agents...")
 	defer stopSpinner()
 
+	// Detect terminal size
+	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		debug.DebugLog("Warning: failed to detect terminal size: %v, using defaults", err)
+		termWidth = 200
+		termHeight = 50
+	}
+	debug.DebugLog("Detected terminal size: %dx%d", termWidth, termHeight)
+
 	// Generate branch name from prompt
 	branchName, err := session.GenerateBranchNameFromPrompt(prompt, agentConfigs[0])
 	if err != nil {
@@ -73,8 +84,8 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 		branchName = session.GenerateRandomBranchName()
 	}
 
-	// Create session
-	sess, err := sessionManager.CreateSession(prompt, branchName, agentNames)
+	// Create session with terminal dimensions
+	sess, err := sessionManager.CreateSessionWithSize(prompt, branchName, agentNames, termWidth, termHeight)
 	if err != nil {
 		stopSpinner()
 		return fmt.Errorf("failed to create session: %v", err)
@@ -82,29 +93,17 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 
 	// Wait for session to be ready (poll until hasPrompt is true)
 	if sess.SharedTmux != nil {
-		debug.DebugLog("CLI: Waiting for session to be ready...")
 		for {
-			content, err := sess.SharedTmux.CapturePaneContent()
+			_, err := sess.SharedTmux.CapturePaneContent()
 			if err != nil {
-				debug.DebugLog("CLI: Error capturing pane content: %v", err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
-			debug.DebugLog("CLI: Captured %d bytes of content", len(content))
-			// Log last 200 chars to see what we're checking
-			preview := content
-			if len(preview) > 200 {
-				preview = "..." + preview[len(preview)-200:]
-			}
-			debug.DebugLog("CLI: Content preview: %q", preview)
-
 			// Call HasUpdated to check hasPrompt (we don't care about updated flag here)
 			_, hasPrompt := sess.SharedTmux.HasUpdated()
-			debug.DebugLog("CLI: hasPrompt=%v", hasPrompt)
 
 			if hasPrompt {
-				debug.DebugLog("CLI: Session is ready! Breaking out of wait loop")
 				break
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -114,13 +113,22 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	// Stop spinner and clear line
 	stopSpinner()
 
-	// Attach to tmux session
+	// Attach to tmux session using exec (proper terminal handoff for CLI mode)
 	if sess.SharedTmux != nil {
-		detachCh, err := sess.SharedTmux.Attach()
-		if err != nil {
+		attachCmd := sess.SharedTmux.AttachCommand()
+		if attachCmd == nil {
+			return fmt.Errorf("failed to get attach command")
+		}
+
+		// Set stdin, stdout, stderr to terminal
+		attachCmd.Stdin = os.Stdin
+		attachCmd.Stdout = os.Stdout
+		attachCmd.Stderr = os.Stderr
+
+		// Run the attach command
+		if err := attachCmd.Run(); err != nil {
 			return fmt.Errorf("failed to attach to tmux session: %v", err)
 		}
-		<-detachCh
 	}
 
 	return nil
@@ -134,7 +142,7 @@ func startSpinner(message string) func() {
 
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-	done := make(chan bool)
+	done := make(chan bool, 1)
 
 	go func() {
 		i := 0
