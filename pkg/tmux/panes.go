@@ -258,3 +258,14 @@ func SelectPane(sessionName string, paneIndex int) error {
 	cmd := Command("select-pane", "-t", fmt.Sprintf("%s.%d", sessionName, paneIndex))
 	return cmd.Run()
 }
+
+// CapturePaneContent captures the current content of a specific pane
+func CapturePaneContent(sessionName string, paneIndex int) (string, error) {
+	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
+	cmd := Command("capture-pane", "-p", "-e", "-J", "-t", target)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to capture pane %d: %w", paneIndex, err)
+	}
+	return string(output), nil
+}

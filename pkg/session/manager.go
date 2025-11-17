@@ -191,12 +191,6 @@ func (m *Manager) createAgent(sessionID string, branchName string, agentName str
 	}
 	debug.DebugLog("createAgent: Successfully created worktree at %s for agent=%s", worktree.Path, agentName)
 
-	// Perform agent-specific worktree setup (e.g., Claude creates .claude/settings.local.json)
-	if err := agentConfig.SetupWorktree(worktree.Path); err != nil {
-		debug.DebugLog("createAgent: Warning - agent setup failed for %s: %v", agentName, err)
-		// Don't fail the whole operation, just log the warning
-	}
-
 	// Generate agent ID
 	agentID := fmt.Sprintf("%s_%s", sessionID, agentName)
 
@@ -259,6 +253,14 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 		// Kill the tmux session on failure
 		tmuxSession.Kill()
 		return fmt.Errorf("failed to create panes: %w", err)
+	}
+
+	// Handle post-launch actions for each agent (e.g., Claude trust prompt auto-accept)
+	for _, agent := range sessionAgents {
+		if err := agent.AgentConfig.HandlePostLaunch(tmuxSessionName, agent.PaneIndex); err != nil {
+			debug.DebugLog("setupTmuxSession: Warning - post-launch failed for %s: %v", agent.AgentConfig.Name, err)
+			// Don't fail the session - post-launch is best-effort
+		}
 	}
 
 	// Set up a hook to create metrics pane on first client attach

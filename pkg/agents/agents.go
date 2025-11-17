@@ -14,15 +14,15 @@ type AgentConfig struct {
 	CompanyName    string // Company name to display in UI
 }
 
-// SetupWorktree performs agent-specific setup for a worktree directory.
-// This is called after worktree creation to configure the agent environment.
-func (a AgentConfig) SetupWorktree(worktreePath string) error {
-	// Claude agent needs to create .claude/settings.local.json
+// HandlePostLaunch performs agent-specific actions after the agent is launched in a tmux pane.
+// This is called after the agent CLI has been started to handle any blocking prompts or initialization.
+func (a AgentConfig) HandlePostLaunch(sessionName string, paneIndex int) error {
+	// Claude agent needs to auto-accept the trust prompt
 	if a.ExecutableName == "claude" {
-		return setupClaudeWorktree(worktreePath)
+		return handleClaudePostLaunch(sessionName, paneIndex)
 	}
 
-	// Other agents: no setup needed
+	// Other agents: no post-launch actions needed
 	return nil
 }
 

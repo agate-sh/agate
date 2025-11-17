@@ -1,58 +1,58 @@
 package agents
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"os/exec"
+	"strings"
+	"time"
+
+	"agate/internal/debug"
 )
 
-// ClaudeSettings represents the structure of Claude Code's settings.local.json
-type ClaudeSettings struct {
-	Permissions struct {
-		Allow []string `json:"allow"`
-		Deny  []string `json:"deny"`
-		Ask   []string `json:"ask"`
-	} `json:"permissions"`
-	FolderPermissions struct {
-		TrustedFolders []string `json:"trustedFolders"`
-	} `json:"folderPermissions"`
-	OutputStyle string `json:"outputStyle"`
-}
+// handleClaudePostLaunch waits for the Claude Code trust prompt and auto-accepts it
+func handleClaudePostLaunch(sessionName string, paneIndex int) error {
+	debug.DebugLog("handleClaudePostLaunch: Waiting for trust prompt in pane %d", paneIndex)
 
+	// Poll for trust prompt with timeout
+	timeout := 10 * time.Second
+	pollInterval := 200 * time.Millisecond
+	startTime := time.Now()
 
-// setupClaudeWorktree creates the Claude Code configuration directory and settings file
-func setupClaudeWorktree(worktreePath string) error {
-	claudeDir := filepath.Join(worktreePath, ".claude")
+	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
 
-	// Create .claude directory if it doesn't exist
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .claude directory: %w", err)
+	for {
+		// Check timeout
+		if time.Since(startTime) > timeout {
+			debug.DebugLog("handleClaudePostLaunch: Timeout waiting for trust prompt (agent may have started normally)")
+			return nil // Not an error - agent might not show prompt
+		}
+
+		// Capture pane content directly using tmux command
+		cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-t", target)
+		output, err := cmd.Output()
+		if err != nil {
+			debug.DebugLog("handleClaudePostLaunch: Failed to capture pane: %v", err)
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		content := string(output)
+
+		// Check for trust prompt
+		if strings.Contains(content, "Do you trust the files in this folder?") {
+			debug.DebugLog("handleClaudePostLaunch: Trust prompt detected, sending '1' to accept")
+
+			// Send "1" to accept (option 1: Yes, proceed)
+			sendCmd := exec.Command("tmux", "send-keys", "-t", target, "1")
+			if err := sendCmd.Run(); err != nil {
+				return fmt.Errorf("failed to send accept key: %w", err)
+			}
+
+			debug.DebugLog("handleClaudePostLaunch: Successfully accepted trust prompt")
+			return nil
+		}
+
+		// Wait before next poll
+		time.Sleep(pollInterval)
 	}
-
-	// Create settings with folder trust pre-configured
-	settings := ClaudeSettings{
-		OutputStyle: "default",
-	}
-
-	// Pre-trust this worktree directory
-	settings.FolderPermissions.TrustedFolders = []string{worktreePath}
-
-	// Initialize empty permission arrays
-	settings.Permissions.Allow = []string{}
-	settings.Permissions.Deny = []string{}
-	settings.Permissions.Ask = []string{}
-
-	// Write settings file
-	settingsPath := filepath.Join(claudeDir, "settings.local.json")
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal settings: %w", err)
-	}
-
-	if err := os.WriteFile(settingsPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write settings file: %w", err)
-	}
-
-	return nil
 }
