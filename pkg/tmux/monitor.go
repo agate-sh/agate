@@ -32,12 +32,18 @@ func (m *StatusMonitor) HasUpdated(content string) (updated bool, hasPrompt bool
 	// Check for prompts specific to different AI programs
 	switch m.program {
 	case "claude":
-		hasPrompt = strings.Contains(content, "No, and tell Claude what to do differently")
+		// Check for Claude Code prompt (new UI)
+		if strings.Contains(content, "Enter to confirm") || strings.Contains(content, "Esc to exit") {
+			hasPrompt = true
+		} else {
+			// Fallback to old Claude prompt
+			hasPrompt = strings.Contains(content, "No, and tell Claude what to do differently")
+		}
 	case "aider":
 		hasPrompt = strings.Contains(content, "(Y)es/(N)o/(D)on't ask again")
 	case "codex":
-		// Add specific prompt detection for codex if needed
-		hasPrompt = false
+		// Check for Codex Code prompt (similar to Claude Code)
+		hasPrompt = strings.Contains(content, "Enter to confirm") || strings.Contains(content, "Esc to exit")
 	default:
 		// Generic prompt detection - look for common patterns
 		hasPrompt = strings.HasSuffix(strings.TrimSpace(content), ">") ||

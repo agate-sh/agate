@@ -297,6 +297,30 @@ func (m *model) getCurrentTmuxSession() *tmux.TmuxSession {
 	return activeSession.TmuxSession()
 }
 
+// getDetachedTmuxSize returns the width and height for the tmux window in detached mode.
+// For shared sessions with multiple agents, multiplies width by agent count so each pane
+// gets the full contentWidth.
+func (m *model) getDetachedTmuxSize(contentWidth, contentHeight int) (int, int) {
+	if m.sessionManager == nil {
+		return contentWidth, contentHeight
+	}
+
+	activeSession := m.sessionManager.GetActiveSession()
+	if activeSession == nil {
+		return contentWidth, contentHeight
+	}
+
+	// For shared sessions, multiply width by agent count
+	agents := activeSession.GetOrderedAgents()
+	agentCount := len(agents)
+	if agentCount > 1 {
+		// Each pane gets contentWidth, so total window width = contentWidth * agentCount
+		return contentWidth * agentCount, contentHeight
+	}
+
+	return contentWidth, contentHeight
+}
+
 // switchToSessionForWorktree switches to the session associated with the given worktree
 // and returns a command to immediately refresh the tmux content
 func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
@@ -636,8 +660,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Set initial tmux session size using layout
 		if m.ready && activeSession.TmuxSession() != nil {
 			if contentWidth, contentHeight := m.layout.GetTmuxDimensions(); contentWidth > 0 && contentHeight > 0 {
-				if err := activeSession.TmuxSession().SetDetachedSize(contentWidth, contentHeight); err != nil {
-					debug.DebugLog("Failed to set tmux session initial size to %dx%d: %v", contentWidth, contentHeight, err)
+				// For shared sessions, multiply width by agent count so each pane gets full width
+				tmuxWidth, tmuxHeight := m.getDetachedTmuxSize(contentWidth, contentHeight)
+				if err := activeSession.TmuxSession().SetDetachedSize(tmuxWidth, tmuxHeight); err != nil {
+					debug.DebugLog("Failed to set tmux session initial size to %dx%d: %v", tmuxWidth, tmuxHeight, err)
 					// Continue - tmux will use default size
 				}
 			}
@@ -737,8 +763,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Immediately resize the tmux session to current window dimensions
 		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.ready {
 			if contentWidth, contentHeight := m.layout.GetTmuxDimensions(); contentWidth > 0 && contentHeight > 0 {
-				if err := currentTmux.SetDetachedSize(contentWidth, contentHeight); err != nil {
-					debug.DebugLog("Failed to resize tmux session after detaching to %dx%d: %v", contentWidth, contentHeight, err)
+				// For shared sessions, multiply width by agent count so each pane gets full width
+				tmuxWidth, tmuxHeight := m.getDetachedTmuxSize(contentWidth, contentHeight)
+				if err := currentTmux.SetDetachedSize(tmuxWidth, tmuxHeight); err != nil {
+					debug.DebugLog("Failed to resize tmux session after detaching to %dx%d: %v", tmuxWidth, tmuxHeight, err)
 					// Continue - terminal will work with current size
 				}
 			}
@@ -2074,7 +2102,7 @@ func main() {
 		Short: "A tmux-based terminal UI for AI agents",
 		Long: `Agate provides a split-pane terminal interface for interacting with AI agents.
 
-Supports any agent name (claude, amp, cn, etc.) and automatically configures
+Supports any agent name (claude, codex, gemini, etc.) and automatically configures
 colors and settings based on the agent type.
 
 Agate provides two interaction modes:
