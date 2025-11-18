@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/agate-sh/agate/pkg/paths"
+	"agate/pkg/paths"
 )
 
 // GetMachineID returns a stable machine identifier.
