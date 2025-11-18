@@ -61,13 +61,13 @@ type TmuxSession struct {
 //
 // IMPORTANT: The name parameter should already be sanitized using naming.Generator.
 // This function does NOT transform the name - it uses it exactly as provided.
-func NewTmuxSession(sanitizedName, program string) *TmuxSession {
+func NewTmuxSession(sanitizedName string) *TmuxSession {
 	return &TmuxSession{
 		name:          sanitizedName, // Store the sanitized name as-is
 		sanitizedName: sanitizedName, // No transformation!
-		program:       program,
+		program:       "$SHELL",
 		ptyFactory:    NewPtyFactory(),
-		monitor:       newStatusMonitor(program),
+		monitor:       newStatusMonitor(),
 	}
 }
 
@@ -158,7 +158,7 @@ func (t *TmuxSession) Restore() error {
 
 	// Initialize status monitor if needed
 	if t.monitor == nil {
-		t.monitor = newStatusMonitor(t.program)
+		t.monitor = newStatusMonitor()
 	}
 
 	return nil
@@ -374,10 +374,10 @@ func (t *TmuxSession) CapturePaneContentWithOptions(startLine, endLine int) (str
 }
 
 // HasUpdated checks if the tmux pane content has changed
-func (t *TmuxSession) HasUpdated() (updated bool, hasPrompt bool) {
+func (t *TmuxSession) HasUpdated() bool {
 	content, err := t.CapturePaneContent()
 	if err != nil {
-		return false, false
+		return false
 	}
 
 	return t.monitor.HasUpdated(content)

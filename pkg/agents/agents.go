@@ -14,18 +14,44 @@ type AgentConfig struct {
 	CompanyName    string // Company name to display in UI
 }
 
-// HandlePostLaunch performs agent-specific actions after the agent is launched in a tmux pane.
-// This is called after the agent CLI has been started to handle any blocking prompts or initialization.
-// The prompt parameter is used to verify the agent is ready by attempting to type it and checking if it appears.
-// Returns when the agent is ready and the prompt has been successfully submitted.
-func (a AgentConfig) HandlePostLaunch(sessionName string, paneIndex int, prompt string) error {
-	// Claude agent needs to auto-accept the trust prompt
-	if a.ExecutableName == "claude" {
-		return handleClaudePostLaunch(sessionName, paneIndex, prompt)
+// InteractiveCommand returns the command and arguments to run the agent in interactive TUI mode
+// with the given prompt. Returns just the executable name if prompt is empty.
+func (a AgentConfig) InteractiveCommand(prompt string) []string {
+	if prompt == "" {
+		return []string{a.ExecutableName}
 	}
 
-	// Other agents: wait for them to be ready to accept input
-	return handleGenericPostLaunch(sessionName, paneIndex, a.Name, prompt)
+	switch a.ExecutableName {
+	case "claude":
+		return []string{"claude", prompt}
+	case "gemini":
+		return []string{"gemini", "-i", prompt}
+	case "amp":
+		return []string{"amp", prompt}
+	case "codex":
+		return []string{"codex", prompt}
+	case "cline":
+		return []string{"cline", prompt}
+	case "cn":
+		return []string{"cn", prompt}
+	case "cursor-agent":
+		return []string{"cursor-agent", prompt}
+	case "copilot":
+		return []string{"copilot", prompt}
+	case "opencode":
+		return []string{"opencode", "-p", prompt}
+	default:
+		// Default: try positional argument
+		return []string{a.ExecutableName, prompt}
+	}
+}
+
+// HandlePostLaunch performs agent-specific actions after the agent is launched in a tmux pane.
+// All agents now launch with prompts directly and don't need post-launch handling.
+// Claude uses --dangerously-skip-permissions to bypass trust prompts.
+func (a AgentConfig) HandlePostLaunch(sessionName string, paneIndex int, prompt string) error {
+	// No post-launch handling needed for any agent
+	return nil
 }
 
 // DetectPrompt checks if the given content contains an agent-specific prompt.

@@ -32,6 +32,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // ASCII art is embedded in the welcome overlay
@@ -49,6 +50,14 @@ const (
 // Focus state constants are now defined in layout package
 
 // String method is now in layout package
+
+// managers holds the backend components that can be created before TUI launch
+type managers struct {
+	sessionManager  *session.Manager
+	stateManager    *state.Manager
+	worktreeManager *git.WorktreeManager
+	debugLogger     *debug.DebugLogger
+}
 
 type model struct {
 	layout              *layout.Layout   // Layout manager for pane dimensions
@@ -84,6 +93,9 @@ type model struct {
 	showNewSessionInput   bool                      // true when showing new session input (no sessions or user pressed 'n')
 	creatingSession       bool                      // true during session creation (shows toast)
 	generatingDescription bool                      // true while description is being generated in background
+	initialPrompt         string                    // Initial prompt from CLI (auto-creates session if non-empty)
+	initialTermWidth      int                       // Terminal width when TUI started (for auto-created sessions)
+	initialTermHeight     int                       // Terminal height when TUI started (for auto-created sessions)
 
 	// Panes using the new Pane interface
 	repoPane        components.Pane // Agents pane (list of sessions)
@@ -92,35 +104,55 @@ type model struct {
 }
 
 func initialModel(subprocess string) model {
-	// Initialize debug logger FIRST so all subsequent logs are captured
-	debugLogger := debug.InitDebugLogger()
-	debug.DebugLog("Debug logger initialized successfully")
+	return initialModelWithPromptAndSize(subprocess, "", 0, 0, nil, nil)
+}
 
-	// Initialize state manager (thread-safe state persistence)
-	stateManager, err := state.NewManager()
-	if err != nil {
-		fmt.Printf("ERROR: failed to initialize state manager: %v\n", err)
-		fmt.Printf("Agate will run without session persistence. Please check ~/.agate permissions.\n")
-		debug.DebugLog("ERROR: StateManager initialization failed: %v", err)
-		// Continue with nil stateManager - session manager will handle it gracefully
+func initialModelWithPromptAndSize(subprocess string, initialPrompt string, termWidth int, termHeight int, mgrs *managers, preCreatedSession *session.Session) model {
+	// Use passed-in managers if provided, otherwise create new ones
+	var debugLogger *debug.DebugLogger
+	var stateManager *state.Manager
+	var worktreeManager *git.WorktreeManager
+	var sessionManager *session.Manager
+
+	if mgrs != nil {
+		// Reuse managers passed from CLI
+		debugLogger = mgrs.debugLogger
+		stateManager = mgrs.stateManager
+		worktreeManager = mgrs.worktreeManager
+		sessionManager = mgrs.sessionManager
 	} else {
-		debug.DebugLog("StateManager initialized successfully")
-	}
+		// Create new managers for normal TUI launch
+		// Initialize debug logger FIRST so all subsequent logs are captured
+		debugLogger = debug.InitDebugLogger()
 
-	// Initialize worktree manager
-	worktreeManager, err := git.NewWorktreeManager()
-	if err != nil {
-		// Log error but don't fail - app can still work without worktree features
-		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
-	}
+		// Initialize state manager (thread-safe state persistence)
+		var err error
+		stateManager, err = state.NewManager()
+		if err != nil {
+			fmt.Printf("ERROR: failed to initialize state manager: %v\n", err)
+			fmt.Printf("Agate will run without session persistence. Please check ~/.agate permissions.\n")
+			debug.DebugLog("ERROR: StateManager initialization failed: %v", err)
+			// Continue with nil stateManager - session manager will handle it gracefully
+		}
 
-	// Create session manager with state manager
-	sessionManager := session.NewManager(worktreeManager, stateManager)
+		// Initialize worktree manager
+		worktreeManager, err = git.NewWorktreeManager()
+		if err != nil {
+			// Log error but don't fail - app can still work without worktree features
+			fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
+		}
 
-	// Load existing sessions from persistence
-	if err := sessionManager.RestoreSessions(); err != nil {
-		debug.DebugLog("Failed to restore sessions on startup: %v", err)
-		// Don't fail startup if session restoration fails
+		// Create session manager with state manager
+		sessionManager = session.NewManager(worktreeManager, stateManager)
+
+		// Load existing sessions from persistence
+		if err := sessionManager.RestoreSessions(); err != nil {
+			debug.DebugLog("Failed to restore sessions on startup: %v", err)
+			// Don't fail startup if session restoration fails
+		}
+
+		// Set up debug logging for git package (always enabled now)
+		git.DebugLog = debug.DebugLog
 	}
 
 	// No automatic main session creation - users must explicitly create agents
@@ -164,6 +196,7 @@ func initialModel(subprocess string) model {
 	var worktreeList *overlays.WorktreeList
 	if worktreeManager != nil {
 		worktreeList = overlays.NewWorktreeList(worktreeManager)
+	} else {
 	}
 
 	// Debug logger already initialized at the beginning of initialModel
@@ -189,11 +222,21 @@ func initialModel(subprocess string) model {
 	// Initialize welcome header
 	welcomeHeader := components.NewWelcomeHeader()
 
-	// Always start with new session view on launch
-	showNewSessionInput := true
+
+	// Show new session input only if we don't have a pre-created session
+	// If session was pre-created in CLI, skip new session input
+	// If we have an initial prompt but no pre-created session, we'll auto-create in Init()
+	showNewSessionInput := preCreatedSession == nil && initialPrompt == ""
+
+	// Use provided terminal dimensions, or fallback to 0x0 (will be updated by WindowSizeMsg)
+	layoutWidth := termWidth
+	layoutHeight := termHeight
+	if layoutWidth == 0 || layoutHeight == 0 {
+		layoutWidth, layoutHeight = 0, 0
+	}
 
 	m := model{
-		layout:                layout.NewLayout(0, 0),  // Will be updated on first WindowSizeMsg
+		layout:                layout.NewLayout(layoutWidth, layoutHeight),
 		sessionManager:        sessionManager,          // Session manager for coordination
 		stateManager:          stateManager,            // State manager for persistence
 		focus:                 layout.NewAgentsFocus(), // Always start with focus on Agents pane
@@ -217,6 +260,9 @@ func initialModel(subprocess string) model {
 		showNewSessionInput:   showNewSessionInput,
 		creatingSession:       false,
 		generatingDescription: false,
+		initialPrompt:         initialPrompt,
+		initialTermWidth:      termWidth,
+		initialTermHeight:     termHeight,
 
 		// Initialize panes
 		repoPane:        repoPane,
@@ -241,6 +287,54 @@ func initialModel(subprocess string) model {
 	if m.repoPane != nil {
 		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok && repoPane.HasItems() {
 			m.updateChangesPane()
+		}
+	}
+
+	// If we have a pre-created session, set it up now
+	if preCreatedSession != nil {
+		// Set as active session
+		if m.sessionManager != nil {
+			if _, err := m.sessionManager.SwitchToSession(preCreatedSession.ID); err != nil {
+				debug.DebugLog("Failed to switch to pre-created session %s: %v", preCreatedSession.ID, err)
+			}
+		}
+		app.SetCurrentAgent(preCreatedSession.Agent())
+
+		// Update session view pane
+		if m.sessionViewPane != nil {
+			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				sessionView.SetSession(preCreatedSession)
+
+				// Set initial tmux content
+				activeAgent := preCreatedSession.GetActiveAgent()
+				if activeAgent != nil && preCreatedSession.SharedTmux != nil {
+					content, _ := preCreatedSession.SharedTmux.CapturePaneContent()
+					sessionView.SetTmuxContent(content)
+				}
+			}
+		}
+
+		// Refresh repo pane to show the new session
+		if m.repoPane != nil {
+			if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+				if err := repoPane.Refresh(); err != nil {
+					debug.DebugLog("Failed to refresh repo pane with pre-created session: %v", err)
+				}
+			}
+		}
+
+		// Update changes pane
+		m.updateChangesPane()
+
+		// Set panes to active since we're showing the 3-pane layout
+		if m.repoPane != nil {
+			m.repoPane.SetActive(true)
+		}
+		if m.sessionViewPane != nil {
+			m.sessionViewPane.SetActive(false) // Agents pane is initially focused
+		}
+		if m.changesPane != nil {
+			m.changesPane.SetActive(false)
 		}
 	}
 
@@ -369,7 +463,7 @@ func (m *model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
 			}
 			debug.DebugLog("Captured %d bytes of content for session %s", len(content), sess.TmuxSession().GetSessionName())
 			// Always return the content, even if it hasn't "changed"
-			return tmuxOutputMsg{content: content, hasPrompt: true}
+			return tmuxOutputMsg{content: content}
 		}
 	}
 	debug.DebugLog("WARNING: No tmux session to refresh!")
@@ -437,7 +531,7 @@ func (m *model) cycleNextAgent() tea.Cmd {
 					return tmuxOutputMsg{content: ""}
 				}
 				debug.DebugLog("Captured %d bytes of content for agent switch in session %s", len(content), activeSession.ID)
-				return tmuxOutputMsg{content: content, hasPrompt: true}
+				return tmuxOutputMsg{content: content}
 			})
 
 			// Resume normal monitoring after the forced capture
@@ -502,6 +596,19 @@ func (m model) Init() tea.Cmd {
 		}
 	}
 
+	// If we have an initial prompt from CLI AND no pre-created session, auto-create the session
+	// (If session was pre-created in CLI, it's already been set up in initialModelWithPromptAndSize)
+	hasActiveSession := m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil
+	if m.initialPrompt != "" && m.worktreeManager != nil && !hasActiveSession {
+		// Generate branch name and trigger session creation
+		repoName := m.worktreeManager.GetRepositoryName()
+		branchName := session.GenerateBranchNameFromPrompt(repoName)
+
+		cmds = append(cmds, func() tea.Msg {
+			return branchNameGeneratedMsg{branchName: branchName, prompt: m.initialPrompt}
+		})
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -514,13 +621,12 @@ func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 		}
 
 		// Check if output has changed
-		updated, hasPrompt := session.HasUpdated()
-		if !updated {
+		if !session.HasUpdated() {
 			return tmuxOutputMsg{content: ""}
 		}
 
 		// Return the raw content with ANSI codes
-		return tmuxOutputMsg{content: content, hasPrompt: hasPrompt}
+		return tmuxOutputMsg{content: content}
 	}
 }
 
@@ -547,8 +653,7 @@ type tmuxSessionStartedMsg struct {
 }
 
 type tmuxOutputMsg struct {
-	content   string
-	hasPrompt bool
+	content string
 }
 
 type tmuxDetachedMsg struct{}
@@ -566,6 +671,7 @@ type loadingTimeoutMsg struct{}
 // New session creation messages
 type branchNameGeneratedMsg struct {
 	branchName string
+	prompt     string // Optional: if empty, get from chatInput
 }
 
 type sessionCreatedMsg struct {
@@ -1147,27 +1253,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case branchNameGeneratedMsg:
 		// Branch name generation completed - start session creation
 		m.creatingSession = true
-		prompt := m.chatInput.GetValue()
-		agents := m.chatInput.GetSelectedAgents()
-		agentNames := make([]string, 0, len(agents))
-		for _, agent := range agents {
-			agentNames = append(agentNames, agent.Name)
+
+		// Get prompt from message (if provided via CLI) or from chat input
+		prompt := msg.prompt
+		if prompt == "" {
+			prompt = m.chatInput.GetValue()
 		}
 
-		// Build agent list for toast message
-		var agentNameList []string
-		for _, agent := range agents {
-			agentNameList = append(agentNameList, "@"+agent.Name)
+		// Get agents from subprocess or chat input
+		var agentConfigs []agents.AgentConfig
+		var agentNames []string
+		if m.subprocess != "" {
+			// Use agents from subprocess flag
+			names := strings.Split(m.subprocess, ",")
+			for _, name := range names {
+				name = strings.TrimSpace(name)
+				agentConfigs = append(agentConfigs, agents.GetAgentConfig(name))
+				agentNames = append(agentNames, name)
+			}
+		} else {
+			// Get from chat input
+			agentConfigs = m.chatInput.GetSelectedAgents()
+			agentNames = make([]string, 0, len(agentConfigs))
+			for _, agent := range agentConfigs {
+				agentNames = append(agentNames, agent.Name)
+			}
 		}
-		toastMsg := "Creating " + strings.Join(agentNameList, ", ") + " agent(s)..."
-		toastCmd := m.toast.Show(toastMsg, 0)
 
 		createCmd := func() tea.Msg {
-			newSession, err := m.sessionManager.CreateSession(prompt, msg.branchName, agentNames)
+			// Use stored terminal dimensions if available (from CLI prompt),
+			// otherwise use defaults (from manual session creation)
+			var newSession *session.Session
+			var err error
+			if m.initialTermWidth > 0 && m.initialTermHeight > 0 {
+				newSession, err = m.sessionManager.CreateSessionWithSize(prompt, msg.branchName, agentNames, m.initialTermWidth, m.initialTermHeight)
+			} else {
+				newSession, err = m.sessionManager.CreateSession(prompt, msg.branchName, agentNames)
+			}
 			return sessionCreatedMsg{session: newSession, err: err}
 		}
 
-		return m, tea.Batch(toastCmd, createCmd)
+		return m, createCmd
 
 	case sessionCreatedMsg:
 		// Session creation completed
@@ -1239,7 +1365,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return tmuxOutputMsg{content: ""}
 				}
 				debug.DebugLog("Captured %d bytes of content for new session %s", len(content), msg.session.SharedTmux.GetSessionName())
-				return tmuxOutputMsg{content: content, hasPrompt: true}
+				return tmuxOutputMsg{content: content}
 			})
 
 			cmds = append(cmds, waitForTmuxOutput(msg.session.SharedTmux))
@@ -2047,7 +2173,52 @@ func checkTmuxInstalled() error {
 	return nil
 }
 
+// createManagers initializes all backend managers
+func createManagers(subprocess string) (*managers, error) {
+	// Initialize debug logger FIRST so all subsequent logs are captured
+	debugLogger := debug.InitDebugLogger()
+
+	// Initialize state manager (thread-safe state persistence)
+	stateManager, err := state.NewManager()
+	if err != nil {
+		fmt.Printf("ERROR: failed to initialize state manager: %v\n", err)
+		fmt.Printf("Agate will run without session persistence. Please check ~/.agate permissions.\n")
+		debug.DebugLog("ERROR: StateManager initialization failed: %v", err)
+		// Continue with nil stateManager - session manager will handle it gracefully
+	}
+
+	// Initialize worktree manager
+	worktreeManager, err := git.NewWorktreeManager()
+	if err != nil {
+		// Log error but don't fail - app can still work without worktree features
+		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
+	}
+
+	// Create session manager with state manager
+	sessionManager := session.NewManager(worktreeManager, stateManager)
+
+	// Load existing sessions from persistence
+	if err := sessionManager.RestoreSessions(); err != nil {
+		debug.DebugLog("Failed to restore sessions on startup: %v", err)
+		// Don't fail startup if session restoration fails
+	}
+
+	// Set up debug logging for git package (always enabled now)
+	git.DebugLog = debug.DebugLog
+
+	return &managers{
+		sessionManager:  sessionManager,
+		stateManager:    stateManager,
+		worktreeManager: worktreeManager,
+		debugLogger:     debugLogger,
+	}, nil
+}
+
 func runAgent(subprocess string) error {
+	return runAgentWithPrompt(subprocess, "")
+}
+
+func runAgentWithPrompt(subprocess string, initialPrompt string) error {
 	if err := checkTmuxInstalled(); err != nil {
 		return err
 	}
@@ -2055,12 +2226,69 @@ func runAgent(subprocess string) error {
 	// Track TUI started
 	telemetry.TrackTUIStarted()
 
-	p := tea.NewProgram(initialModel(subprocess), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Get actual terminal size before creating Bubble Tea program
+	// This ensures we create sessions with the correct dimensions from the start
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		// Fallback to defaults if we can't detect terminal size
+		width, height = 200, 50
+	}
+
+	// If we have an initial prompt, create the session BEFORE launching TUI
+	// This prevents empty panes from showing
+	var mgrs *managers
+	var preCreatedSession *session.Session
+
+	if initialPrompt != "" {
+		// Create managers
+		mgrs, err = createManagers(subprocess)
+		if err != nil {
+			return fmt.Errorf("failed to initialize managers: %v", err)
+		}
+
+		// Start spinner
+		stopSpinner := startSpinner("Starting agents...")
+
+		// Generate branch name
+		repoName := ""
+		if mgrs.worktreeManager != nil {
+			repoName = mgrs.worktreeManager.GetRepositoryName()
+		}
+		branchName := session.GenerateBranchNameFromPrompt(repoName)
+
+		// Resolve agents
+		var agentNames []string
+		if subprocess != "" {
+			names := strings.Split(subprocess, ",")
+			for _, name := range names {
+				agentNames = append(agentNames, strings.TrimSpace(name))
+			}
+		} else if mgrs.stateManager != nil {
+			agentNames = mgrs.stateManager.GetSelectedAgents()
+		} else {
+			agentNames = []string{"claude"}
+		}
+
+		// Create session synchronously
+		preCreatedSession, err = mgrs.sessionManager.CreateSessionWithSize(initialPrompt, branchName, agentNames, width, height)
+
+		// Stop spinner and clear line
+		stopSpinner()
+
+		if err != nil {
+			return fmt.Errorf("failed to create session: %v", err)
+		}
+	}
+
+	model := initialModelWithPromptAndSize(subprocess, initialPrompt, width, height, mgrs, preCreatedSession)
+
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running program: %v", err)
 	}
 	return nil
 }
+
 
 func main() {
 	zone.NewGlobal()
@@ -2084,6 +2312,7 @@ func main() {
 
 	var showVersion bool
 	var agentsFlag string
+	var tmuxAttachFlag bool
 
 	var rootCmd = &cobra.Command{
 		Use:   "agate",
@@ -2105,7 +2334,8 @@ Examples:
   agate                                           # Launch with last selected agents (defaults to claude,codex)
   agate -a claude                                 # Launch with Claude
   agate --agents claude,codex                     # Launch with Claude and Codex
-  agate --agents claude,codex "add a new feature" # Create session with prompt and attach directly`,
+  agate "add a new feature"                       # Create session with prompt in TUI
+  agate -t "add a new feature"                    # Create session with prompt and attach directly to tmux`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showVersion {
@@ -2113,19 +2343,31 @@ Examples:
 				return nil
 			}
 
-			// If a prompt is provided, create session directly and attach
-			if len(args) > 0 {
+			// If -t flag is used without prompt, error
+			if tmuxAttachFlag && len(args) == 0 {
+				return fmt.Errorf("-t/--tmux flag requires a prompt argument")
+			}
+
+			// If prompt provided with -t flag, direct attach (old behavior)
+			if len(args) > 0 && tmuxAttachFlag {
 				prompt := args[0]
 				return newSessionFromCLI(agentsFlag, prompt)
 			}
 
-			// Otherwise, launch TUI
+			// If prompt provided WITHOUT -t flag, create session and show in TUI
+			if len(args) > 0 {
+				prompt := args[0]
+				return runAgentWithPrompt(agentsFlag, prompt)
+			}
+
+			// No prompt, no -t flag: normal TUI
 			return runAgent(agentsFlag)
 		},
 	}
 
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
 	rootCmd.Flags().StringVarP(&agentsFlag, "agents", "a", "", "Comma-separated list of agents (e.g., claude,codex)")
+	rootCmd.Flags().BoolVarP(&tmuxAttachFlag, "tmux", "t", false, "Directly attach to tmux session (requires prompt)")
 
 	// Metrics subcommand
 	var metricsSessionID string

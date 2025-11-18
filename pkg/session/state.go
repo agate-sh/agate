@@ -182,7 +182,7 @@ func (m *Manager) restoreSessionFromPersisted(persistedSession config.PersistedS
 		}
 
 		// Restore the shared tmux session
-		tmuxSession := tmux.NewTmuxSession(persistedSession.SharedTmuxName, "")
+		tmuxSession := tmux.NewTmuxSession(persistedSession.SharedTmuxName)
 		if err := tmuxSession.Restore(); err != nil {
 			return nil, fmt.Errorf("failed to restore shared tmux session: %w", err)
 		}

@@ -527,18 +527,14 @@ func (wm *WorktreeManager) ListWorktrees() (map[string][]WorktreeInfo, error) {
 				continue
 			}
 
-			// Get Git status
-			gitStatus, err := wm.getWorktreeGitStatus(worktreePath)
-			if err != nil {
-				gitStatus = &GitStatus{Branch: worktreeName, IsClean: true}
-			}
-
+			// Skip git status during initialization to avoid blocking
+			// Status will be fetched lazily when worktree overlay is opened
 			repoWorktrees = append(repoWorktrees, WorktreeInfo{
 				Name:      worktreeName,
 				Path:      worktreePath,
 				RepoName:  repoName,
-				Branch:    gitStatus.Branch,
-				GitStatus: gitStatus,
+				Branch:    worktreeName, // Use worktree name as branch placeholder
+				GitStatus: nil,          // Will be populated on demand
 				CreatedAt: info.ModTime(),
 			})
 		}

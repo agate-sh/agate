@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"agate/internal/debug"
 	"agate/pkg/agents"
@@ -125,7 +126,7 @@ func CalculatePaneLayout(count int) *PaneLayout {
 // agents: ordered list of agent configs
 // worktrees: ordered list of worktree paths (matches agents order)
 // sessionID: the session ID (used for metrics pane)
-func CreatePanes(sessionName string, agents []agents.AgentConfig, worktrees []*git.WorktreeInfo, sessionID string) error {
+func CreatePanes(sessionName string, agents []agents.AgentConfig, worktrees []*git.WorktreeInfo, sessionID string, prompt string) error {
 	if len(agents) != len(worktrees) {
 		return fmt.Errorf("agent count (%d) must match worktree count (%d)", len(agents), len(worktrees))
 	}
@@ -138,7 +139,7 @@ func CreatePanes(sessionName string, agents []agents.AgentConfig, worktrees []*g
 		return fmt.Errorf("maximum 6 agents supported, got %d", len(agents))
 	}
 
-	debug.DebugLog("CreatePanes: Creating %d panes for session %s", len(agents), sessionName)
+	debug.DebugLog("CreatePanes: Creating %d panes for session %s with prompt=%q", len(agents), sessionName, prompt)
 
 	// Get the layout commands
 	layout := CalculatePaneLayout(len(agents))
@@ -184,10 +185,10 @@ func CreatePanes(sessionName string, agents []agents.AgentConfig, worktrees []*g
 		}
 	}
 
-	// Now start each agent in its corresponding pane
+	// Now start each agent in its corresponding pane with the prompt
 	for i, agent := range agents {
 		paneIndex := layout.AgentToPaneMap[i]
-		if err := startAgentInPane(sessionName, paneIndex, agent, worktrees[i]); err != nil {
+		if err := startAgentInPane(sessionName, paneIndex, agent, worktrees[i], prompt); err != nil {
 			return fmt.Errorf("failed to start agent %s in pane %d: %w", agent.Name, paneIndex, err)
 		}
 	}
@@ -224,15 +225,11 @@ func CreateMetricsPane(sessionName string, sessionID string) error {
 	return nil
 }
 
-// startAgentInPane starts an agent CLI in a specific pane
-func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfig, worktree *git.WorktreeInfo) error {
-	debug.DebugLog("startAgentInPane: Starting %s in pane %d at %s", agent.Name, paneIndex, worktree.Path)
+// startAgentInPane starts an agent CLI in a specific pane with an optional prompt
+func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfig, worktree *git.WorktreeInfo, prompt string) error {
+	debug.DebugLog("startAgentInPane: Starting %s in pane %d at %s with prompt=%q", agent.Name, paneIndex, worktree.Path, prompt)
 
-	// Select the target pane
-	selectCmd := Command("select-pane", "-t", fmt.Sprintf("%s.%d", sessionName, paneIndex))
-	if err := selectCmd.Run(); err != nil {
-		return fmt.Errorf("failed to select pane %d: %w", paneIndex, err)
-	}
+	// Don't select pane - just send keys directly to the pane index
 
 	// Change directory to the worktree
 	cdCmd := Command("send-keys", "-t", fmt.Sprintf("%s.%d", sessionName, paneIndex),
@@ -241,12 +238,49 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 		return fmt.Errorf("failed to cd to worktree: %w", err)
 	}
 
-	// Start the agent CLI
-	agentCmd := agent.ExecutableName
-	startCmd := Command("send-keys", "-t", fmt.Sprintf("%s.%d", sessionName, paneIndex),
-		agentCmd, "C-m")
-	if err := startCmd.Run(); err != nil {
-		return fmt.Errorf("failed to start agent: %w", err)
+	// CRITICAL: Wait for cd command to complete before sending agent command
+	time.Sleep(500 * time.Millisecond)
+
+	// Build the agent command with prompt using InteractiveCommand
+	cmdParts := agent.InteractiveCommand(prompt)
+
+	// Build arguments for tmux send-keys
+	// IMPORTANT: Each argument to send-keys is sent as a separate "key"
+	// To send: claude "branch name is 136"
+	// We need args: ["claude", " ", "\"", "branch name is 136", "\""]
+	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
+	sendKeysArgs := []string{"send-keys", "-t", target}
+
+	for i, part := range cmdParts {
+		if i == len(cmdParts)-1 && prompt != "" {
+			// Last part is the prompt - need to wrap in quotes
+			// Escape special shell characters
+			escaped := strings.ReplaceAll(part, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "$", "\\$")
+			escaped = strings.ReplaceAll(escaped, "`", "\\`")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+
+			// Send: space, opening quote, escaped prompt, closing quote
+			sendKeysArgs = append(sendKeysArgs, " ", "\"", escaped, "\"")
+		} else {
+			// Command name and flags
+			sendKeysArgs = append(sendKeysArgs, part)
+		}
+	}
+
+	sendKeysArgs = append(sendKeysArgs, "C-m")
+
+	debug.DebugLog("startAgentInPane: Sending keys args (before Command): %#v", sendKeysArgs)
+	for i, arg := range sendKeysArgs {
+		debug.DebugLog("  arg[%d] = %q (len=%d)", i, arg, len(arg))
+	}
+
+	// Build command manually to ensure args are correct
+	fullArgs := append([]string{"-L", "agate"}, sendKeysArgs...)
+	sendTextCmd := exec.Command(tmuxPath, fullArgs...)
+	debug.DebugLog("startAgentInPane: Final exec.Cmd.Args: %#v", sendTextCmd.Args)
+	if err := sendTextCmd.Run(); err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
 	}
 
 	debug.DebugLog("startAgentInPane: Successfully started %s in pane %d", agent.Name, paneIndex)
