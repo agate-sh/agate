@@ -231,15 +231,24 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 
 	// Don't select pane - just send keys directly to the pane index
 
-	// Change directory to the worktree
+	// Change directory to the worktree (suppress output)
 	cdCmd := Command("send-keys", "-t", fmt.Sprintf("%s.%d", sessionName, paneIndex),
-		fmt.Sprintf("cd %s", worktree.Path), "C-m")
+		fmt.Sprintf("cd %s > /dev/null 2>&1", worktree.Path), "C-m")
 	if err := cdCmd.Run(); err != nil {
 		return fmt.Errorf("failed to cd to worktree: %w", err)
 	}
 
 	// CRITICAL: Wait for cd command to complete before sending agent command
 	time.Sleep(500 * time.Millisecond)
+
+	// Clear the screen before starting agent to hide all startup commands
+	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
+	clearCmd := Command("send-keys", "-t", target, "C-l")
+	if err := clearCmd.Run(); err != nil {
+		debug.DebugLog("Warning: failed to clear screen: %v", err)
+		// Don't fail - clearing is cosmetic
+	}
+	time.Sleep(100 * time.Millisecond)
 
 	// Build the agent command with prompt using InteractiveCommand
 	cmdParts := agent.InteractiveCommand(prompt)
@@ -248,7 +257,6 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 	// IMPORTANT: Each argument to send-keys is sent as a separate "key"
 	// To send: claude "branch name is 136"
 	// We need args: ["claude", " ", "\"", "branch name is 136", "\""]
-	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
 	sendKeysArgs := []string{"send-keys", "-t", target}
 
 	for i, part := range cmdParts {
@@ -263,7 +271,10 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 			// Send: space, opening quote, escaped prompt, closing quote
 			sendKeysArgs = append(sendKeysArgs, " ", "\"", escaped, "\"")
 		} else {
-			// Command name and flags
+			// Command name and flags - add space before each part (except first)
+			if i > 0 {
+				sendKeysArgs = append(sendKeysArgs, " ")
+			}
 			sendKeysArgs = append(sendKeysArgs, part)
 		}
 	}
