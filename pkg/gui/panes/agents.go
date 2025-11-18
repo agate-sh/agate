@@ -850,6 +850,18 @@ func (r *AgentsPane) onSelectionChanged() tea.Cmd {
 				// Update the pane to reflect the new active session
 				r.setActiveWorktree(workItem.Worktree)
 
+				// Log which agent/session was selected
+				activeAgent := sess.GetActiveAgent()
+				var agentInfo string
+				if activeAgent != nil {
+					agentInfo = fmt.Sprintf("agent=%s, index=%d, pane=%d",
+						activeAgent.AgentConfig.Name, sess.ActiveAgentIndex, activeAgent.PaneIndex)
+				} else {
+					agentInfo = fmt.Sprintf("no active agent (index=%d)", sess.ActiveAgentIndex)
+				}
+				debug.DebugLog("[ISSUE3] Agent selected in agents pane: session=%s, %s",
+					sess.ID, agentInfo)
+
 				// Send message to notify that session was switched
 				return func() tea.Msg {
 					return SessionSwitchedMsg{Session: sess}

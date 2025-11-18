@@ -2,6 +2,7 @@
 package agents
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -27,7 +28,12 @@ func (a AgentConfig) InteractiveCommand(prompt string) []string {
 	case "gemini":
 		return []string{"gemini", "-i", prompt}
 	case "amp":
-		return []string{"amp", prompt}
+		// Amp requires prompt via stdin: echo "prompt" | amp
+		escaped := strings.ReplaceAll(prompt, "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		escaped = strings.ReplaceAll(escaped, "$", "\\$")
+		escaped = strings.ReplaceAll(escaped, "`", "\\`")
+		return []string{fmt.Sprintf("echo \"%s\" | amp", escaped)}
 	case "codex":
 		return []string{"codex", prompt}
 	case "cline":

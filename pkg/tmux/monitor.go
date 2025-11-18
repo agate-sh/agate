@@ -27,11 +27,13 @@ func (m *StatusMonitor) hash(content string) []byte {
 // HasUpdated checks if the content has changed since the last check
 func (m *StatusMonitor) HasUpdated(content string) bool {
 	currentHash := m.hash(content)
-	if !bytesEqual(currentHash, m.prevOutputHash) {
+	hasUpdated := !bytesEqual(currentHash, m.prevOutputHash)
+	if hasUpdated {
 		m.prevOutputHash = currentHash
-		return true
 	}
-	return false
+	// Debug: Log every 50th check to avoid spam
+	// debug.DebugLog("[Monitor] HasUpdated check: updated=%v, content_len=%d", hasUpdated, len(content))
+	return hasUpdated
 }
 
 // bytesEqual compares two byte slices for equality

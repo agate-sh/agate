@@ -354,7 +354,9 @@ func (t *TmuxSession) CapturePaneContent() (string, error) {
 	// -e preserves escape sequences (ANSI colors)
 	// -J joins wrapped lines
 	// -p prints to stdout
-	cmd := tmuxCommand("capture-pane", "-p", "-e", "-J", "-t", t.sanitizedName)
+	// -S - captures from start of scrollback history (not just visible window)
+	// -E - captures to end of visible window
+	cmd := tmuxCommand("capture-pane", "-p", "-e", "-J", "-S", "-", "-E", "-", "-t", t.sanitizedName)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("error capturing pane content: %w", err)

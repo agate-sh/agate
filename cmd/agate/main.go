@@ -301,16 +301,10 @@ func initialModelWithPromptAndSize(subprocess string, initialPrompt string, term
 		app.SetCurrentAgent(preCreatedSession.Agent())
 
 		// Update session view pane
+		// Note: Initial tmux capture will be done by sessionCreatedMsg handler in Init()
 		if m.sessionViewPane != nil {
 			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
 				sessionView.SetSession(preCreatedSession)
-
-				// Set initial tmux content
-				activeAgent := preCreatedSession.GetActiveAgent()
-				if activeAgent != nil && preCreatedSession.SharedTmux != nil {
-					content, _ := preCreatedSession.SharedTmux.CapturePaneContent()
-					sessionView.SetTmuxContent(content)
-				}
 			}
 		}
 
@@ -609,6 +603,18 @@ func (m model) Init() tea.Cmd {
 		})
 	}
 
+	// If we have a pre-created session, trigger sessionCreatedMsg to start monitoring
+	// This ensures both pre-created and TUI-created sessions share the same code path
+	if hasActiveSession {
+		activeSession := m.sessionManager.GetActiveSession()
+		if activeSession != nil {
+			debug.DebugLog("[ISSUE1-PRECREATED] Triggering sessionCreatedMsg for pre-created session %s", activeSession.ID)
+			cmds = append(cmds, func() tea.Msg {
+				return sessionCreatedMsg{session: activeSession, err: nil}
+			})
+		}
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -617,17 +623,28 @@ func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 		// Capture tmux pane content with ANSI codes preserved
 		content, err := session.CapturePaneContent()
 		if err != nil {
+			debug.DebugLog("[waitForTmuxOutput] ERROR capturing: %v", err)
 			return tmuxOutputMsg{content: ""}
 		}
 
 		// Check if output has changed
-		if !session.HasUpdated() {
+		hasUpdated := session.HasUpdated()
+		if !hasUpdated {
+			// debug.DebugLog("[waitForTmuxOutput] No update, content_len=%d", len(content))
 			return tmuxOutputMsg{content: ""}
 		}
 
+		debug.DebugLog("[waitForTmuxOutput] Content UPDATED! len=%d, preview=%q", len(content), truncateString(content, 100))
 		// Return the raw content with ANSI codes
 		return tmuxOutputMsg{content: content}
 	}
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func combineCmds(cmds ...tea.Cmd) tea.Cmd {
@@ -784,9 +801,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tmuxOutputMsg:
 		// Update session view pane tmux content
 		if msg.content != "" {
+			debug.DebugLog("[tmuxOutputMsg] Received update: len=%d, preview=%q", len(msg.content), truncateString(msg.content, 100))
 			if m.sessionViewPane != nil {
 				if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
 					sessionViewPane.SetTmuxContent(msg.content)
+					debug.DebugLog("[tmuxOutputMsg] Set tmux content on session view pane")
 				}
 			}
 			// Clear loading timer when we have meaningful content
@@ -859,10 +878,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update shortcut overlay back to preview mode
 		m.shortcutOverlay.SetMode("preview")
 
+		// Log which agent we're detaching from
+		var agentInfo string
+		if activeSession := m.sessionManager.GetActiveSession(); activeSession != nil {
+			activeAgent := activeSession.GetActiveAgent()
+			if activeAgent != nil {
+				agentInfo = fmt.Sprintf("agent=%s, index=%d, pane=%d",
+					activeAgent.AgentConfig.Name, activeSession.ActiveAgentIndex, activeAgent.PaneIndex)
+			} else {
+				agentInfo = fmt.Sprintf("no active agent (index=%d)", activeSession.ActiveAgentIndex)
+			}
+		} else {
+			agentInfo = "no active session"
+		}
+		debug.DebugLog("[ISSUE3] Detaching from tmux: %s", agentInfo)
+
 		debug.DebugLog("[tmuxDetachedMsg] About to call switchToPane(FocusAgents)")
 		// Return focus to the agents pane (which will automatically jump to the active agent's row)
 		m, _ = m.switchToPane(layout.NewAgentsFocus())
-		debug.DebugLog("[tmuxDetachedMsg] Returned from switchToPane(FocusAgents)")
+		debug.DebugLog("[ISSUE3] After switchToPane, focus should be on agents pane to show agent card for: %s", agentInfo)
 
 		// Immediately resize the tmux session to current window dimensions
 		if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.ready {
@@ -1332,6 +1366,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if activeAgent != nil && msg.session.SharedTmux != nil {
 			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
 				content, _ := msg.session.SharedTmux.CapturePaneContent()
+				debug.DebugLog("[ISSUE1] Initial capture in sessionCreatedMsg: len=%d, content=%q", len(content), content)
 				sessionView.SetTmuxContent(content)
 			}
 
@@ -1364,7 +1399,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					debug.DebugLog("ERROR capturing pane content for new session %s: %v", msg.session.ID, err)
 					return tmuxOutputMsg{content: ""}
 				}
-				debug.DebugLog("Captured %d bytes of content for new session %s", len(content), msg.session.SharedTmux.GetSessionName())
+				debug.DebugLog("[ISSUE1] Forced capture in sessionCreatedMsg: len=%d, content=%q", len(content), content)
 				return tmuxOutputMsg{content: content}
 			})
 

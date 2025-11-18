@@ -259,23 +259,29 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 	// We need args: ["claude", " ", "\"", "branch name is 136", "\""]
 	sendKeysArgs := []string{"send-keys", "-t", target}
 
-	for i, part := range cmdParts {
-		if i == len(cmdParts)-1 && prompt != "" {
-			// Last part is the prompt - need to wrap in quotes
-			// Escape special shell characters
-			escaped := strings.ReplaceAll(part, "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "$", "\\$")
-			escaped = strings.ReplaceAll(escaped, "`", "\\`")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	// If we have a single pre-formatted command (like "echo \"prompt\" | amp"),
+	// send it as-is without re-quoting
+	if len(cmdParts) == 1 && prompt != "" {
+		sendKeysArgs = append(sendKeysArgs, cmdParts[0])
+	} else {
+		for i, part := range cmdParts {
+			if i == len(cmdParts)-1 && prompt != "" {
+				// Last part is the prompt - need to wrap in quotes
+				// Escape special shell characters
+				escaped := strings.ReplaceAll(part, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "$", "\\$")
+				escaped = strings.ReplaceAll(escaped, "`", "\\`")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 
-			// Send: space, opening quote, escaped prompt, closing quote
-			sendKeysArgs = append(sendKeysArgs, " ", "\"", escaped, "\"")
-		} else {
-			// Command name and flags - add space before each part (except first)
-			if i > 0 {
-				sendKeysArgs = append(sendKeysArgs, " ")
+				// Send: space, opening quote, escaped prompt, closing quote
+				sendKeysArgs = append(sendKeysArgs, " ", "\"", escaped, "\"")
+			} else {
+				// Command name and flags - add space before each part (except first)
+				if i > 0 {
+					sendKeysArgs = append(sendKeysArgs, " ")
+				}
+				sendKeysArgs = append(sendKeysArgs, part)
 			}
-			sendKeysArgs = append(sendKeysArgs, part)
 		}
 	}
 
@@ -294,7 +300,7 @@ func startAgentInPane(sessionName string, paneIndex int, agent agents.AgentConfi
 		return fmt.Errorf("failed to send command: %w", err)
 	}
 
-	debug.DebugLog("startAgentInPane: Successfully started %s in pane %d", agent.Name, paneIndex)
+	debug.DebugLog("[ISSUE1] startAgentInPane: Successfully sent agent command for %s in pane %d (agent may not have output yet)", agent.Name, paneIndex)
 	return nil
 }
 
@@ -307,7 +313,9 @@ func SelectPane(sessionName string, paneIndex int) error {
 // CapturePaneContent captures the current content of a specific pane
 func CapturePaneContent(sessionName string, paneIndex int) (string, error) {
 	target := fmt.Sprintf("%s.%d", sessionName, paneIndex)
-	cmd := Command("capture-pane", "-p", "-e", "-J", "-t", target)
+	// -S - captures from start of scrollback history (not just visible window)
+	// -E - captures to end of visible window
+	cmd := Command("capture-pane", "-p", "-e", "-J", "-S", "-", "-E", "-", "-t", target)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to capture pane %d: %w", paneIndex, err)

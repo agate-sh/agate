@@ -281,16 +281,13 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 		debug.DebugLog("setupTmuxSession: All post-launch handlers complete")
 	}()
 
-	// Set up a hook to create metrics pane on first client attach
-	// This ensures the window is at its final size (user's terminal size)
-	hookCmd := fmt.Sprintf("run-shell 'tmux split-window -v -f -l 10 -t %s && tmux send-keys -t %s \"agate metrics --session-id %s\" C-m && tmux set-hook -u -t %s client-attached'",
-		tmuxSessionName, tmuxSessionName, session.ID, tmuxSessionName)
-	setHookCmd := tmux.Command("set-hook", "-t", tmuxSessionName, "client-attached", hookCmd)
-	if err := setHookCmd.Run(); err != nil {
-		debug.DebugLog("setupTmuxSession: Warning - failed to set attach hook for metrics pane: %v", err)
+	// Create metrics pane immediately (no longer using hook since we have terminal dimensions at launch)
+	debug.DebugLog("[ISSUE2] Creating metrics pane directly for session %s", tmuxSessionName)
+	if err := tmux.CreateMetricsPane(tmuxSessionName, session.ID); err != nil {
+		debug.DebugLog("[ISSUE2] Warning - failed to create metrics pane: %v", err)
 		// Don't fail - metrics is optional
 	} else {
-		debug.DebugLog("setupTmuxSession: Set client-attached hook to create metrics pane (10 lines)")
+		debug.DebugLog("[ISSUE2] Successfully created metrics pane")
 	}
 
 	// Focus the first agent's pane to match ActiveAgentIndex = 0
