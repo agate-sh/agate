@@ -157,7 +157,10 @@ func (m *Manager) CreateSessionWithSize(prompt string, branchName string, agentN
 	// Store session
 	m.sessions[sessionID] = session
 
-	// Persist session
+	// Set as active session so TUI will show it
+	m.activeSession = session
+
+	// Persist session with active state
 	if err := m.PersistSessions(); err != nil {
 		debug.DebugLog("Failed to persist new session %s: %v", sessionID, err)
 	}
@@ -221,8 +224,9 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 	// (all agents share one tmux session now)
 	tmuxSessionName := generateTmuxSessionName(sessionAgents[0].Worktree, session.BranchBaseName)
 
-	// Create the tmux session (starts in first agent's worktree)
-	tmuxSession := tmux.NewTmuxSession(tmuxSessionName, sessionAgents[0].AgentConfig.ExecutableName)
+	// Create the tmux session (don't launch agent yet - we'll send commands via send-keys)
+	// Session starts with a shell prompt so we can send agent commands via send-keys
+	tmuxSession := tmux.NewTmuxSession(tmuxSessionName)
 	err := tmuxSession.Start(sessionAgents[0].Worktree.Path)
 	if err != nil {
 		return fmt.Errorf("failed to start tmux session: %w", err)
@@ -248,47 +252,34 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 		worktrees[i] = agent.Worktree
 	}
 
-	// Create panes and start agents, including metrics pane
-	if err := tmux.CreatePanes(tmuxSessionName, agentConfigs, worktrees, session.ID); err != nil {
+	// Create panes and start agents with prompts
+	// Agents are launched with prompts as CLI arguments, so they start immediately
+	if err := tmux.CreatePanes(tmuxSessionName, agentConfigs, worktrees, session.ID, session.Prompt); err != nil {
 		// Kill the tmux session on failure
 		tmuxSession.Kill()
 		return fmt.Errorf("failed to create panes: %w", err)
 	}
 
-	// Handle post-launch actions for each agent and wait for all to be ready
-	// This includes auto-accepting trust prompts, verifying agents accept input, and submitting the prompt
-	var wg sync.WaitGroup
-	for _, agent := range sessionAgents {
-		wg.Add(1)
-		go func(a *Agent) {
-			defer wg.Done()
-			if err := a.AgentConfig.HandlePostLaunch(tmuxSessionName, a.PaneIndex, session.Prompt); err != nil {
-				debug.DebugLog("setupTmuxSession: Warning - post-launch failed for %s: %v", a.AgentConfig.Name, err)
-				// Don't fail the session - post-launch is best-effort
-			} else {
-				debug.DebugLog("setupTmuxSession: Agent %s is ready and prompt submitted in pane %d", a.AgentConfig.Name, a.PaneIndex)
-			}
-		}(agent)
-	}
-
-	// Wait for all agents to be ready (prompt typed but not submitted yet)
-	wg.Wait()
-	debug.DebugLog("setupTmuxSession: All agents are ready with prompts typed!")
-
-	// Now send Enter to all agents simultaneously to submit the prompts
-	if session.Prompt != "" {
-		debug.DebugLog("setupTmuxSession: Sending Enter to all %d agents to submit prompts", len(sessionAgents))
+	// Handle post-launch actions for Claude only (trust prompt handling)
+	// Other agents don't need any post-launch handling since they launched with prompts
+	// Run in background - don't block session creation
+	go func() {
+		var wg sync.WaitGroup
 		for _, agent := range sessionAgents {
-			target := fmt.Sprintf("%s.%d", tmuxSessionName, agent.PaneIndex)
-			sendEnterCmd := tmux.Command("send-keys", "-t", target, "Enter")
-			if err := sendEnterCmd.Run(); err != nil {
-				debug.DebugLog("setupTmuxSession: Warning - failed to send Enter to %s: %v", agent.AgentConfig.Name, err)
-			} else {
-				debug.DebugLog("setupTmuxSession: Sent Enter to %s (pane %d)", agent.AgentConfig.Name, agent.PaneIndex)
-			}
+			wg.Add(1)
+			go func(a *Agent) {
+				defer wg.Done()
+				if err := a.AgentConfig.HandlePostLaunch(tmuxSessionName, a.PaneIndex, session.Prompt); err != nil {
+					debug.DebugLog("setupTmuxSession: Warning - post-launch failed for %s: %v", a.AgentConfig.Name, err)
+					// Don't fail the session - post-launch is best-effort
+				} else {
+					debug.DebugLog("setupTmuxSession: Agent %s post-launch complete in pane %d", a.AgentConfig.Name, a.PaneIndex)
+				}
+			}(agent)
 		}
-		debug.DebugLog("setupTmuxSession: All prompts submitted!")
-	}
+		wg.Wait()
+		debug.DebugLog("setupTmuxSession: All post-launch handlers complete")
+	}()
 
 	// Set up a hook to create metrics pane on first client attach
 	// This ensures the window is at its final size (user's terminal size)
