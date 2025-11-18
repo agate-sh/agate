@@ -1,6 +1,8 @@
-# Agate
+# Agate - _Run and evaluate agents in parallel_
 
-Run Claude Code, Codex, Gemini, and other agents against the same prompt to compare outputs, gather usage metrics, and parallelize work.
+Run agents like Claude Code, Codex, and Gemini in parallel worktrees, or compare them on the same prompt
+
+`agate --agents claude,codex,gemini "Create or update AGENTS.md"`
 
 ![Agate Terminal Multiplexer](assets/screenshot.png)
 
@@ -28,16 +30,19 @@ make build
 
 ## Usage
 
-Run a set of agents against the same prompt:
-
-```bash
-agate --agents claude,codex,gemiini "Create or update AGENTS.md"
 ```
+Examples:
+  agate                                                           # Launch TUI
+  agate --agents claude,codex,gemini                              # Launch TUI with specific agents
+  agate --agents claude,codex,gemini "Create or update AGENTS.md" # Launch with a prompt and auto-attach
 
-Launch the full Agate TUI:
+Usage:
+  agate [flags] [prompt]
 
-```bash
-agate
+Flags:
+  -a, --agents string   Comma-separated list of agents (e.g., claude,codex,gemini)
+  -h, --help            help for agate
+  -v, --version         Show version information
 ```
 
 ## Contributing

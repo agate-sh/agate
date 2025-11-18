@@ -83,7 +83,6 @@ type model struct {
 	welcomeHeader         *components.WelcomeHeader // Header with ASCII art, version, and shortcuts
 	showNewSessionInput   bool                      // true when showing new session input (no sessions or user pressed 'n')
 	creatingSession       bool                      // true during session creation (shows toast)
-	generatingBranchName  bool                      // true during branch name generation (shows "Generating branch name..." toast)
 	generatingDescription bool                      // true while description is being generated in background
 
 	// Panes using the new Pane interface
@@ -217,7 +216,6 @@ func initialModel(subprocess string) model {
 		welcomeHeader:         welcomeHeader,
 		showNewSessionInput:   showNewSessionInput,
 		creatingSession:       false,
-		generatingBranchName:  false,
 		generatingDescription: false,
 
 		// Initialize panes
@@ -568,7 +566,6 @@ type loadingTimeoutMsg struct{}
 // New session creation messages
 type branchNameGeneratedMsg struct {
 	branchName string
-	err        error
 }
 
 type sessionCreatedMsg struct {
@@ -1148,16 +1145,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, toastCmd
 
 	case branchNameGeneratedMsg:
-		// Branch name generation completed
-		m.generatingBranchName = false
-
-		if msg.err != nil {
-			// Generation failed - use random fallback
-			debug.DebugLog("Branch name generation failed: %v, using random name", msg.err)
-			msg.branchName = session.GenerateRandomBranchName()
-		}
-
-		// Now start session creation
+		// Branch name generation completed - start session creation
 		m.creatingSession = true
 		prompt := m.chatInput.GetValue()
 		agents := m.chatInput.GetSelectedAgents()
@@ -1370,7 +1358,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.Type == tea.KeyEnter && !msg.Alt {
 					// User pressed Enter - start session creation
 					prompt := m.chatInput.GetValue()
-					agents := m.chatInput.GetSelectedAgents()
 
 					if strings.TrimSpace(prompt) == "" {
 						// Empty prompt - show error toast
@@ -1378,14 +1365,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, toastCmd
 					}
 
-					// Start branch name generation (show toast)
-					m.generatingBranchName = true
-					toastCmd := m.toast.Show("Generating branch name...", 0)
-					branchNameCmd := func() tea.Msg {
-						branchName, err := session.GenerateBranchNameFromPrompt(prompt, agents[0])
-						return branchNameGeneratedMsg{branchName: branchName, err: err}
+					// Generate deterministic branch name instantly
+					repoName := m.worktreeManager.GetRepositoryName()
+					branchName := session.GenerateBranchNameFromPrompt(repoName)
+
+					// Start session creation immediately by sending message
+					return m, func() tea.Msg {
+						return branchNameGeneratedMsg{branchName: branchName}
 					}
-					return m, tea.Batch(toastCmd, branchNameCmd)
 				} else if msg.Type == tea.KeyEscape {
 					// Cancel new session input
 					if len(m.sessionManager.ListSessions()) > 0 {

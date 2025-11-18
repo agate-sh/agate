@@ -77,40 +77,19 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	}
 	debug.DebugLog("Detected terminal size: %dx%d", termWidth, termHeight)
 
-	// Generate branch name from prompt
-	branchName, err := session.GenerateBranchNameFromPrompt(prompt, agentConfigs[0])
-	if err != nil {
-		debug.DebugLog("Branch name generation failed: %v, using random name", err)
-		branchName = session.GenerateRandomBranchName()
-	}
+	// Generate deterministic branch name using repo name and timestamp
+	repoName := worktreeManager.GetRepositoryName()
+	branchName := session.GenerateBranchNameFromPrompt(repoName)
 
 	// Create session with terminal dimensions
+	// This blocks until all agents are ready and prompt is submitted
 	sess, err := sessionManager.CreateSessionWithSize(prompt, branchName, agentNames, termWidth, termHeight)
 	if err != nil {
 		stopSpinner()
 		return fmt.Errorf("failed to create session: %v", err)
 	}
 
-	// Wait for session to be ready (poll until hasPrompt is true)
-	if sess.SharedTmux != nil {
-		for {
-			_, err := sess.SharedTmux.CapturePaneContent()
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-
-			// Call HasUpdated to check hasPrompt (we don't care about updated flag here)
-			_, hasPrompt := sess.SharedTmux.HasUpdated()
-
-			if hasPrompt {
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-
-	// Stop spinner and clear line
+	// Stop spinner and clear line - agents are already working on the prompt
 	stopSpinner()
 
 	// Attach to tmux session using exec (proper terminal handoff for CLI mode)

@@ -255,12 +255,39 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 		return fmt.Errorf("failed to create panes: %w", err)
 	}
 
-	// Handle post-launch actions for each agent (e.g., Claude trust prompt auto-accept)
+	// Handle post-launch actions for each agent and wait for all to be ready
+	// This includes auto-accepting trust prompts, verifying agents accept input, and submitting the prompt
+	var wg sync.WaitGroup
 	for _, agent := range sessionAgents {
-		if err := agent.AgentConfig.HandlePostLaunch(tmuxSessionName, agent.PaneIndex); err != nil {
-			debug.DebugLog("setupTmuxSession: Warning - post-launch failed for %s: %v", agent.AgentConfig.Name, err)
-			// Don't fail the session - post-launch is best-effort
+		wg.Add(1)
+		go func(a *Agent) {
+			defer wg.Done()
+			if err := a.AgentConfig.HandlePostLaunch(tmuxSessionName, a.PaneIndex, session.Prompt); err != nil {
+				debug.DebugLog("setupTmuxSession: Warning - post-launch failed for %s: %v", a.AgentConfig.Name, err)
+				// Don't fail the session - post-launch is best-effort
+			} else {
+				debug.DebugLog("setupTmuxSession: Agent %s is ready and prompt submitted in pane %d", a.AgentConfig.Name, a.PaneIndex)
+			}
+		}(agent)
+	}
+
+	// Wait for all agents to be ready (prompt typed but not submitted yet)
+	wg.Wait()
+	debug.DebugLog("setupTmuxSession: All agents are ready with prompts typed!")
+
+	// Now send Enter to all agents simultaneously to submit the prompts
+	if session.Prompt != "" {
+		debug.DebugLog("setupTmuxSession: Sending Enter to all %d agents to submit prompts", len(sessionAgents))
+		for _, agent := range sessionAgents {
+			target := fmt.Sprintf("%s.%d", tmuxSessionName, agent.PaneIndex)
+			sendEnterCmd := tmux.Command("send-keys", "-t", target, "Enter")
+			if err := sendEnterCmd.Run(); err != nil {
+				debug.DebugLog("setupTmuxSession: Warning - failed to send Enter to %s: %v", agent.AgentConfig.Name, err)
+			} else {
+				debug.DebugLog("setupTmuxSession: Sent Enter to %s (pane %d)", agent.AgentConfig.Name, agent.PaneIndex)
+			}
 		}
+		debug.DebugLog("setupTmuxSession: All prompts submitted!")
 	}
 
 	// Set up a hook to create metrics pane on first client attach
@@ -681,3 +708,4 @@ func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName strin
 
 	return session, err
 }
+
