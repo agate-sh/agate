@@ -3,7 +3,7 @@
 package tmux
 
 import (
-	"agate/pkg/gui/components"
+	"agate/pkg/tui/components"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"

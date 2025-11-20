@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"agate/pkg/gui/metrics"
+	"agate/pkg/tui/metrics"
 	"agate/pkg/session"
 	"agate/pkg/state"
 

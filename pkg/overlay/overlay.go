@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"agate/pkg/gui/theme"
+	"agate/pkg/tui/theme"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/ansi"

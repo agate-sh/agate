@@ -13,11 +13,11 @@ import (
 	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/git"
-	"agate/pkg/gui/components"
-	"agate/pkg/gui/layout"
-	"agate/pkg/gui/overlays"
-	"agate/pkg/gui/panes"
-	"agate/pkg/gui/theme"
+	"agate/pkg/tui/components"
+	"agate/pkg/tui/layout"
+	"agate/pkg/tui/overlays"
+	"agate/pkg/tui/panes"
+	"agate/pkg/tui/theme"
 	"agate/pkg/overlay"
 	"agate/pkg/session"
 	"agate/pkg/state"
@@ -1038,7 +1038,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case panes.AttachToSessionMsg:
 		// User wants to attach to a tmux session from the agents pane
-		if msg.Session != nil && msg.Session.TmuxSession != nil {
+		if msg.Session != nil && msg.Session.TmuxSession() != nil {
 			if m.sessionManager != nil {
 				m.sessionManager.SwitchToSession(msg.Session.ID)
 				app.SetCurrentAgent(msg.Session.Agent())
@@ -1149,7 +1149,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show success toast
 		if msg.Session != nil && m.toast != nil {
 			branchName := "session"
-			if msg.Session.Worktree != nil {
+			if msg.Session.Worktree() != nil {
 				branchName = msg.Session.Worktree().Branch
 			}
 			// Create styled message with green checkmark
