@@ -11,18 +11,17 @@ import (
 	"agate/internal/version"
 	"agate/pkg/agents"
 	"agate/pkg/app"
-	"agate/pkg/telemetry"
 	"agate/pkg/common"
 	"agate/pkg/git"
 	"agate/pkg/gui/components"
 	"agate/pkg/gui/layout"
-	"agate/pkg/gui/metrics"
 	"agate/pkg/gui/overlays"
 	"agate/pkg/gui/panes"
 	"agate/pkg/gui/theme"
 	"agate/pkg/overlay"
 	"agate/pkg/session"
 	"agate/pkg/state"
+	"agate/pkg/telemetry"
 	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -31,7 +30,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
@@ -158,22 +156,7 @@ func initialModelWithPromptAndSize(subprocess string, initialPrompt string, term
 	// No automatic main session creation - users must explicitly create agents
 
 	// Resolve which agents to use for initialization
-	// Priority: CLI argument > Config > Default ["claude", "codex"]
-	var agentNames []string
-	if subprocess != "" {
-		// Parse comma-separated agents from CLI
-		agentNames = strings.Split(subprocess, ",")
-		// Trim whitespace from each agent name
-		for i := range agentNames {
-			agentNames[i] = strings.TrimSpace(agentNames[i])
-		}
-	} else if stateManager != nil {
-		// Load from config (returns ["claude", "codex", "gemini"] if empty)
-		agentNames = stateManager.GetSelectedAgents()
-	} else {
-		// Fallback if no state manager
-		agentNames = []string{"claude", "codex", "gemini"}
-	}
+	agentNames := ResolveAgentNames(subprocess, stateManager)
 
 	// Convert agent names to AgentConfig objects
 	agentConfigs := make([]agents.AgentConfig, 0, len(agentNames))
@@ -936,6 +919,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			agentName := msg.AgentName
 			if agentName == "" {
 				agentName = m.subprocess // Fallback to subprocess if not provided
+			}
+			if agentName == "" {
+				agentName = agents.ClaudeAgent.ExecutableName // Final fallback to claude
 			}
 			// Create or get session for this worktree using session manager
 			newSession, err := m.sessionManager.GetOrCreateSession(msg.Worktree, agentName)
@@ -2292,17 +2278,7 @@ func runAgentWithPrompt(subprocess string, initialPrompt string) error {
 		branchName := session.GenerateBranchNameFromPrompt(repoName)
 
 		// Resolve agents
-		var agentNames []string
-		if subprocess != "" {
-			names := strings.Split(subprocess, ",")
-			for _, name := range names {
-				agentNames = append(agentNames, strings.TrimSpace(name))
-			}
-		} else if mgrs.stateManager != nil {
-			agentNames = mgrs.stateManager.GetSelectedAgents()
-		} else {
-			agentNames = []string{"claude"}
-		}
+		agentNames := ResolveAgentNames(subprocess, mgrs.stateManager)
 
 		// Create session synchronously
 		preCreatedSession, err = mgrs.sessionManager.CreateSessionWithSize(initialPrompt, branchName, agentNames, width, height)
@@ -2345,108 +2321,6 @@ func main() {
 		}
 	}
 
-	var showVersion bool
-	var agentsFlag string
-	var tmuxAttachFlag bool
-
-	var rootCmd = &cobra.Command{
-		Use:   "agate",
-		Short: "A tmux-based terminal UI for AI agents",
-		Long: `Agate provides a split-pane terminal interface for interacting with AI agents.
-
-Supports any agent name (claude, codex, gemini, etc.) and automatically configures
-colors and settings based on the agent type.
-
-Agate provides two interaction modes:
-  Preview Mode (default): Read-only view with fast, lag-free rendering
-  Attached Mode (a): Full tmux experience with complete control
-
-Press 'a' when focused on the right pane to attach to tmux.
-Press Ctrl+Q when attached to detach back to preview.
-Press ? for help once running.
-
-Examples:
-  agate                                           # Launch with last selected agents (defaults to claude,codex)
-  agate -a claude                                 # Launch with Claude
-  agate --agents claude,codex                     # Launch with Claude and Codex
-  agate "add a new feature"                       # Create session with prompt in TUI
-  agate -t "add a new feature"                    # Create session with prompt and attach directly to tmux`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			if showVersion {
-				fmt.Println(version.Short())
-				return nil
-			}
-
-			// If -t flag is used without prompt, error
-			if tmuxAttachFlag && len(args) == 0 {
-				return fmt.Errorf("-t/--tmux flag requires a prompt argument")
-			}
-
-			// If prompt provided with -t flag, direct attach (old behavior)
-			if len(args) > 0 && tmuxAttachFlag {
-				prompt := args[0]
-				return newSessionFromCLI(agentsFlag, prompt)
-			}
-
-			// If prompt provided WITHOUT -t flag, create session and show in TUI
-			if len(args) > 0 {
-				prompt := args[0]
-				return runAgentWithPrompt(agentsFlag, prompt)
-			}
-
-			// No prompt, no -t flag: normal TUI
-			return runAgent(agentsFlag)
-		},
-	}
-
-	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Show version information")
-	rootCmd.Flags().StringVarP(&agentsFlag, "agents", "a", "", "Comma-separated list of agents (e.g., claude,codex)")
-	rootCmd.Flags().BoolVarP(&tmuxAttachFlag, "tmux", "t", false, "Directly attach to tmux session (requires prompt)")
-
-	// Metrics subcommand
-	var metricsSessionID string
-	var metricsCmd = &cobra.Command{
-		Use:   "metrics",
-		Short: "View live metrics for a session",
-		Long:  `Display a live metrics view for the specified session ID.`,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if metricsSessionID == "" {
-				return fmt.Errorf("--session-id is required")
-			}
-
-			// Initialize state manager to load session
-			stateManager, err := state.NewManager()
-			if err != nil {
-				return fmt.Errorf("failed to initialize state manager: %w", err)
-			}
-
-			// Load sessions from state
-			sessionMappings := stateManager.GetSessionMappings()
-			persistedSession, exists := sessionMappings[metricsSessionID]
-			if !exists {
-				return fmt.Errorf("session not found: %s", metricsSessionID)
-			}
-
-			// Reconstruct session object from persisted state
-			sess := &session.Session{
-				ID:             persistedSession.ID,
-				Prompt:         persistedSession.Prompt,
-				Description:    persistedSession.Description,
-				BranchBaseName: persistedSession.BranchBaseName,
-				CreatedAt:      persistedSession.CreatedAt,
-				LastAccessed:   persistedSession.LastAccessed,
-			}
-
-			// Run metrics TUI
-			return metrics.Run(sess)
-		},
-	}
-	metricsCmd.Flags().StringVar(&metricsSessionID, "session-id", "", "Session ID to view metrics for (required)")
-
-	rootCmd.AddCommand(metricsCmd)
-
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	// Execute CLI
+	ExecuteCLI()
 }

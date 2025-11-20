@@ -119,10 +119,6 @@ func GetSelectedAgents() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Default to claude and codex if empty
-	if len(state.Sessions.SelectedAgents) == 0 {
-		return []string{"claude", "codex"}, nil
-	}
 	return state.Sessions.SelectedAgents, nil
 }
 

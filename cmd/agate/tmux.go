@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"agate/internal/debug"
@@ -42,21 +41,7 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	sessionManager := session.NewManager(worktreeManager, stateManager)
 
 	// Determine which agents to use
-	var agentNames []string
-	if agentsFlag != "" {
-		agentNames = strings.Split(agentsFlag, ",")
-		for i := range agentNames {
-			agentNames[i] = strings.TrimSpace(agentNames[i])
-		}
-	} else if stateManager != nil {
-		agentNames = stateManager.GetSelectedAgents()
-	} else {
-		agentNames = []string{"claude", "codex"}
-	}
-
-	if len(agentNames) == 0 {
-		agentNames = []string{"claude", "codex"}
-	}
+	agentNames := ResolveAgentNames(agentsFlag, stateManager)
 
 	// Convert to agent configs
 	agentConfigs := make([]agents.AgentConfig, 0, len(agentNames))

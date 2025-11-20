@@ -310,17 +310,13 @@ func (m *Manager) SetSelectedAgents(agents []string) error {
 }
 
 // GetSelectedAgents returns the selected agents for new sessions.
-// Returns ["claude", "codex", "gemini"] if no agents are selected.
+// Returns empty slice if no agents are selected.
 func (m *Manager) GetSelectedAgents() []string {
 	var result []string
 	m.ReadSessions(func(s *config.SessionState) error {
 		result = s.SelectedAgents
 		return nil
 	})
-	// Default to claude, codex, and gemini if empty
-	if len(result) == 0 {
-		return []string{"claude", "codex", "gemini"}
-	}
 	return result
 }
 

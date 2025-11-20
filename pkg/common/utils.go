@@ -113,3 +113,15 @@ func formatUnit(value int, unit string) string {
 	}
 	return fmt.Sprintf("%d%s", value, unit)
 }
+
+// ParseCommaSeparated splits a comma-separated string and filters out empty values
+func ParseCommaSeparated(input string) []string {
+	parts := strings.Split(input, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
