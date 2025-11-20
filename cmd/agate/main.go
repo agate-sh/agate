@@ -13,16 +13,16 @@ import (
 	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/git"
-	"agate/pkg/tui/components"
-	"agate/pkg/tui/layout"
-	"agate/pkg/tui/overlays"
-	"agate/pkg/tui/panes"
-	"agate/pkg/tui/theme"
 	"agate/pkg/overlay"
 	"agate/pkg/session"
 	"agate/pkg/state"
 	"agate/pkg/telemetry"
 	"agate/pkg/tmux"
+	"agate/pkg/tui/components"
+	"agate/pkg/tui/layout"
+	"agate/pkg/tui/overlays"
+	"agate/pkg/tui/panes"
+	"agate/pkg/tui/theme"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -67,14 +67,12 @@ type model struct {
 	subprocess          string                               // Command to run in tmux pane
 	mode                sessionMode                          // Current interaction mode
 	shortcutOverlay     *common.ShortcutOverlay              // Manages contextual shortcuts
-	helpDialog          *overlays.HelpDialog                 // Help dialog overlay
-	showHelp            bool                                 // Whether help dialog is visible
-	worktreeManager     *git.WorktreeManager                 // Git worktree management
-	worktreeList        *overlays.WorktreeList               // Worktree list component
-	worktreeConfirm     *overlays.WorktreeConfirmDialog      // Worktree deletion confirmation
-	sessionConfirm      *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
-	showWorktreeConfirm bool                                 // Whether showing worktree deletion confirmation
-	showSessionConfirm  bool                                 // Whether showing session deletion confirmation
+	helpDialog      *overlays.HelpDialog                 // Help dialog overlay
+	showHelp        bool                                 // Whether help dialog is visible
+	worktreeManager *git.WorktreeManager                 // Git worktree management
+	worktreeList    *overlays.WorktreeList               // Worktree list component
+	sessionConfirm  *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
+	showSessionConfirm bool                              // Whether showing session deletion confirmation
 	debugLogger         *debug.DebugLogger                   // Debug logger for development
 	debugOverlay        *overlays.DebugOverlay               // Debug overlay for development
 	showDebugOverlay    bool                                 // Whether showing debug overlay
@@ -229,10 +227,9 @@ func initialModelWithPromptAndSize(subprocess string, initialPrompt string, term
 		shortcutOverlay:       shortcutOverlay,
 		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
 		showHelp:              false,
-		worktreeManager:       worktreeManager,
-		worktreeList:          worktreeList,
-		showWorktreeConfirm:   false,
-		showSessionConfirm:    false,
+		worktreeManager:    worktreeManager,
+		worktreeList:       worktreeList,
+		showSessionConfirm: false,
 		debugLogger:           debugLogger,
 		debugOverlay:          debugOverlay,
 		showDebugOverlay:      false,
@@ -908,103 +905,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Left content error will be displayed by WorktreeList directly
 		// Error: msg.error can be handled by WorktreeList if needed
 
-	// Worktree dialog messages (TODO: This is part of the old system, may need refactoring)
-	case overlays.WorktreeCreatedMsg:
-		var cmds []tea.Cmd
-
-		// Worktree created successfully - start tmux session
-		// Create and switch to new session for the worktree FIRST
-		if msg.Worktree != nil {
-			// Use the agent name from the message (selected by user in dialog)
-			agentName := msg.AgentName
-			if agentName == "" {
-				agentName = m.subprocess // Fallback to subprocess if not provided
-			}
-			if agentName == "" {
-				agentName = agents.ClaudeAgent.ExecutableName // Final fallback to claude
-			}
-			// Create or get session for this worktree using session manager
-			newSession, err := m.sessionManager.GetOrCreateSession(msg.Worktree, agentName)
-			if err == nil {
-				// Switch to the new session FIRST
-				m.sessionManager.SwitchToSession(newSession.ID)
-
-				// Update agent based on new session
-				app.SetCurrentAgent(newSession.Agent())
-
-				// Update the agents pane to select the new worktree
-				if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-					agentsPane.Refresh()
-					agentsPane.SelectWorktreeByPath(msg.Worktree.Path)
-				}
-
-				// Refresh worktree list and update changes pane
-				if m.worktreeList != nil {
-					if err := m.worktreeList.Refresh(); err != nil {
-						debug.DebugLog("Failed to refresh worktree list after creating worktree: %v", err)
-					}
-					// Now updateChangesPane will use the correct selected worktree
-					m.updateChangesPane()
-				}
-
-				// Update session view pane with new session
-				if m.sessionViewPane != nil {
-					if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
-						sessionViewPane.SetSession(newSession)
-					}
-				}
-
-				// Switch focus to session pane
-				m.focus = layout.NewSessionFocus(layout.SubPaneTmux)
-				// Update shortcut overlay focus
-				m.shortcutOverlay.SetFocus(m.focus.String())
-
-				// Start monitoring the new session
-				if newSession.TmuxSession() != nil {
-					cmds = append(cmds, waitForTmuxOutput(newSession.TmuxSession()))
-				}
-			} else {
-				debug.DebugLog("Failed to create session for worktree: %v", err)
-			}
-		}
-		return m, combineCmds(cmds...)
-
-	case overlays.WorktreeInitializationCompleteMsg:
-		// Initialization complete - auto-attach (TODO: Part of old system)
-
-		// Refresh the agents pane to show the new session AND select it
-		if agentsPane, ok := m.repoPane.(*panes.AgentsPane); ok {
-			agentsPane.Refresh()
-			if msg.Worktree != nil {
-				// Select the newly created worktree so it becomes the active one
-				agentsPane.SelectWorktreeByPath(msg.Worktree.Path)
-				debug.DebugLog("[WorktreeInitializationCompleteMsg] Selected worktree: %s", msg.Worktree.Path)
-			}
-		}
-
-		// Auto-attach to the newly created session's tmux
-		if msg.Worktree != nil {
-			newSession := m.sessionManager.GetSessionForWorktree(msg.Worktree)
-			if newSession != nil && newSession.TmuxSession() != nil && m.focus.IsTmuxFocus() {
-				// Clear screen first
-				fmt.Print("\033[2J\033[H")
-				// Block directly in Update like Claude Squad
-				detachCh, err := newSession.TmuxSession().Attach()
-				if err != nil {
-					return m, func() tea.Msg { return errMsg{err} }
-				}
-				// Block until detachment
-				<-detachCh
-				// Process detached message immediately
-				return m.Update(tmuxDetachedMsg{})
-			}
-		}
-		return m, tea.ClearScreen
-
-	case overlays.WorktreeCreationErrorMsg:
-		// TODO: Part of old system, handle error appropriately
-		return m, nil
-
 	case panes.DeleteSessionRequestMsg:
 		// User wants to delete a session - show confirmation dialog
 		if msg.Session != nil {
@@ -1062,10 +962,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case overlays.SessionDialogCancelledMsg:
-		// TODO: Old dialog system, remove
-		return m, nil
-
 	case components.OpenAgentSelectorMsg:
 		// Open agent selector with current selections from chat input
 		if m.chatInput != nil {
@@ -1090,33 +986,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.changesPane, cmd = m.changesPane.Update(msg)
 			return m, cmd
 		}
-		return m, nil
-
-	case overlays.WorktreeDeletedMsg:
-		// Worktree deleted successfully
-		m.showWorktreeConfirm = false
-		m.worktreeConfirm = nil
-		if m.worktreeList != nil {
-			if err := m.worktreeList.Refresh(); err != nil {
-				debug.DebugLog("Failed to refresh worktree list after deletion: %v", err)
-				// UI will still show deletion success, but log refresh failure
-			}
-			// Update Changes pane after deletion
-			m.updateChangesPane()
-		}
-		return m, nil
-
-	case overlays.WorktreeDeletionErrorMsg:
-		// Worktree deletion failed
-		m.showWorktreeConfirm = false
-		m.worktreeConfirm = nil
-		m.err = fmt.Errorf("failed to delete worktree: %s", msg.Error)
-		return m, nil
-
-	case overlays.WorktreeDeleteCancelledMsg:
-		// Deletion cancelled
-		m.showWorktreeConfirm = false
-		m.worktreeConfirm = nil
 		return m, nil
 
 	case overlays.SessionDeletedMsg:
@@ -1452,16 +1321,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			overlay, cmd := m.debugOverlay.Update(msg)
 			m.debugOverlay = overlay
-			return m, cmd
-		}
-
-		// TODO: Old worktree dialog handler removed
-
-		// Handle worktree confirm dialog input
-		if m.showWorktreeConfirm && m.worktreeConfirm != nil {
-			var cmd tea.Cmd
-			model, cmd := m.worktreeConfirm.Update(msg)
-			m.worktreeConfirm = model.(*overlays.WorktreeConfirmDialog)
 			return m, cmd
 		}
 
@@ -2112,17 +1971,6 @@ func (m model) View() string {
 	if m.showDebugOverlay && m.debugOverlay != nil {
 		// Use Claude Squad's overlay implementation
 		return zone.Scan(overlay.PlaceOverlay(0, 0, m.debugOverlay.View(), mainView, true, true))
-	}
-
-	// TODO: Old worktree dialog removed, replaced with chat input
-
-	// If worktree deletion confirmation is visible, overlay it
-	if m.showWorktreeConfirm && m.worktreeConfirm != nil {
-		// Update dialog size
-		m.worktreeConfirm.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
-
-		// Use Claude Squad's overlay implementation
-		return zone.Scan(overlay.PlaceOverlay(0, 0, m.worktreeConfirm.View(), mainView, true, true))
 	}
 
 	// If session deletion confirmation is visible, overlay it

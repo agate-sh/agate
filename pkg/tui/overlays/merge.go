@@ -20,6 +20,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Styles for merge dialog
+var (
+	dialogStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(theme.BorderActive)).
+			Padding(1, 2)
+
+	dialogTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true).
+				MarginBottom(1)
+)
+
 // MergeOverlay represents the merge dialog
 type MergeOverlay struct {
 	mergeInput   *components.LabeledInput
