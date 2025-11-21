@@ -2,6 +2,7 @@ package tui
 
 import (
 	"agate/internal/debug"
+	"agate/pkg/app"
 	"agate/pkg/common"
 	"agate/pkg/git"
 	"agate/pkg/session"
@@ -9,7 +10,10 @@ import (
 	"agate/pkg/tui/components"
 	"agate/pkg/tui/layout"
 	"agate/pkg/tui/overlays"
+	"agate/pkg/tui/panes"
 	"agate/pkg/tmux"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // sessionMode represents the interaction mode for a session
@@ -132,4 +136,280 @@ func (m *Model) ShowMergeOverlay() bool {
 // ShowAgentSelector returns true if agent selector is visible
 func (m *Model) ShowAgentSelector() bool {
 	return m.state.HasOverlay(AgentSelectorOverlay)
+}
+
+// Helper methods for internal operations
+
+// switchToPane switches focus to a target pane and updates UI state
+func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
+	// Update all panes' active state
+	if m.repoPane != nil {
+		m.repoPane.SetActive(targetPane.IsAgentsFocus())
+	}
+	// Session view pane is active only when we're on the tmux sub-pane
+	if m.sessionViewPane != nil {
+		m.sessionViewPane.SetActive(targetPane.IsTmuxFocus())
+	}
+	if m.changesPane != nil {
+		m.changesPane.SetActive(targetPane.IsGitFocus())
+	}
+
+	// Set the new focus
+	m.state.Focus = targetPane
+
+	// Update shortcut overlay
+	m.shortcutOverlay.SetFocus(m.state.Focus.String())
+
+	// Special handling for repos & worktrees pane
+	if targetPane.IsAgentsFocus() && m.repoPane != nil {
+		// Refresh repo pane when focusing
+		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+			if err := repoPane.Refresh(); err != nil {
+				debug.DebugLog("Failed to refresh repo pane when switching panes: %v", err)
+				// UI continues to work, but log the issue for debugging
+			}
+		}
+
+		// Update ChangesPane with selected worktree/repo and get refresh command
+		return m, m.updateChangesPane()
+	}
+
+	return m, nil
+}
+
+// getCurrentTmuxSession returns the active tmux session from the session manager
+func (m *Model) getCurrentTmuxSession() *tmux.TmuxSession {
+	if m.sessionManager == nil {
+		return nil
+	}
+	activeSession := m.sessionManager.GetActiveSession()
+	if activeSession == nil {
+		return nil
+	}
+	return activeSession.TmuxSession()
+}
+
+// getDetachedTmuxSize returns the width and height for the tmux window in detached mode.
+// For shared sessions with multiple agents, multiplies width by agent count so each pane
+// gets the full contentWidth.
+func (m *Model) getDetachedTmuxSize(contentWidth, contentHeight int) (int, int) {
+	if m.sessionManager == nil {
+		return contentWidth, contentHeight
+	}
+
+	activeSession := m.sessionManager.GetActiveSession()
+	if activeSession == nil || activeSession.SharedTmux == nil {
+		return contentWidth, contentHeight
+	}
+
+	// For shared sessions with multiple agents, each agent gets a vertical tmux pane
+	// The total tmux window width = contentWidth * agentCount
+	agentCount := len(activeSession.Agents)
+	if agentCount <= 1 {
+		return contentWidth, contentHeight
+	}
+
+	return contentWidth * agentCount, contentHeight
+}
+
+// switchToSessionForWorktree switches to the session associated with a worktree
+func (m *Model) switchToSessionForWorktree(worktree *git.WorktreeInfo) tea.Cmd {
+	if m.sessionManager == nil || worktree == nil {
+		return nil
+	}
+
+	// Find session with matching worktree
+	sessions := m.sessionManager.ListSessions()
+	for _, sess := range sessions {
+		if sess.Worktree() != nil && sess.Worktree().Path == worktree.Path {
+			// Found matching session - switch to it
+			if _, err := m.sessionManager.SwitchToSession(sess.ID); err != nil {
+				debug.DebugLog("Failed to switch to session %s for worktree %s: %v", sess.ID, worktree.Path, err)
+				return nil
+			}
+
+			// Set the current agent based on the session's agent
+			app.SetCurrentAgent(sess.Agent())
+
+			// Update session view pane with the switched session
+			if m.sessionViewPane != nil {
+				if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+					sessionViewPane.SetSession(sess)
+				}
+			}
+
+			// Return command to refresh tmux content
+			if sess.TmuxSession() != nil {
+				return waitForTmuxOutput(sess.TmuxSession())
+			}
+			return nil
+		}
+	}
+
+	// No session found for this worktree
+	debug.DebugLog("No session found for worktree %s", worktree.Path)
+	return nil
+}
+
+// cycleNextAgent cycles to the next agent in a shared session
+func (m *Model) cycleNextAgent() tea.Cmd {
+	if m.sessionManager == nil {
+		return nil
+	}
+
+	activeSession := m.sessionManager.GetActiveSession()
+	if activeSession == nil {
+		return nil
+	}
+
+	if err := m.sessionManager.CycleActiveAgent(activeSession.ID); err != nil {
+		debug.DebugLog("Failed to cycle active agent: %v", err)
+		return nil
+	}
+
+	activeSession = m.sessionManager.GetActiveSession()
+	if activeSession == nil {
+		return nil
+	}
+
+	app.SetCurrentAgent(activeSession.Agent())
+
+	if m.sessionViewPane != nil {
+		if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+			sessionViewPane.SetSession(activeSession)
+			sessionViewPane.SetActive(true)
+		}
+	}
+
+	m.state.Focus = layout.NewSessionFocus(layout.SubPaneTmux)
+	if m.shortcutOverlay != nil {
+		m.shortcutOverlay.SetFocus(m.state.Focus.String())
+	}
+
+	activeAgent := activeSession.GetActiveAgent()
+	var cmds []tea.Cmd
+
+	if activeAgent != nil {
+		if activeAgent.Worktree != nil {
+			if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+				if !repoPane.SelectWorktreeByPath(activeAgent.Worktree.Path) {
+					debug.DebugLog("cycleNextAgent: worktree %s not found in agents pane", activeAgent.Worktree.Path)
+				}
+			}
+			if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+				changesPane.SetRepository(activeAgent.Worktree.Path)
+			}
+		}
+
+		if activeSession.SharedTmux != nil {
+			tmuxSession := activeSession.SharedTmux
+
+			// Force capture immediately so the pane reflects the newly selected agent
+			cmds = append(cmds, func() tea.Msg {
+				content, err := tmuxSession.CapturePaneContent()
+				if err != nil {
+					debug.DebugLog("Failed to capture tmux content for session %s: %v", activeSession.ID, err)
+					return tmuxOutputMsg{content: ""}
+				}
+				debug.DebugLog("Captured %d bytes of content for agent switch in session %s", len(content), activeSession.ID)
+				return tmuxOutputMsg{content: content}
+			})
+
+			// Resume normal monitoring after the forced capture
+			cmds = append(cmds, waitForTmuxOutput(tmuxSession))
+		}
+	}
+
+	return combineCmds(cmds...)
+}
+
+// updateChangesPane updates the changes pane based on the selected worktree
+func (m *Model) updateChangesPane() tea.Cmd {
+	debug.DebugLog("===== updateChangesPane called =====")
+
+	if m.changesPane == nil || m.repoPane == nil {
+		debug.DebugLog("updateChangesPane: changesPane or repoPane is nil")
+		return nil
+	}
+
+	// Cast to AgentsPane to access GetSelectedWorktree method
+	repoPane, ok := m.repoPane.(*panes.AgentsPane)
+	if !ok {
+		debug.DebugLog("updateChangesPane: repoPane is not a AgentsPane")
+		return nil
+	}
+
+	// Get the selected worktree from the repo pane
+	selectedWorktree := repoPane.GetSelectedWorktree()
+	if selectedWorktree == nil {
+		debug.DebugLog("updateChangesPane: no selected worktree")
+		return nil
+	}
+
+	repoPath := selectedWorktree.Path
+	debug.DebugLog("updateChangesPane: selected worktree path=%s, branch=%s, repo=%s", repoPath, selectedWorktree.Branch, selectedWorktree.RepoName)
+
+	// Switch to session for this worktree (this updates the agent and tmux session)
+	// and get the command to refresh content
+	refreshCmd := m.switchToSessionForWorktree(selectedWorktree)
+	debug.DebugLog("updateChangesPane: switchToSessionForWorktree returned cmd=%v", refreshCmd != nil)
+
+	// Cast to ChangesPane to access SetRepository method
+	if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+		changesPane.SetRepository(repoPath)
+		debug.DebugLog("updateChangesPane: set changes pane repository to %s", repoPath)
+	}
+
+	debug.DebugLog("===== updateChangesPane returning cmd=%v =====", refreshCmd != nil)
+	return refreshCmd
+}
+
+// waitForTmuxOutput creates a command that waits for tmux output
+func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
+	return func() tea.Msg {
+		// Capture tmux pane content with ANSI codes preserved
+		content, err := session.CapturePaneContent()
+		if err != nil {
+			debug.DebugLog("[waitForTmuxOutput] ERROR capturing: %v", err)
+			return tmuxOutputMsg{content: ""}
+		}
+
+		// Check if output has changed
+		hasUpdated := session.HasUpdated()
+		if !hasUpdated {
+			// debug.DebugLog("[waitForTmuxOutput] No update, content_len=%d", len(content))
+			return tmuxOutputMsg{content: ""}
+		}
+
+		debug.DebugLog("[waitForTmuxOutput] Content UPDATED! len=%d, preview=%q", len(content), truncateString(content, 100))
+		// Return the raw content with ANSI codes
+		return tmuxOutputMsg{content: content}
+	}
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// combineCmds combines multiple commands into one, filtering out nils
+func combineCmds(cmds ...tea.Cmd) tea.Cmd {
+	filtered := make([]tea.Cmd, 0, len(cmds))
+	for _, cmd := range cmds {
+		if cmd != nil {
+			filtered = append(filtered, cmd)
+		}
+	}
+
+	switch len(filtered) {
+	case 0:
+		return nil
+	case 1:
+		return filtered[0]
+	default:
+		return tea.Batch(filtered...)
+	}
 }

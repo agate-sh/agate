@@ -7,7 +7,6 @@ import (
 // SessionState manages the persistent state of multi-agent sessions
 type SessionState struct {
 	SessionMappings map[string]PersistedSession `json:"session_mappings"` // SessionID -> PersistedSession
-	ActiveSession   string                      `json:"active_session"`   // Currently active session ID
 	PinnedSessions  []string                    `json:"pinned_sessions"`  // Ordered list of pinned session IDs (max 4)
 	SelectedAgents  []string                    `json:"selected_agents"`  // Last selected agents for new sessions
 }
@@ -78,26 +77,6 @@ func RemoveSessionMapping(sessionID string) error {
 		delete(state.Sessions.SessionMappings, sessionID)
 	}
 
-	return SaveState(state)
-}
-
-// GetActiveSession returns the active session ID
-func GetActiveSession() (string, error) {
-	state, err := LoadState()
-	if err != nil {
-		return "", err
-	}
-	return state.Sessions.ActiveSession, nil
-}
-
-// SetActiveSession sets the active session ID
-func SetActiveSession(sessionID string) error {
-	state, err := LoadState()
-	if err != nil {
-		return err
-	}
-
-	state.Sessions.ActiveSession = sessionID
 	return SaveState(state)
 }
 

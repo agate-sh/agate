@@ -9,7 +9,6 @@ import (
 // mockStateManager implements StateManager for testing
 type mockStateManager struct {
 	sessions       map[string]config.PersistedSession
-	activeSession  string
 	pinnedSessions []string
 }
 
@@ -34,14 +33,6 @@ func (m *mockStateManager) GetSessionMappings() map[string]config.PersistedSessi
 	return m.sessions
 }
 
-func (m *mockStateManager) SetActiveSession(sessionID string) error {
-	m.activeSession = sessionID
-	return nil
-}
-
-func (m *mockStateManager) GetActiveSession() string {
-	return m.activeSession
-}
 
 func (m *mockStateManager) GetPinnedSessions() []string {
 	return m.pinnedSessions
@@ -50,14 +41,12 @@ func (m *mockStateManager) GetPinnedSessions() []string {
 func (m *mockStateManager) UpdateSessions(fn func(*config.SessionState) error) error {
 	state := &config.SessionState{
 		SessionMappings: m.sessions,
-		ActiveSession:   m.activeSession,
 		PinnedSessions:  m.pinnedSessions,
 	}
 	if err := fn(state); err != nil {
 		return err
 	}
 	m.sessions = state.SessionMappings
-	m.activeSession = state.ActiveSession
 	m.pinnedSessions = state.PinnedSessions
 	return nil
 }

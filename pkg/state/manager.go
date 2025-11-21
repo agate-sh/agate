@@ -269,24 +269,6 @@ func (m *Manager) GetSessionMappings() map[string]config.PersistedSession {
 	return result
 }
 
-// SetActiveSession sets the active session key.
-func (m *Manager) SetActiveSession(sessionKey string) error {
-	return m.UpdateSessions(func(s *config.SessionState) error {
-		s.ActiveSession = sessionKey
-		return nil
-	})
-}
-
-// GetActiveSession returns the active session key.
-func (m *Manager) GetActiveSession() string {
-	var result string
-	m.ReadSessions(func(s *config.SessionState) error {
-		result = s.ActiveSession
-		return nil
-	})
-	return result
-}
-
 // GetPinnedSessions returns the list of pinned session IDs.
 func (m *Manager) GetPinnedSessions() []string {
 	var result []string

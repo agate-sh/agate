@@ -77,14 +77,6 @@ func (m *Manager) PersistSessions() error {
 				sessionID, len(persistedAgents))
 		}
 
-		// Update active session
-		if m.activeSession != nil {
-			s.ActiveSession = m.activeSession.ID
-			debug.DebugLog("PersistSessions: Set active session to: %s", m.activeSession.ID)
-		} else {
-			s.ActiveSession = ""
-			debug.DebugLog("PersistSessions: No active session to persist")
-		}
 
 		debug.DebugLog("PersistSessions: Successfully persisted %d sessions", len(s.SessionMappings))
 		return nil
@@ -143,16 +135,6 @@ func (m *Manager) LoadSessions() error {
 		})
 	}
 
-	// Restore active session
-	activeSessionID := m.stateMgr.GetActiveSession()
-	if activeSessionID != "" {
-		if session, exists := m.sessions[activeSessionID]; exists {
-			m.activeSession = session
-			debug.DebugLog("LoadSessions: Restored active session: %s", session.ID)
-		} else {
-			debug.DebugLog("LoadSessions: Active session ID %s not found in restored sessions", activeSessionID)
-		}
-	}
 
 	debug.DebugLog("LoadSessions: Session restoration complete")
 	return nil

@@ -30,8 +30,6 @@ type StateManager interface {
 	SaveSessionMapping(sessionID string, session config.PersistedSession) error
 	RemoveSessionMapping(sessionID string) error
 	GetSessionMappings() map[string]config.PersistedSession
-	SetActiveSession(sessionID string) error
-	GetActiveSession() string
 	GetPinnedSessions() []string
 	UpdateSessions(fn func(*config.SessionState) error) error
 	GetLastWorktreeForRepo(repoName string) *config.WorktreeRef
