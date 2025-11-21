@@ -38,7 +38,8 @@ type MergeOverlay struct {
 	mergeInput   *components.LabeledInput
 	fileList     *components.GitFileList
 	focusedField int // 0 = input, 1 = list
-	repoPath     string
+	worktreePath string
+	repository   *git.Repository
 	session      *session.Session
 	width        int
 	height       int
@@ -89,13 +90,13 @@ type MergeMessageGeneratedMsg struct {
 
 
 // NewMergeOverlay creates a new merge overlay
-func NewMergeOverlay(sess *session.Session) *MergeOverlay {
+func NewMergeOverlay(sess *session.Session, repo *git.Repository) *MergeOverlay {
 	// Track merge overlay opened
 	telemetry.TrackMergeOverlayOpened()
 
-	repoPath := ""
+	worktreePath := ""
 	if sess != nil && sess.Worktree() != nil {
-		repoPath = sess.Worktree().Path
+		worktreePath = sess.Worktree().Path
 	}
 
 	// Create labeled input for merge message
@@ -103,9 +104,9 @@ func NewMergeOverlay(sess *session.Session) *MergeOverlay {
 	mergeInput.Focus()
 
 	// Create file list (same component as git pane!)
-	fileList := components.NewGitFileList(repoPath, false) // Don't show summary line
-	fileList.SetPadding(0)                                 // No padding for dialog - full width rows
-	fileList.Refresh()                                     // Load files once at creation
+	fileList := components.NewGitFileList(worktreePath, repo, false) // Don't show summary line
+	fileList.SetPadding(0)                                            // No padding for dialog - full width rows
+	fileList.Refresh()                                                // Load files once at creation
 
 	// Create loader
 	loader := components.NewLaunchAgentLoader("")
@@ -127,10 +128,11 @@ func NewMergeOverlay(sess *session.Session) *MergeOverlay {
 	}
 
 	return &MergeOverlay{
-		mergeInput:  mergeInput,
+		mergeInput:   mergeInput,
 		fileList:     fileList,
 		focusedField: 0, // Start with input focused
-		repoPath:     repoPath,
+		worktreePath: worktreePath,
+		repository:   repo,
 		session:      sess,
 		generating:   true,
 		loader:       loader,
@@ -323,7 +325,7 @@ func (m *MergeOverlay) discardFile() tea.Cmd {
 	filePath := file.FilePath
 
 	return func() tea.Msg {
-		err := git.DiscardFile(m.repoPath, filePath)
+		err := m.repository.DiscardFile(m.worktreePath, filePath)
 		if err == nil {
 			return FileDiscardedMsg{}
 		}
@@ -339,7 +341,7 @@ func (m *MergeOverlay) openSelectedFile() tea.Cmd {
 	}
 
 	// Build full file path (same as git pane)
-	fullPath := filepath.Join(m.repoPath, file.DirPath, file.FileName)
+	fullPath := filepath.Join(m.worktreePath, file.DirPath, file.FileName)
 
 	// Get editor from environment
 	editor := os.Getenv("EDITOR")
@@ -367,7 +369,7 @@ func (m *MergeOverlay) openSelectedFile() tea.Cmd {
 func (m *MergeOverlay) generateCommitMessage() tea.Cmd {
 	return func() tea.Msg {
 		agentConfig := m.session.Agent()
-		message, err := git.GenerateCommitMessage(&agentConfig, m.repoPath, m.executor)
+		message, err := git.GenerateCommitMessage(&agentConfig, m.worktreePath, m.executor)
 		if err != nil {
 			// On error, return empty message (will show empty input)
 			return MergeMessageGeneratedMsg{Message: ""}
@@ -382,7 +384,7 @@ func (m *MergeOverlay) commit() tea.Cmd {
 
 	return func() tea.Msg {
 		// Step 1: Commit all changes in the worktree
-		sha, err := git.CommitAll(m.repoPath, message)
+		sha, err := m.repository.CommitAll(m.worktreePath, message)
 		if err != nil {
 			return MergeErrorMsg{Err: err}
 		}

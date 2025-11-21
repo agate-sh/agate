@@ -153,7 +153,9 @@ func (m *Model) handleSessionCreated(msg sessionCreatedMsg) (*Model, tea.Cmd) {
 		// Update changes pane
 		if m.changesPane != nil && activeAgent.Worktree != nil {
 			if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
-				changesPane.SetRepository(activeAgent.Worktree.Path)
+				if repo, err := m.sessionManager.GetRepository(); err == nil {
+					changesPane.SetRepositoryAndPath(repo, activeAgent.Worktree.Path)
+				}
 			}
 		}
 

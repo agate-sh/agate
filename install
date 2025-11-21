@@ -103,12 +103,24 @@ success_box() {
     local agents_list="$1"
     local shell_config="$2"
 
+    # Agate purple color #9d87ae
+    local AGATE_PURPLE='\033[38;2;157;135;174m'
+
     printf "\n${GREEN}${BOLD}✓${NC}${BOLD} Installation successful${NC}\n\n"
-    printf "${BOLD}📋 Get started${NC}\n\n"
-    printf "${BOLD}1.${NC} Reload shell\n"
-    printf "   \033[2msource ${shell_config}${NC}\n\n"
-    printf "${BOLD}2.${NC} Run agate with your agents\n"
-    printf "   \033[2magate --agents ${agents_list} \"Create or update AGENTS.md\"${NC}\n\n"
+
+    # Print ASCII art in Agate purple
+    printf "\n"
+    printf "${AGATE_PURPLE} █████╗  ██████╗  █████╗ ████████╗███████╗${NC}\n"
+    printf "${AGATE_PURPLE}██╔══██╗██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝${NC}\n"
+    printf "${AGATE_PURPLE}███████║██║  ███╗███████║   ██║   █████╗  ${NC}\n"
+    printf "${AGATE_PURPLE}██╔══██║██║   ██║██╔══██║   ██║   ██╔══╝  ${NC}\n"
+    printf "${AGATE_PURPLE}██║  ██║╚██████╔╝██║  ██║   ██║   ███████╗${NC}\n"
+    printf "${AGATE_PURPLE}╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝${NC}\n\n"
+
+    printf "\033[2mTo get started, navigate to a git repo and run:${NC}\n"
+    printf "Reload shell                          \033[2msource ${shell_config}${NC}\n"
+    printf "Launch agate with a sample prompt     \033[2magate --agents ${agents_list} \"Create or update AGENTS.md\"${NC}\n\n"
+    printf "\033[2mQuestions or feedback? Join our Discord ->${NC} https://agate.sh/discord\n\n"
 }
 
 # Detect OS and architecture
@@ -179,6 +191,7 @@ check_dependencies() {
     local missing_deps=()
     local found_deps=()
     local os_type="$1"  # Pass OS type from detect_platform
+    local agents_to_check="$2"  # Comma-separated list of agents
 
     # Check for curl (still needed for downloading)
     if ! command_exists curl; then
@@ -192,13 +205,21 @@ check_dependencies() {
         missing_deps+=("tmux")
     fi
 
-    # Check for agent CLI if specified
-    if [[ -n "$agent" ]]; then
-        if command_exists "$agent"; then
-            found_deps+=("$agent")
-        else
-            missing_deps+=("$agent")
-        fi
+    # Check for agent CLIs if specified
+    if [[ -n "$agents_to_check" ]]; then
+        # Split comma-separated agents and check each one
+        IFS=',' read -ra AGENTS <<< "$agents_to_check"
+        for agent_name in "${AGENTS[@]}"; do
+            # Trim whitespace
+            agent_name=$(echo "$agent_name" | xargs)
+            if [[ -n "$agent_name" ]]; then
+                if command_exists "$agent_name"; then
+                    found_deps+=("$agent_name")
+                else
+                    missing_deps+=("$agent_name")
+                fi
+            fi
+        done
     fi
 
     # Check for gh (GitHub CLI)
@@ -224,8 +245,22 @@ check_dependencies() {
     # Report missing dependencies
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         for dep in "${missing_deps[@]}"; do
-            if [[ "$dep" == "$agent" ]]; then
-                printf "${YELLOW}${BOLD}⚠${NC} ${AGENT_COLOR}${dep}${NC} not found. You'll need to install it separately.\n"
+            # Check if this dep is one of the agents
+            local is_agent=false
+            if [[ -n "$agents_to_check" ]]; then
+                IFS=',' read -ra AGENTS <<< "$agents_to_check"
+                for agent_name in "${AGENTS[@]}"; do
+                    agent_name=$(echo "$agent_name" | xargs)
+                    if [[ "$dep" == "$agent_name" ]]; then
+                        is_agent=true
+                        break
+                    fi
+                done
+            fi
+
+            if [[ "$is_agent" == "true" ]]; then
+                local agent_color=$(get_agent_color "$dep")
+                printf "${YELLOW}${BOLD}⚠${NC} ${agent_color}${dep}${NC} not found. You'll need to install it separately.\n"
             elif [[ "$dep" == "tmux" ]]; then
                 print_warn "tmux not found. You'll need to install it to use agate."
                 # Show OS-specific install command
@@ -555,8 +590,10 @@ main() {
         skip_install=true
     fi
 
-    # Check dependencies (pass OS type for platform-specific messages)
-    check_dependencies "$os_type"
+    # Check dependencies (pass OS type and agents list)
+    # Use agents_list if provided, otherwise fallback to "claude"
+    local agents_for_check="${agents_list:-claude}"
+    check_dependencies "$os_type" "$agents_for_check"
 
     # Install Agate (unless already installed)
     local is_upgrade=false

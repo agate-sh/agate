@@ -13,21 +13,23 @@ import (
 // GitFileList is a reusable component for displaying and interacting with Git file status
 type GitFileList struct {
 	fileStatus    *git.RepoFileStatus
-	repoPath      string
-	selectedIndex int    // Currently selected file index (across all files)
-	width         int    // Available width for rendering
-	height        int    // Available height for rendering
-	fullWidth     int    // Full width including padding
-	active        bool   // Whether this list is currently active/focused
-	showSummary   bool   // Whether to show the summary line at top
-	padding       int    // Horizontal padding for rows (0 for dialogs, 1 for panes)
-	summaryGap    bool   // Whether to add a gap after the summary line (true for panes, false for dialogs)
+	worktreePath  string
+	repository    *git.Repository
+	selectedIndex int  // Currently selected file index (across all files)
+	width         int  // Available width for rendering
+	height        int  // Available height for rendering
+	fullWidth     int  // Full width including padding
+	active        bool // Whether this list is currently active/focused
+	showSummary   bool // Whether to show the summary line at top
+	padding       int  // Horizontal padding for rows (0 for dialogs, 1 for panes)
+	summaryGap    bool // Whether to add a gap after the summary line (true for panes, false for dialogs)
 }
 
 // NewGitFileList creates a new Git file list component
-func NewGitFileList(repoPath string, showSummary bool) *GitFileList {
+func NewGitFileList(worktreePath string, repository *git.Repository, showSummary bool) *GitFileList {
 	return &GitFileList{
-		repoPath:      repoPath,
+		worktreePath:  worktreePath,
+		repository:    repository,
 		selectedIndex: 0,
 		showSummary:   showSummary,
 		padding:       PaneContentHorizontalPadding(), // Default to pane padding
@@ -58,11 +60,11 @@ func (g *GitFileList) SetActive(active bool) {
 
 // Refresh updates the file status from git
 func (g *GitFileList) Refresh() {
-	if g.repoPath == "" {
+	if g.worktreePath == "" || g.repository == nil {
 		g.fileStatus = nil
 		return
 	}
-	g.fileStatus = git.GetFileStatuses(g.repoPath)
+	g.fileStatus = g.repository.GetFileStatuses(g.worktreePath)
 	g.selectedIndex = 0
 }
 
@@ -115,7 +117,7 @@ func (g *GitFileList) IsInStagedSection() bool {
 
 // View renders the file list
 func (g *GitFileList) View() string {
-	if g.repoPath == "" || g.fileStatus == nil {
+	if g.worktreePath == "" || g.fileStatus == nil {
 		return g.renderEmptyState("No repository")
 	}
 

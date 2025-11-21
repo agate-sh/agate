@@ -28,7 +28,6 @@ type InitConfig struct {
 	TermHeight        int
 	DebugLogger       *debug.DebugLogger
 	StateManager      *state.Manager
-	WorktreeManager   *git.WorktreeManager
 	SessionManager    *session.Manager
 	PreCreatedSession *session.Session
 }
@@ -38,7 +37,6 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 	// Use passed-in managers if provided, otherwise create new ones
 	var debugLogger = cfg.DebugLogger
 	var stateManager = cfg.StateManager
-	var worktreeManager = cfg.WorktreeManager
 	var sessionManager = cfg.SessionManager
 
 	if debugLogger == nil {
@@ -55,16 +53,8 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		}
 	}
 
-	if worktreeManager == nil {
-		var err error
-		worktreeManager, err = git.NewWorktreeManager()
-		if err != nil {
-			fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
-		}
-	}
-
 	if sessionManager == nil {
-		sessionManager = session.NewManager(worktreeManager, stateManager)
+		sessionManager = session.NewManager(stateManager)
 		if err := sessionManager.RestoreSessions(); err != nil {
 			debug.DebugLog("Failed to restore sessions on startup: %v", err)
 		}
@@ -143,12 +133,11 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		loadingState:          loadingState,
 		toast:                 components.NewToast(),
 		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
-		debugOverlay:          debugOverlay,
-		sessionConfirm:        nil,
-		mergeOverlay:          nil,
-		agentSelector:         nil,
-		worktreeManager:       worktreeManager,
-		debugLogger:           debugLogger,
+		debugOverlay:   debugOverlay,
+		sessionConfirm: nil,
+		mergeOverlay:   nil,
+		agentSelector:  nil,
+		debugLogger:    debugLogger,
 		chatInput:             chatInput,
 		welcomeHeader:         welcomeHeader,
 		creatingSession:       false,
@@ -247,8 +236,10 @@ func (m *Model) Init() tea.Cmd {
 	if m.initialPrompt != "" && !hasActiveSession {
 		// Generate deterministic branch name
 		repoName := ""
-		if m.worktreeManager != nil {
-			repoName = m.worktreeManager.GetRepositoryName()
+		if m.sessionManager != nil {
+			if repo, err := m.sessionManager.GetRepository(); err == nil {
+				repoName = repo.GetRepositoryName()
+			}
 		}
 		branchName := session.GenerateBranchNameFromPrompt(repoName)
 

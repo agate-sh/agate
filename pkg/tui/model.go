@@ -49,11 +49,10 @@ type Model struct {
 	debugOverlay  *overlays.DebugOverlay               // Debug overlay for development
 	sessionConfirm *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
 	mergeOverlay  *overlays.MergeOverlay               // Merge overlay for merging changes
-	agentSelector *components.AgentSelector            // Agent selector modal
+	agentSelector *components.AgentSelector // Agent selector modal
 
 	// Managers
-	worktreeManager *git.WorktreeManager // Git worktree management
-	debugLogger     *debug.DebugLogger   // Debug logger for development
+	debugLogger *debug.DebugLogger // Debug logger for development
 
 	// New session creation flow
 	chatInput             *components.ChatInput     // Chat input component for new session creation
@@ -290,7 +289,9 @@ func (m *Model) cycleNextAgent() tea.Cmd {
 				}
 			}
 			if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
-				changesPane.SetRepository(activeAgent.Worktree.Path)
+				if repo, err := m.sessionManager.GetRepository(); err == nil {
+					changesPane.SetRepositoryAndPath(repo, activeAgent.Worktree.Path)
+				}
 			}
 		}
 
@@ -347,10 +348,12 @@ func (m *Model) updateChangesPane() tea.Cmd {
 	refreshCmd := m.switchToSessionForWorktree(selectedWorktree)
 	debug.DebugLog("updateChangesPane: switchToSessionForWorktree returned cmd=%v", refreshCmd != nil)
 
-	// Cast to ChangesPane to access SetRepository method
+	// Cast to ChangesPane to access SetRepositoryAndPath method
 	if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
-		changesPane.SetRepository(repoPath)
-		debug.DebugLog("updateChangesPane: set changes pane repository to %s", repoPath)
+		if repo, err := m.sessionManager.GetRepository(); err == nil {
+			changesPane.SetRepositoryAndPath(repo, repoPath)
+			debug.DebugLog("updateChangesPane: set changes pane worktree to %s", repoPath)
+		}
 	}
 
 	debug.DebugLog("===== updateChangesPane returning cmd=%v =====", refreshCmd != nil)

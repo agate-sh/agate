@@ -108,7 +108,7 @@ func TestCommitAll(t *testing.T) {
 			countBefore := repo.getCommitCount()
 
 			// Call CommitAll
-			repository, _ := NewRepositoryForPath(repo.path); sha, err := repository.CommitAll(repo.path, tt.message)
+			sha, err := CommitAll(repo.path, tt.message)
 
 			// Check error
 			if tt.wantErr {
@@ -218,7 +218,7 @@ func TestGetCommitLog(t *testing.T) {
 			mainBranch, featureBranch := tt.setup(repo)
 
 			// Call GetCommitLog
-			repository, _ := NewRepositoryForPath(repo.path); commits, err := repository.GetCommitLog(repo.path, mainBranch, featureBranch)
+			commits, err := GetCommitLog(repo.path, mainBranch, featureBranch)
 
 			// Check error
 			if tt.wantErr {
@@ -338,7 +338,7 @@ func TestGetDiffFiles(t *testing.T) {
 			targetBranch, sourceBranch := tt.setup(repo)
 
 			// Call GetDiffFiles
-			repository, _ := NewRepositoryForPath(repo.path); files, err := repository.GetDiffFiles(repo.path, sourceBranch, targetBranch)
+			files, err := GetDiffFiles(repo.path, sourceBranch, targetBranch)
 
 			// Check error
 			if tt.wantErr {
@@ -472,7 +472,7 @@ func TestMergeBranch(t *testing.T) {
 			commitsBefore := repo.getCommitCount()
 
 			// Call MergeBranch
-			repository, _ := NewRepositoryForPath(repo.path); err := repository.MergeBranch(repo.path, sourceBranch, tt.commitMessage)
+			err := MergeBranch(repo.path, sourceBranch, tt.commitMessage)
 
 			// Check error
 			if tt.wantErr {
@@ -518,8 +518,7 @@ func TestStageFile(t *testing.T) {
 	repo.writeFile("file2.txt", "new content")
 
 	// Stage only file1.txt
-	repository, _ := NewRepositoryForPath(repo.path)
-	err := repository.StageFile(repo.path, "file1.txt")
+	err := StageFile(repo.path, "file1.txt")
 	if err != nil {
 		t.Fatalf("StageFile() failed: %v", err)
 	}
@@ -563,8 +562,7 @@ func TestUnstageFile(t *testing.T) {
 	}
 
 	// Unstage the file
-	repository, _ := NewRepositoryForPath(repo.path)
-	err := repository.UnstageFile(repo.path, "file1.txt")
+	err := UnstageFile(repo.path, "file1.txt")
 	if err != nil {
 		t.Fatalf("UnstageFile() failed: %v", err)
 	}
@@ -596,8 +594,7 @@ func TestDiscardFile(t *testing.T) {
 	}
 
 	// Discard changes
-	repository, _ := NewRepositoryForPath(repo.path)
-	err := repository.DiscardFile(repo.path, "file1.txt")
+	err := DiscardFile(repo.path, "file1.txt")
 	if err != nil {
 		t.Fatalf("DiscardFile() failed: %v", err)
 	}
@@ -633,8 +630,7 @@ func TestStageAll(t *testing.T) {
 	}
 
 	// Stage all changes
-	repository, _ := NewRepositoryForPath(repo.path)
-	err := repository.StageAll(repo.path)
+	err := StageAll(repo.path)
 	if err != nil {
 		t.Fatalf("StageAll() failed: %v", err)
 	}
@@ -658,7 +654,7 @@ func TestStageAll(t *testing.T) {
 	}
 
 	// Verify we can commit (all changes are staged)
-	sha, err := repository.CommitAll(repo.path, "Commit all staged files")
+	sha, err := CommitAll(repo.path, "Commit all staged files")
 	if err != nil {
 		t.Errorf("Failed to commit after StageAll(): %v", err)
 	}

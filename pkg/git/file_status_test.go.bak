@@ -41,7 +41,7 @@ func TestFileStatusUnstagedModification(t *testing.T) {
 	}
 
 	// Get our parsed status
-	repository, _ := NewRepositoryForPath(repo); status := repository.GetFileStatuses(repo)
+	status := GetFileStatuses(repo)
 
 	// Should have exactly 1 file
 	if len(status.Files) != 1 {
@@ -97,7 +97,7 @@ func TestFileStatusStagedModification(t *testing.T) {
 	}
 
 	// Get our parsed status
-	repository, _ := NewRepositoryForPath(repo); status := repository.GetFileStatuses(repo)
+	status := GetFileStatuses(repo)
 
 	// Should have exactly 1 file
 	if len(status.Files) != 1 {

@@ -56,16 +56,16 @@ type WorktreeInfo struct {
 	CreatedAt time.Time
 }
 
-// WorktreeManager manages Git worktree operations
-type WorktreeManager struct {
-	repoPath     string
-	worktreeBase string
+// Repository manages Git operations for a repository including worktrees, commits, and branches
+type Repository struct {
+	path         string // Main repository path
+	worktreeBase string // Base directory for worktrees
 	systemCaps   SystemCapabilities
 	isGitRepo    bool
 }
 
-// NewWorktreeManager creates a new agentManager instance
-func NewWorktreeManager() (*WorktreeManager, error) {
+// NewRepository creates a new Repository instance for the current working directory
+func NewRepository() (*Repository, error) {
 	// Get current working directory
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -90,16 +90,16 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 	// Detect system capabilities
 	systemCaps := detectCOWSupport()
 
-	return &WorktreeManager{
-		repoPath:     repoPath,
+	return &Repository{
+		path:         repoPath,
 		worktreeBase: worktreeBase,
 		systemCaps:   systemCaps,
 		isGitRepo:    isGitRepo,
 	}, nil
 }
 
-// NewWorktreeManagerForPath creates a worktree manager scoped to the provided repository path.
-func NewWorktreeManagerForPath(repoPath string) (*WorktreeManager, error) {
+// NewRepositoryForPath creates a Repository instance scoped to the provided repository path.
+func NewRepositoryForPath(repoPath string) (*Repository, error) {
 	repoPath = strings.TrimSpace(repoPath)
 	if repoPath == "" {
 		return nil, fmt.Errorf("repository path cannot be empty")
@@ -123,22 +123,22 @@ func NewWorktreeManagerForPath(repoPath string) (*WorktreeManager, error) {
 
 	systemCaps := detectCOWSupport()
 
-	return &WorktreeManager{
-		repoPath:     rootPath,
+	return &Repository{
+		path:         rootPath,
 		worktreeBase: worktreeBase,
 		systemCaps:   systemCaps,
 		isGitRepo:    true,
 	}, nil
 }
 
-// IsGitRepo indicates whether the manager was initialized inside a Git repository.
-func (wm *WorktreeManager) IsGitRepo() bool {
-	return wm.isGitRepo
+// IsGitRepo indicates whether the repository was initialized inside a Git repository.
+func (r *Repository) IsGitRepo() bool {
+	return r.isGitRepo
 }
 
 // GetSystemCapabilities returns the system's COW capabilities
-func (wm *WorktreeManager) GetSystemCapabilities() SystemCapabilities {
-	return wm.systemCaps
+func (r *Repository) GetSystemCapabilities() SystemCapabilities {
+	return r.systemCaps
 }
 
 // detectCOWSupport detects if the system supports copy-on-write
@@ -227,8 +227,8 @@ func getRepositoryRoot(workDir string) (string, error) {
 }
 
 // GetRepositoryName extracts the repository name from the current directory
-func (wm *WorktreeManager) GetRepositoryName() string {
-	repoName := filepath.Base(wm.repoPath)
+func (r *Repository) GetRepositoryName() string {
+	repoName := filepath.Base(r.path)
 	if repoName == "." || repoName == "/" {
 		return "unknown"
 	}
@@ -236,22 +236,22 @@ func (wm *WorktreeManager) GetRepositoryName() string {
 }
 
 // GetRepositoryPath returns the full path to the main repository
-func (wm *WorktreeManager) GetRepositoryPath() string {
-	return wm.repoPath
+func (r *Repository) GetRepositoryPath() string {
+	return r.path
 }
 
 // GetMainWorktreeInfo returns metadata about the primary worktree (the main repository checkout)
-func (wm *WorktreeManager) GetMainWorktreeInfo() (*WorktreeInfo, error) {
-	if wm.repoPath == "" {
+func (r *Repository) GetMainWorktreeInfo() (*WorktreeInfo, error) {
+	if r.path == "" {
 		return nil, fmt.Errorf("repository path is not set")
 	}
 
-	info, err := os.Stat(wm.repoPath)
+	info, err := os.Stat(r.path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat repository path: %w", err)
 	}
 
-	gitStatus, err := wm.getWorktreeGitStatus(wm.repoPath)
+	gitStatus, err := r.getWorktreeGitStatus(r.path)
 	if err != nil {
 		gitStatus = &GitStatus{Branch: "", IsClean: true}
 	}
@@ -263,8 +263,8 @@ func (wm *WorktreeManager) GetMainWorktreeInfo() (*WorktreeInfo, error) {
 
 	return &WorktreeInfo{
 		Name:      name,
-		Path:      wm.repoPath,
-		RepoName:  wm.GetRepositoryName(),
+		Path:      r.path,
+		RepoName:  r.GetRepositoryName(),
 		Branch:    gitStatus.Branch,
 		GitStatus: gitStatus,
 		CreatedAt: info.ModTime(),
@@ -310,22 +310,22 @@ func ValidateBranchName(name string) error {
 }
 
 // CreateWorktree creates a new Git worktree
-func (wm *WorktreeManager) CreateWorktree(branchName string) (*WorktreeInfo, error) {
+func (r *Repository) CreateWorktree(branchName string) (*WorktreeInfo, error) {
 	// Validate branch name
 	if err := ValidateBranchName(branchName); err != nil {
 		return nil, err
 	}
 
 	// Check if branch already exists
-	if err := wm.checkBranchExists(branchName); err != nil {
+	if err := r.checkBranchExists(branchName); err != nil {
 		return nil, err
 	}
 
 	// Get repository name
-	repoName := wm.GetRepositoryName()
+	repoName := r.GetRepositoryName()
 
 	// Create worktree path
-	worktreePath := filepath.Join(wm.worktreeBase, repoName, branchName)
+	worktreePath := filepath.Join(r.worktreeBase, repoName, branchName)
 
 	// Ensure base directory exists
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -334,15 +334,15 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (*WorktreeInfo, err
 
 	// Create Git worktree
 	cmd := exec.Command("git", "worktree", "add", "-b", branchName, worktreePath)
-	cmd.Dir = wm.repoPath
+	cmd.Dir = r.path
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create Git worktree: %w", err)
 	}
 
 	// Copy files if COW is supported
-	if wm.systemCaps.SupportsCOW {
+	if r.systemCaps.SupportsCOW {
 		DebugLog("Starting COW copy to %s", worktreePath)
-		if err := wm.copyFilesWithCOW(worktreePath); err != nil {
+		if err := r.copyFilesWithCOW(worktreePath); err != nil {
 			// Log error but don't fail - Git worktree is still valid
 			DebugLog("Warning: failed to copy files with COW: %v", err)
 		} else {
@@ -351,7 +351,7 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (*WorktreeInfo, err
 	}
 
 	// Get Git status for the new agent
-	gitStatus, err := wm.getWorktreeGitStatus(worktreePath)
+	gitStatus, err := r.getWorktreeGitStatus(worktreePath)
 	if err != nil {
 		// Don't fail on status error, just use empty status
 		gitStatus = &GitStatus{Branch: branchName, IsClean: true}
@@ -368,9 +368,9 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (*WorktreeInfo, err
 }
 
 // checkBranchExists checks if a branch already exists
-func (wm *WorktreeManager) checkBranchExists(branchName string) error {
+func (r *Repository) checkBranchExists(branchName string) error {
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
-	cmd.Dir = wm.repoPath
+	cmd.Dir = r.path
 	if cmd.Run() == nil {
 		return fmt.Errorf("branch '%s' already exists", branchName)
 	}
@@ -380,12 +380,12 @@ func (wm *WorktreeManager) checkBranchExists(branchName string) error {
 // getUntrackedPaths returns a list of untracked files and directories in the repository.
 // This includes files that are ignored by .gitignore (like node_modules, .env, dist/, etc.)
 // but excludes files that are tracked by git.
-func (wm *WorktreeManager) getUntrackedPaths() ([]string, error) {
+func (r *Repository) getUntrackedPaths() ([]string, error) {
 	// Use git ls-files to get untracked paths
 	// --others: show untracked files
 	// --directory: show directory names (not contents) for untracked directories
 	cmd := exec.Command("git", "ls-files", "--others", "--directory")
-	cmd.Dir = wm.repoPath
+	cmd.Dir = r.path
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -408,7 +408,7 @@ func (wm *WorktreeManager) getUntrackedPaths() ([]string, error) {
 // copyUntrackedFilesWithCOW copies untracked files from source to destination using copy-on-write.
 // This is designed to copy files like node_modules, .env, dist/, etc. that are not tracked by git.
 // The function creates parent directories as needed and uses APFS COW on macOS.
-func (wm *WorktreeManager) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePath string, untrackedPaths []string) error {
+func (r *Repository) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePath string, untrackedPaths []string) error {
 	for _, relPath := range untrackedPaths {
 		// Skip if it's the .git directory (shouldn't happen with --others flag, but be safe)
 		if strings.HasPrefix(relPath, ".git/") || relPath == ".git" {
@@ -433,7 +433,7 @@ func (wm *WorktreeManager) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePat
 		}
 
 		// Copy based on COW method
-		switch wm.systemCaps.COWMethod {
+		switch r.systemCaps.COWMethod {
 		case "apfs":
 			var cmd *exec.Cmd
 			if srcInfo.IsDir() {
@@ -450,7 +450,7 @@ func (wm *WorktreeManager) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePat
 
 			DebugLog("Copied untracked: %s", relPath)
 		default:
-			return fmt.Errorf("COW method '%s' not implemented", wm.systemCaps.COWMethod)
+			return fmt.Errorf("COW method '%s' not implemented", r.systemCaps.COWMethod)
 		}
 	}
 
@@ -460,9 +460,9 @@ func (wm *WorktreeManager) copyUntrackedFilesWithCOW(srcRepoPath, dstWorktreePat
 // copyFilesWithCOW copies untracked files using copy-on-write.
 // This function only copies files that are not tracked by git (e.g., node_modules, .env, dist/).
 // Git worktree has already copied all tracked files, so we only need to handle untracked ones.
-func (wm *WorktreeManager) copyFilesWithCOW(worktreePath string) error {
+func (r *Repository) copyFilesWithCOW(worktreePath string) error {
 	// Get list of untracked files/directories
-	untrackedPaths, err := wm.getUntrackedPaths()
+	untrackedPaths, err := r.getUntrackedPaths()
 	if err != nil {
 		return fmt.Errorf("failed to get untracked paths: %w", err)
 	}
@@ -476,7 +476,7 @@ func (wm *WorktreeManager) copyFilesWithCOW(worktreePath string) error {
 	DebugLog("Found %d untracked paths to copy", len(untrackedPaths))
 
 	// Copy untracked files with COW
-	if err := wm.copyUntrackedFilesWithCOW(wm.repoPath, worktreePath, untrackedPaths); err != nil {
+	if err := r.copyUntrackedFilesWithCOW(r.path, worktreePath, untrackedPaths); err != nil {
 		return err
 	}
 
@@ -484,16 +484,16 @@ func (wm *WorktreeManager) copyFilesWithCOW(worktreePath string) error {
 }
 
 // ListWorktrees returns all worktrees grouped by repository
-func (wm *WorktreeManager) ListWorktrees() (map[string][]WorktreeInfo, error) {
+func (r *Repository) ListWorktrees() (map[string][]WorktreeInfo, error) {
 	groups := make(map[string][]WorktreeInfo)
 
 	// Ensure worktree base directory exists
-	if err := os.MkdirAll(wm.worktreeBase, 0755); err != nil {
+	if err := os.MkdirAll(r.worktreeBase, 0755); err != nil {
 		return groups, fmt.Errorf("failed to create worktree base directory: %w", err)
 	}
 
 	// Read repository directories
-	repos, err := os.ReadDir(wm.worktreeBase)
+	repos, err := os.ReadDir(r.worktreeBase)
 	if err != nil {
 		return groups, fmt.Errorf("failed to read worktree directory: %w", err)
 	}
@@ -504,7 +504,7 @@ func (wm *WorktreeManager) ListWorktrees() (map[string][]WorktreeInfo, error) {
 		}
 
 		repoName := repo.Name()
-		repoPath := filepath.Join(wm.worktreeBase, repoName)
+		repoPath := filepath.Join(r.worktreeBase, repoName)
 
 		// Read worktrees in this repository
 		worktrees, err := os.ReadDir(repoPath)
@@ -548,7 +548,7 @@ func (wm *WorktreeManager) ListWorktrees() (map[string][]WorktreeInfo, error) {
 }
 
 // getWorktreeGitStatus gets the Git status for a worktree
-func (wm *WorktreeManager) getWorktreeGitStatus(worktreePath string) (*GitStatus, error) {
+func (r *Repository) getWorktreeGitStatus(worktreePath string) (*GitStatus, error) {
 	status := &GitStatus{}
 
 	// Get current branch
@@ -564,7 +564,7 @@ func (wm *WorktreeManager) getWorktreeGitStatus(worktreePath string) (*GitStatus
 	cmd.Dir = worktreePath
 	output, err = cmd.Output()
 	if err == nil {
-		wm.parseGitStatusOutput(string(output), status)
+		r.parseGitStatusOutput(string(output), status)
 	}
 
 	// Get stash count
@@ -584,7 +584,7 @@ func (wm *WorktreeManager) getWorktreeGitStatus(worktreePath string) (*GitStatus
 }
 
 // parseGitStatusOutput parses git status --porcelain output
-func (wm *WorktreeManager) parseGitStatusOutput(output string, status *GitStatus) {
+func (r *Repository) parseGitStatusOutput(output string, status *GitStatus) {
 	lines := strings.Split(output, "\n")
 	for i, line := range lines {
 		if i == 0 && strings.HasPrefix(line, "##") {
@@ -601,7 +601,7 @@ func (wm *WorktreeManager) parseGitStatusOutput(output string, status *GitStatus
 			}
 			// Parse ahead/behind info
 			if strings.Contains(line, "[ahead") || strings.Contains(line, "[behind") {
-				wm.parseAheadBehind(line, status)
+				r.parseAheadBehind(line, status)
 			}
 			continue
 		}
@@ -624,7 +624,7 @@ func (wm *WorktreeManager) parseGitStatusOutput(output string, status *GitStatus
 }
 
 // parseAheadBehind parses ahead/behind information from git status
-func (wm *WorktreeManager) parseAheadBehind(line string, status *GitStatus) {
+func (r *Repository) parseAheadBehind(line string, status *GitStatus) {
 	// Simple parsing - could be enhanced for exact counts
 	if strings.Contains(line, "ahead") {
 		status.Ahead = 1 // Simplified for now
@@ -635,17 +635,17 @@ func (wm *WorktreeManager) parseAheadBehind(line string, status *GitStatus) {
 }
 
 // DeleteWorktree removes a worktree and its associated branch
-func (wm *WorktreeManager) DeleteWorktree(worktreeInfo WorktreeInfo) error {
+func (r *Repository) DeleteWorktree(worktreeInfo WorktreeInfo) error {
 	// Remove Git worktree
 	cmd := exec.Command("git", "worktree", "remove", "-f", worktreeInfo.Path)
-	cmd.Dir = wm.repoPath
+	cmd.Dir = r.path
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to remove Git worktree: %w", err)
 	}
 
 	// Delete the branch
 	cmd = exec.Command("git", "branch", "-D", worktreeInfo.Branch)
-	cmd.Dir = wm.repoPath
+	cmd.Dir = r.path
 	if err := cmd.Run(); err != nil {
 		// Log warning but don't fail - worktree is already removed
 		fmt.Printf("Warning: failed to delete branch '%s': %v\n", worktreeInfo.Branch, err)
@@ -676,21 +676,22 @@ func isDirEmpty(dirname string) (bool, error) {
 
 // CommitAll stages all changes (tracked and untracked) and commits with the provided message
 // Returns the commit SHA on success
-func CommitAll(repoPath, message string) (string, error) {
+// worktreePath should be the path to the worktree where changes should be committed
+func (r *Repository) CommitAll(worktreePath, message string) (string, error) {
 	if message == "" {
 		return "", fmt.Errorf("commit message cannot be empty")
 	}
 
 	// Stage all changes
 	cmd := exec.Command("git", "add", "-A")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("failed to stage changes: %w", err)
 	}
 
 	// Commit changes
 	cmd = exec.Command("git", "commit", "-m", message)
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check if it's a "nothing to commit" error
@@ -702,7 +703,7 @@ func CommitAll(repoPath, message string) (string, error) {
 
 	// Get the commit SHA
 	cmd = exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	shaOutput, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit SHA: %w", err)
@@ -713,9 +714,9 @@ func CommitAll(repoPath, message string) (string, error) {
 }
 
 // StageFile stages a specific file
-func StageFile(repoPath, filePath string) error {
+func (r *Repository) StageFile(worktreePath, filePath string) error {
 	cmd := exec.Command("git", "add", filePath)
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to stage file %s: %w", filePath, err)
 	}
@@ -723,9 +724,9 @@ func StageFile(repoPath, filePath string) error {
 }
 
 // UnstageFile unstages a specific file
-func UnstageFile(repoPath, filePath string) error {
+func (r *Repository) UnstageFile(worktreePath, filePath string) error {
 	cmd := exec.Command("git", "restore", "--staged", filePath)
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to unstage file %s: %w", filePath, err)
 	}
@@ -733,9 +734,9 @@ func UnstageFile(repoPath, filePath string) error {
 }
 
 // DiscardFile discards changes to a specific file
-func DiscardFile(repoPath, filePath string) error {
+func (r *Repository) DiscardFile(worktreePath, filePath string) error {
 	cmd := exec.Command("git", "restore", filePath)
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to discard changes for file %s: %w", filePath, err)
 	}
@@ -743,9 +744,9 @@ func DiscardFile(repoPath, filePath string) error {
 }
 
 // StageAll stages all changes in the repository
-func StageAll(repoPath string) error {
+func (r *Repository) StageAll(worktreePath string) error {
 	cmd := exec.Command("git", "add", "-A")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to stage all changes: %w", err)
 	}
@@ -753,12 +754,12 @@ func StageAll(repoPath string) error {
 }
 
 // GetCommitLog gets list of commits on sourceBranch that aren't on targetBranch
-func GetCommitLog(repoPath, targetBranch, sourceBranch string) ([]CommitInfo, error) {
+func (r *Repository) GetCommitLog(worktreePath, targetBranch, sourceBranch string) ([]CommitInfo, error) {
 	// Use git log with custom format: hash|message|author|date
 	// Format: %h = short hash, %s = subject, %an = author name, %ad = author date
 	cmd := exec.Command("git", "log", fmt.Sprintf("%s..%s", targetBranch, sourceBranch),
 		"--pretty=format:%h|%s|%an|%ad", "--date=short")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -791,12 +792,12 @@ func GetCommitLog(repoPath, targetBranch, sourceBranch string) ([]CommitInfo, er
 }
 
 // GetDiffFiles gets list of files that differ between source and target branches
-func GetDiffFiles(repoPath, sourceBranch, targetBranch string) ([]string, error) {
+func (r *Repository) GetDiffFiles(worktreePath, sourceBranch, targetBranch string) ([]string, error) {
 	// Use git diff --name-only to get list of changed files
 	// Using three-dot syntax (targetBranch...sourceBranch) to show changes in sourceBranch
 	// that are not in targetBranch
 	cmd := exec.Command("git", "diff", "--name-only", fmt.Sprintf("%s...%s", targetBranch, sourceBranch))
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -818,10 +819,10 @@ func GetDiffFiles(repoPath, sourceBranch, targetBranch string) ([]string, error)
 }
 
 // MergeBranch merges source branch into current branch of target repo (main worktree)
-func MergeBranch(targetRepoPath, sourceBranch, commitMessage string) error {
+func (r *Repository) MergeBranch(worktreePath, sourceBranch, commitMessage string) error {
 	// Verify we're on a valid branch (not detached HEAD)
 	cmd := exec.Command("git", "branch", "--show-current")
-	cmd.Dir = targetRepoPath
+	cmd.Dir = worktreePath
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get current branch: %w", err)
@@ -833,14 +834,14 @@ func MergeBranch(targetRepoPath, sourceBranch, commitMessage string) error {
 
 	// Verify source branch exists
 	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+sourceBranch)
-	cmd.Dir = targetRepoPath
+	cmd.Dir = worktreePath
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("source branch '%s' does not exist", sourceBranch)
 	}
 
 	// Perform merge
 	cmd = exec.Command("git", "merge", sourceBranch, "-m", commitMessage)
-	cmd.Dir = targetRepoPath
+	cmd.Dir = worktreePath
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		outputStr := string(output)

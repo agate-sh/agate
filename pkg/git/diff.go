@@ -8,15 +8,15 @@ import (
 )
 
 // GetFileDiffRendered returns the diff for a specific file rendered with delta
-func GetFileDiffRendered(repoPath, filePath string, width int) (string, error) {
+func (r *Repository) GetFileDiffRendered(worktreePath, filePath string, width int) (string, error) {
 	// Get unified diff for the file
 	cmd := exec.Command("git", "diff", "HEAD", "--", filePath)
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	output, err := cmd.Output()
 	if err != nil {
 		// Try getting diff for staged changes if HEAD diff fails
 		cmd = exec.Command("git", "diff", "--cached", "--", filePath)
-		cmd.Dir = repoPath
+		cmd.Dir = worktreePath
 		output, err = cmd.Output()
 		if err != nil {
 			return "", fmt.Errorf("failed to get diff: %w", err)
@@ -26,12 +26,12 @@ func GetFileDiffRendered(repoPath, filePath string, width int) (string, error) {
 	// If output is empty, file might be untracked - show the whole file as additions
 	if len(output) == 0 {
 		cmd = exec.Command("git", "show", fmt.Sprintf(":%s", filePath))
-		cmd.Dir = repoPath
+		cmd.Dir = worktreePath
 		content, err := cmd.Output()
 		if err != nil {
 			// File is untracked, read it directly
 			cmd = exec.Command("cat", filePath)
-			cmd.Dir = repoPath
+			cmd.Dir = worktreePath
 			content, err = cmd.Output()
 			if err != nil {
 				return "", fmt.Errorf("failed to read untracked file: %w", err)

@@ -7,7 +7,6 @@ import (
 
 	"agate/internal/debug"
 	"agate/pkg/agents"
-	"agate/pkg/git"
 	"agate/pkg/session"
 	"agate/pkg/state"
 
@@ -31,14 +30,8 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 		fmt.Printf("Session will not be persisted.\n")
 	}
 
-	// Initialize worktree manager
-	worktreeManager, err := git.NewWorktreeManager()
-	if err != nil {
-		return fmt.Errorf("failed to initialize worktree manager: %v", err)
-	}
-
-	// Create session manager
-	sessionManager := session.NewManager(worktreeManager, stateManager)
+	// Create session manager (it will create Repository internally)
+	sessionManager := session.NewManager(stateManager)
 
 	// Determine which agents to use
 	agentNames := ResolveAgentNames(agentsFlag, stateManager)
@@ -63,7 +56,10 @@ func newSessionFromCLI(agentsFlag string, prompt string) error {
 	debug.DebugLog("Detected terminal size: %dx%d", termWidth, termHeight)
 
 	// Generate deterministic branch name using repo name and timestamp
-	repoName := worktreeManager.GetRepositoryName()
+	repoName := ""
+	if repo, err := sessionManager.GetRepository(); err == nil {
+		repoName = repo.GetRepositoryName()
+	}
 	branchName := session.GenerateBranchNameFromPrompt(repoName)
 
 	// Create session with terminal dimensions

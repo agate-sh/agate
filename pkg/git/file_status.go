@@ -31,12 +31,12 @@ type RepoFileStatus struct {
 }
 
 // GetFileStatuses returns the Git status for all changed files in a repository path
-func GetFileStatuses(repoPath string) *RepoFileStatus {
+func (r *Repository) GetFileStatuses(worktreePath string) *RepoFileStatus {
 	result := &RepoFileStatus{}
 
 	// Get the list of changed files using git status --porcelain
 	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	statusOutput, err := cmd.Output()
 	if err != nil {
 		result.Error = fmt.Errorf("failed to get git status: %w", err)
@@ -98,7 +98,7 @@ func GetFileStatuses(repoPath string) *RepoFileStatus {
 
 	// Get addition/deletion counts for tracked files using git diff --numstat
 	if len(files) > 0 {
-		addDelCounts := getAdditionDeletionCounts(repoPath)
+		addDelCounts := getAdditionDeletionCounts(worktreePath)
 
 		// Match files with their add/del counts
 		for i := range files {
@@ -134,18 +134,18 @@ type addDelCount struct {
 }
 
 // getAdditionDeletionCounts gets the addition/deletion counts for changed files
-func getAdditionDeletionCounts(repoPath string) map[string]addDelCount {
+func getAdditionDeletionCounts(worktreePath string) map[string]addDelCount {
 	counts := make(map[string]addDelCount)
 
 	// Use git diff --numstat to get addition/deletion counts
 	// This covers staged and unstaged changes
 	cmd := exec.Command("git", "diff", "--numstat", "HEAD")
-	cmd.Dir = repoPath
+	cmd.Dir = worktreePath
 	output, err := cmd.Output()
 	if err != nil {
 		// Try without HEAD in case it's a new repo
 		cmd = exec.Command("git", "diff", "--numstat", "--cached")
-		cmd.Dir = repoPath
+		cmd.Dir = worktreePath
 		output, err = cmd.Output()
 		if err != nil {
 			return counts

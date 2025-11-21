@@ -3,7 +3,6 @@ package tui
 import (
 	"agate/internal/debug"
 	"agate/pkg/common"
-	"agate/pkg/git"
 	"agate/pkg/tui/layout"
 	"agate/pkg/tui/overlays"
 	"agate/pkg/tui/panes"
@@ -205,7 +204,12 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		activeSession := m.sessionManager.GetActiveSession()
 		if activeSession != nil && activeSession.Worktree() != nil {
 			// Check if there are any changes to merge
-			fileStatus := git.GetFileStatuses(activeSession.Worktree().Path)
+			repo, err := m.sessionManager.GetRepository()
+			if err != nil {
+				toastCmd := m.toast.Show("Failed to get repository", 0)
+				return m, toastCmd
+			}
+			fileStatus := repo.GetFileStatuses(activeSession.Worktree().Path)
 			if fileStatus == nil || fileStatus.IsClean {
 				// No changes to merge - show toast
 				toastCmd := m.toast.Show("No changes to merge", 0)
@@ -213,7 +217,7 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			}
 
 			// There are changes - show merge overlay
-			m.mergeOverlay = overlays.NewMergeOverlay(activeSession)
+			m.mergeOverlay = overlays.NewMergeOverlay(activeSession, repo)
 			m.mergeOverlay.SetSize(m.layout.GetWidth(), m.layout.GetHeight())
 			m.SetOverlay(MergeOverlay)
 			initCmd := m.mergeOverlay.Init()
@@ -315,16 +319,21 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		if m.state.Focus.IsAgentsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
 			// Try HandleKey first (handles navigation and search exit logic)
 			keyStr := msg.String()
-			debug.DebugLog("main.Update default: keyStr=%q, calling HandleKey", keyStr)
+			debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsAgentsFocus()=true, calling HandleKey", keyStr)
 			handled, cmd := m.repoPane.HandleKey(keyStr)
-			debug.DebugLog("main.Update default: HandleKey returned handled=%v", handled)
+			debug.DebugLog("[MAIN UPDATE] HandleKey returned handled=%v, cmd=%v", handled, cmd != nil)
 			if handled {
+				debug.DebugLog("[MAIN UPDATE] Key was handled by HandleKey, returning")
 				return m, cmd
 			}
 			// If not handled by HandleKey, pass to Update for search input
+			debug.DebugLog("[MAIN UPDATE] Key not handled by HandleKey, calling Update")
 			m.repoPane, cmd = m.repoPane.Update(msg)
+			debug.DebugLog("[MAIN UPDATE] Update returned cmd=%v", cmd != nil)
 			return m, cmd
 		}
+		debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsAgentsFocus()=%v, repoPane=%v, IsActive=%v - NOT handling",
+			msg.String(), m.state.Focus.IsAgentsFocus(), m.repoPane != nil, m.repoPane != nil && m.repoPane.IsActive())
 	}
 
 	return m, nil

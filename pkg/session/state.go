@@ -19,14 +19,14 @@ func (m *Manager) PersistSessions() error {
 		return fmt.Errorf("state manager is nil")
 	}
 
-	debug.DebugLog("PersistSessions: Persisting %d sessions", len(m.sessions))
+	debug.DebugLog("PersistSessions: Persisting %d sessions", len(m.agentSessions))
 
 	// Batch all session updates into a single atomic operation
 	return m.stateMgr.UpdateSessions(func(s *config.SessionState) error {
 		// Clear existing mappings and rebuild from current sessions
 		s.SessionMappings = make(map[string]config.PersistedSession)
 
-		for sessionID, session := range m.sessions {
+		for sessionID, session := range m.agentSessions {
 			// Convert agents to persisted format
 			persistedAgents := make([]config.PersistedAgentInstance, 0, len(session.Agents))
 			for _, agent := range session.Agents {
@@ -116,7 +116,7 @@ func (m *Manager) LoadSessions() error {
 		}
 
 		// Store in sessions map
-		m.sessions[sessionID] = session
+		m.agentSessions[sessionID] = session
 		restoredCount++
 		debug.DebugLog("LoadSessions: Successfully restored session: %s with %d agents",
 			sessionID, len(session.Agents))

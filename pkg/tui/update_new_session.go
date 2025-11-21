@@ -71,7 +71,10 @@ func (m *Model) handleNewSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			}
 
 			// Generate deterministic branch name instantly
-			repoName := m.worktreeManager.GetRepositoryName()
+			repoName := ""
+			if repo, err := m.sessionManager.GetRepository(); err == nil {
+				repoName = repo.GetRepositoryName()
+			}
 			branchName := session.GenerateBranchNameFromPrompt(repoName)
 
 			// Start session creation immediately by sending message

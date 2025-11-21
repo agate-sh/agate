@@ -17,10 +17,9 @@ import (
 
 // Manager is a singleton that manages all multi-agent sessions
 type Manager struct {
-	sessions      map[string]*Session      // SessionID -> Session
+	agentSessions map[string]*Session      // SessionID -> multi-agent Session
 	activeSession *Session                 // Currently active session
-	worktreeMgr   *git.WorktreeManager     // Default Git worktree manager (launch repo)
-	worktreeMap   map[string]*git.WorktreeManager
+	repositories  map[string]*git.Repository // Repo name -> git Repository (shared across sessions)
 	stateMgr      StateManager             // Thread-safe state persistence
 	mu            sync.RWMutex             // Protects concurrent access
 }
@@ -36,24 +35,49 @@ type StateManager interface {
 }
 
 // NewManager creates a new session manager
-func NewManager(worktreeMgr *git.WorktreeManager, stateMgr StateManager) *Manager {
+func NewManager(stateMgr StateManager) *Manager {
 	if stateMgr == nil {
 		debug.DebugLog("WARNING: SessionManager created with nil StateManager - persistence will not work")
 	}
 
 	mgr := &Manager{
-		sessions:    make(map[string]*Session),
-		worktreeMgr: worktreeMgr,
-		worktreeMap: make(map[string]*git.WorktreeManager),
-		stateMgr:    stateMgr,
+		agentSessions: make(map[string]*Session),
+		repositories:  make(map[string]*git.Repository),
+		stateMgr:      stateMgr,
 	}
 
-	if worktreeMgr != nil {
-		repoName := worktreeMgr.GetRepositoryName()
-		mgr.worktreeMap[repoName] = worktreeMgr
+	// Create repository for current working directory
+	repo, err := git.NewRepository()
+	if err != nil {
+		debug.DebugLog("WARNING: Failed to initialize repository: %v - sessions cannot be created", err)
+	} else {
+		repoName := repo.GetRepositoryName()
+		mgr.repositories[repoName] = repo
 	}
 
 	return mgr
+}
+
+// getRepository returns the Repository for the current working directory (launch repo)
+// Returns error if no repository is available
+func (m *Manager) getRepository() (*git.Repository, error) {
+	// Get the first (and typically only) repository from the map
+	// This is the repository we were launched from
+	for _, repo := range m.repositories {
+		return repo, nil
+	}
+	return nil, fmt.Errorf("no repository available - not in a git repository")
+}
+
+// getRepositoryByName returns a Repository for the given repo name, creating it if needed
+func (m *Manager) getRepositoryByName(repoName string) (*git.Repository, error) {
+	if repo, ok := m.repositories[repoName]; ok {
+		return repo, nil
+	}
+
+	// Repository doesn't exist yet - would need to be created from a path
+	// For now, return error (this will be used when restoring sessions from other repos)
+	return nil, fmt.Errorf("repository not found: %s", repoName)
 }
 
 // CreateSession creates a new multi-agent session
@@ -153,7 +177,7 @@ func (m *Manager) CreateSessionWithSize(prompt string, branchName string, agentN
 	}
 
 	// Store session
-	m.sessions[sessionID] = session
+	m.agentSessions[sessionID] = session
 
 	// Set as active session so TUI will show it
 	m.activeSession = session
@@ -164,7 +188,7 @@ func (m *Manager) CreateSessionWithSize(prompt string, branchName string, agentN
 	}
 
 	// Track session creation
-	isFirstSession := len(m.sessions) == 1
+	isFirstSession := len(m.agentSessions) == 1
 	telemetry.TrackPromptEntered(prompt, agentNames)
 	telemetry.TrackAgentsSelected(agentNames)
 	telemetry.TrackSessionCreated(agentNames, isFirstSession)
@@ -180,12 +204,18 @@ func (m *Manager) createAgent(sessionID string, branchName string, agentName str
 	// Get agent configuration
 	agentConfig := agents.GetAgentConfig(agentName)
 
+	// Get repository for creating worktree
+	repo, err := m.getRepository()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository: %w", err)
+	}
+
 	// Create worktree for this agent
 	// For multi-agent sessions, append agent name to branch to make it unique
 	agentBranchName := fmt.Sprintf("%s_%s", branchName, agentName)
 	debug.DebugLog("createAgent: Creating worktree with unique branch=%s for agent=%s", agentBranchName, agentName)
 
-	worktree, err := m.worktreeMgr.CreateWorktree(agentBranchName)
+	worktree, err := repo.CreateWorktree(agentBranchName)
 	if err != nil {
 		debug.DebugLog("createAgent: Failed to create worktree for agent=%s, branch=%s: %v", agentName, agentBranchName, err)
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
@@ -301,8 +331,13 @@ func (m *Manager) setupTmuxSession(session *Session) error {
 
 // cleanupAgent cleans up resources for an agent
 func (m *Manager) cleanupAgent(agent *Agent) {
-	if agent.Worktree != nil && m.worktreeMgr != nil {
-		if err := m.worktreeMgr.DeleteWorktree(*agent.Worktree); err != nil {
+	if agent.Worktree != nil {
+		repo, err := m.getRepository()
+		if err != nil {
+			debug.DebugLog("Failed to get repository for cleanup: %v", err)
+			return
+		}
+		if err := repo.DeleteWorktree(*agent.Worktree); err != nil {
 			debug.DebugLog("Failed to delete worktree for agent %s: %v", agent.ID, err)
 		}
 	}
@@ -313,7 +348,7 @@ func (m *Manager) UpdateSessionDescription(sessionID string, description string)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -337,7 +372,7 @@ func (m *Manager) AddAgentToSession(sessionID string, agentName string) (*Agent,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -379,7 +414,7 @@ func (m *Manager) CycleActiveAgent(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -412,7 +447,7 @@ func (m *Manager) SetActiveAgent(sessionID string, index int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -442,7 +477,7 @@ func (m *Manager) SwitchToSession(sessionID string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -475,7 +510,7 @@ func (m *Manager) DeleteSession(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, exists := m.sessions[sessionID]
+	session, exists := m.agentSessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -496,7 +531,7 @@ func (m *Manager) DeleteSession(sessionID string) error {
 	}
 
 	// Remove from sessions map
-	delete(m.sessions, sessionID)
+	delete(m.agentSessions, sessionID)
 
 	// If this was the active session, clear it
 	if m.activeSession == session {
@@ -520,8 +555,8 @@ func (m *Manager) ListSessions() []*Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	sessions := make([]*Session, 0, len(m.sessions))
-	for _, session := range m.sessions {
+	sessions := make([]*Session, 0, len(m.agentSessions))
+	for _, session := range m.agentSessions {
 		sessions = append(sessions, session)
 	}
 	return sessions
@@ -534,22 +569,20 @@ func (m *Manager) GetRepositoryPath(repoName string) (string, error) {
 
 	repoName = strings.TrimSpace(repoName)
 	if repoName == "" {
-		if m.worktreeMgr != nil {
-			return m.worktreeMgr.GetRepositoryPath(), nil
+		// Return first repository path
+		for _, repo := range m.repositories {
+			return repo.GetRepositoryPath(), nil
 		}
 		return "", fmt.Errorf("repository name cannot be empty")
 	}
 
-	if manager, ok := m.worktreeMap[repoName]; ok && manager != nil {
-		return manager.GetRepositoryPath(), nil
-	}
-
-	if m.worktreeMgr != nil && m.worktreeMgr.GetRepositoryName() == repoName {
-		return m.worktreeMgr.GetRepositoryPath(), nil
+	// Check if we have this repository
+	if repo, ok := m.repositories[repoName]; ok {
+		return repo.GetRepositoryPath(), nil
 	}
 
 	// Search through sessions for a worktree with this repo name
-	for _, session := range m.sessions {
+	for _, session := range m.agentSessions {
 		for _, agent := range session.Agents {
 			if agent != nil && agent.Worktree != nil && agent.Worktree.RepoName == repoName {
 				path := strings.TrimSpace(agent.Worktree.Path)
@@ -572,43 +605,48 @@ func (m *Manager) GetRepositoryPath(repoName string) (string, error) {
 	return "", fmt.Errorf("repository path not found for repo: %s", repoName)
 }
 
-// GetWorktreeManagerForRepo returns a worktree manager scoped to the given repository
-func (m *Manager) GetWorktreeManagerForRepo(repoName string) (*git.WorktreeManager, error) {
+// GetRepository returns the default repository for the launch directory
+func (m *Manager) GetRepository() (*git.Repository, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.getRepository()
+}
+
+// GetRepositoryForRepo returns a Repository scoped to the given repository name
+func (m *Manager) GetRepositoryForRepo(repoName string) (*git.Repository, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	repoName = strings.TrimSpace(repoName)
 	if repoName == "" {
-		if m.worktreeMgr != nil {
-			return m.worktreeMgr, nil
+		// Return first repository
+		for _, repo := range m.repositories {
+			return repo, nil
 		}
 		return nil, fmt.Errorf("repository name cannot be empty")
 	}
 
-	if manager, ok := m.worktreeMap[repoName]; ok && manager != nil {
-		return manager, nil
+	// Check if we already have this repository
+	if repo, ok := m.repositories[repoName]; ok {
+		return repo, nil
 	}
 
+	// Need to create repository from a path
 	repoPath, err := m.GetRepositoryPath(repoName)
 	if err != nil {
 		return nil, err
 	}
 
-	manager, err := git.NewWorktreeManagerForPath(repoPath)
+	repo, err := git.NewRepositoryForPath(repoPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if m.worktreeMap == nil {
-		m.worktreeMap = make(map[string]*git.WorktreeManager)
-	}
-	key := manager.GetRepositoryName()
-	m.worktreeMap[key] = manager
-	if key != repoName {
-		m.worktreeMap[repoName] = manager
-	}
+	// Cache it
+	m.repositories[repoName] = repo
 
-	return manager, nil
+	return repo, nil
 }
 
 // RestoreSessions attempts to reconnect to existing sessions on startup
@@ -621,13 +659,13 @@ func (m *Manager) CleanupOrphanedSessions() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for sessionID, session := range m.sessions {
+	for sessionID, session := range m.agentSessions {
 		// Check if the shared tmux session still exists
 		if session.SharedTmux != nil {
 			exists, err := session.SharedTmux.SessionExists()
 			if err != nil || !exists {
 				debug.DebugLog("Removing orphaned session: %s (tmux session no longer exists)", sessionID)
-				delete(m.sessions, sessionID)
+				delete(m.agentSessions, sessionID)
 				if m.activeSession == session {
 					m.activeSession = nil
 				}
@@ -636,12 +674,6 @@ func (m *Manager) CleanupOrphanedSessions() {
 	}
 }
 
-// GetWorktreeManager returns the default worktree manager
-func (m *Manager) GetWorktreeManager() *git.WorktreeManager {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.worktreeMgr
-}
 
 // GetSessionForWorktree returns the session containing an agent with the given worktree
 func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
@@ -653,7 +685,7 @@ func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
 	}
 
 	// Search through all sessions for an agent with this worktree path
-	for _, session := range m.sessions {
+	for _, session := range m.agentSessions {
 		for _, agent := range session.Agents {
 			if agent != nil && agent.Worktree != nil && agent.Worktree.Path == worktree.Path {
 				return session
@@ -670,7 +702,7 @@ func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName strin
 	defer m.mu.Unlock()
 
 	// Check if a session exists with an agent using this worktree
-	for _, session := range m.sessions {
+	for _, session := range m.agentSessions {
 		for _, agent := range session.Agents {
 			if agent != nil && agent.Worktree != nil && agent.Worktree.Path == worktree.Path {
 				session.LastAccessed = time.Now()

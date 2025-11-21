@@ -16,15 +16,15 @@ import (
 
 // SessionDeleteConfirmDialog shows a confirmation dialog for session deletion
 type SessionDeleteConfirmDialog struct {
-	width           int
-	height          int
-	session         *session.Session
-	sessionManager  *session.Manager
-	worktree        *git.WorktreeInfo    // For worktree-only deletion
-	worktreeManager *git.WorktreeManager // For worktree-only deletion
-	focused         bool
-	help            help.Model
-	keys            deleteKeyMap
+	width          int
+	height         int
+	session        *session.Session
+	sessionManager *session.Manager
+	worktree       *git.WorktreeInfo // For worktree-only deletion
+	repository     *git.Repository   // For worktree-only deletion
+	focused        bool
+	help           help.Model
+	keys           deleteKeyMap
 }
 
 // deleteKeyMap defines the keybindings for the delete confirmation dialog
@@ -93,9 +93,9 @@ func (d *SessionDeleteConfirmDialog) SetSize(width, height int) {
 }
 
 // SetWorktreeInfo sets worktree info for worktree-only deletion
-func (d *SessionDeleteConfirmDialog) SetWorktreeInfo(worktree *git.WorktreeInfo, worktreeManager *git.WorktreeManager) {
+func (d *SessionDeleteConfirmDialog) SetWorktreeInfo(worktree *git.WorktreeInfo, repository *git.Repository) {
 	d.worktree = worktree
-	d.worktreeManager = worktreeManager
+	d.repository = repository
 }
 
 // Update handles tea.Msg updates

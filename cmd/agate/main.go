@@ -25,10 +25,9 @@ import (
 
 // managers holds the backend components that can be created before TUI launch
 type managers struct {
-	sessionManager  *session.Manager
-	stateManager    *state.Manager
-	worktreeManager *git.WorktreeManager
-	debugLogger     *debug.DebugLogger
+	sessionManager *session.Manager
+	stateManager   *state.Manager
+	debugLogger    *debug.DebugLogger
 }
 
 func checkTmuxInstalled() error {
@@ -53,15 +52,8 @@ func createManagers(subprocess string) (*managers, error) {
 		// Continue with nil stateManager - session manager will handle it gracefully
 	}
 
-	// Initialize worktree manager
-	worktreeManager, err := git.NewWorktreeManager()
-	if err != nil {
-		// Log error but don't fail - app can still work without worktree features
-		fmt.Printf("Warning: failed to initialize worktree manager: %v\n", err)
-	}
-
-	// Create session manager with state manager
-	sessionManager := session.NewManager(worktreeManager, stateManager)
+	// Create session manager (it will create Repository internally)
+	sessionManager := session.NewManager(stateManager)
 
 	// Load existing sessions from persistence
 	if err := sessionManager.RestoreSessions(); err != nil {
@@ -73,10 +65,9 @@ func createManagers(subprocess string) (*managers, error) {
 	git.DebugLog = debug.DebugLog
 
 	return &managers{
-		sessionManager:  sessionManager,
-		stateManager:    stateManager,
-		worktreeManager: worktreeManager,
-		debugLogger:     debugLogger,
+		sessionManager: sessionManager,
+		stateManager:   stateManager,
+		debugLogger:    debugLogger,
 	}, nil
 }
 
@@ -115,8 +106,8 @@ func runAgentWithPrompt(subprocess string, initialPrompt string) error {
 
 		// Generate branch name
 		repoName := ""
-		if mgrs.worktreeManager != nil {
-			repoName = mgrs.worktreeManager.GetRepositoryName()
+		if repo, err := mgrs.sessionManager.GetRepository(); err == nil {
+			repoName = repo.GetRepositoryName()
 		}
 		branchName := session.GenerateBranchNameFromPrompt(repoName)
 
@@ -139,10 +130,9 @@ func runAgentWithPrompt(subprocess string, initialPrompt string) error {
 		InitialPrompt:     initialPrompt,
 		TermWidth:         width,
 		TermHeight:        height,
-		DebugLogger:       mgrs.debugLogger,
-		StateManager:      mgrs.stateManager,
-		WorktreeManager:   mgrs.worktreeManager,
-		SessionManager:    mgrs.sessionManager,
+		DebugLogger:    mgrs.debugLogger,
+		StateManager:   mgrs.stateManager,
+		SessionManager: mgrs.sessionManager,
 		PreCreatedSession: preCreatedSession,
 	})
 

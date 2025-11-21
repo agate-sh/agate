@@ -37,7 +37,8 @@ type ChangesPane struct {
 	*components.BasePane
 	fileList         *components.GitFileList
 	diffViewer       *components.GitDiffViewer
-	repoPath         string
+	worktreePath     string
+	repository       *git.Repository
 	focusedPane      FocusPane
 	lastSelectedFile string // Track last selected file
 }
@@ -50,7 +51,7 @@ type GitRefreshMsg struct{}
 
 // NewChangesPane creates a new ChangesPane instance
 func NewChangesPane() *ChangesPane {
-	fileList := components.NewGitFileList("", false) // Don't show summary
+	fileList := components.NewGitFileList("", nil, false) // Don't show summary, no repo yet
 	diffViewer := components.NewGitDiffViewer()
 	pane := &ChangesPane{
 		BasePane:    components.NewBasePane(2, "Changes"), // Pane index 2
@@ -62,12 +63,18 @@ func NewChangesPane() *ChangesPane {
 	return pane
 }
 
-// SetRepository sets the active worktree path to display changes from
-func (p *ChangesPane) SetRepository(repoPath string) {
-	if repoPath != p.repoPath {
-		p.repoPath = repoPath
+// SetRepositoryAndPath sets both the repository and the worktree path
+func (p *ChangesPane) SetRepositoryAndPath(repo *git.Repository, worktreePath string) {
+	p.repository = repo
+	p.SetWorktreePath(worktreePath)
+}
+
+// SetWorktreePath sets the active worktree path to display changes from
+func (p *ChangesPane) SetWorktreePath(worktreePath string) {
+	if worktreePath != p.worktreePath {
+		p.worktreePath = worktreePath
 		if p.fileList != nil {
-			p.fileList = components.NewGitFileList(repoPath, true)
+			p.fileList = components.NewGitFileList(worktreePath, p.repository, true)
 			p.fileList.SetSize(p.GetWidth())
 			p.fileList.SetHeight(p.GetHeight())
 		}
@@ -123,9 +130,9 @@ func (p *ChangesPane) GetSelectedFile() *git.FileStatus {
 	return p.fileList.GetSelectedFile()
 }
 
-// GetRepoPath returns the current repository path
-func (p *ChangesPane) GetRepoPath() string {
-	return p.repoPath
+// GetWorktreePath returns the current worktree path
+func (p *ChangesPane) GetWorktreePath() string {
+	return p.worktreePath
 }
 
 // MoveUp moves the selection up one item
@@ -427,7 +434,10 @@ func (p *ChangesPane) discardFile() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		err := git.DiscardFile(p.repoPath, file.FilePath)
+		if p.repository == nil {
+			return nil
+		}
+		err := p.repository.DiscardFile(p.worktreePath, file.FilePath)
 		if err == nil {
 			return ChangesRefreshMsg{}
 		}
@@ -443,7 +453,7 @@ func (p *ChangesPane) openSelectedFile() tea.Cmd {
 	}
 
 	// Build full file path
-	fullPath := filepath.Join(p.repoPath, file.DirPath, file.FileName)
+	fullPath := filepath.Join(p.worktreePath, file.DirPath, file.FileName)
 
 	// Get editor from environment
 	editor := os.Getenv("EDITOR")
@@ -515,7 +525,10 @@ func (p *ChangesPane) updateDiffViewer() {
 	p.lastSelectedFile = file.FilePath
 
 	// Get rendered diff from delta
-	diffContent, err := git.GetFileDiffRendered(p.repoPath, file.FilePath, p.diffViewer.Width())
+	if p.repository == nil {
+		return
+	}
+	diffContent, err := p.repository.GetFileDiffRendered(p.worktreePath, file.FilePath, p.diffViewer.Width())
 	if err != nil {
 		// If error, clear the diff viewer
 		p.diffViewer.SetDiffContent("")

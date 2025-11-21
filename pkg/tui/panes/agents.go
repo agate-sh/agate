@@ -378,12 +378,12 @@ func NewAgentsPane(sessionManager *session.Manager) *AgentsPane {
 	// Initial refresh
 	if sessionManager != nil {
 		// Get worktree manager from session manager if available
-		if worktreeManager := sessionManager.GetWorktreeManager(); worktreeManager != nil {
-			pane.isGitRepo = worktreeManager.IsGitRepo()
+		if repository, err := sessionManager.GetRepository(); err == nil && repository != nil {
+			pane.isGitRepo = repository.IsGitRepo()
 			if pane.isGitRepo {
-				pane.currentRepo = worktreeManager.GetRepositoryName()
+				pane.currentRepo = repository.GetRepositoryName()
 			}
-			if mainWorktree, err := worktreeManager.GetMainWorktreeInfo(); err == nil {
+			if mainWorktree, err := repository.GetMainWorktreeInfo(); err == nil {
 				pane.mainWorktree = mainWorktree
 				if pane.isGitRepo {
 					pane.activeWorktree = mainWorktree
@@ -578,11 +578,16 @@ func (r *AgentsPane) View() string {
 
 // Update handles tea.Msg updates for the repo worktree pane
 func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		git.DebugLog("[AgentsPane.Update] ENTRY: key=%q, IsActive=%v, searching=%v", keyMsg.String(), r.IsActive(), r.searching)
+	}
+
 	var cmds []tea.Cmd
 
 	// When searching, intercept up/down keys to exit search mode
 	if r.searching {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			git.DebugLog("[AgentsPane.Update] IN SEARCH MODE, checking key=%q", keyMsg.String())
 			switch keyMsg.String() {
 			case "up", "down", "k", "j":
 				// Exit search mode and navigate
@@ -655,12 +660,16 @@ func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 // HandleKey processes keyboard input when the pane is active
 func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
+	git.DebugLog("[AgentsPane.HandleKey] ENTRY: key=%q, IsActive=%v, searching=%v", key, r.IsActive(), r.searching)
+
 	if !r.IsActive() {
+		git.DebugLog("[AgentsPane.HandleKey] Pane not active, returning false")
 		return false, nil
 	}
 
 	// When searching, up/down exits search mode and navigates the list
 	if r.searching {
+		git.DebugLog("[AgentsPane.HandleKey] IN SEARCH MODE, handling key=%q", key)
 		switch key {
 		case "up", "k", "down", "j":
 			// Exit search mode and navigate
@@ -695,6 +704,7 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 			r.delegate.searching = false
 			r.list.SetDelegate(r.delegate)
 			git.DebugLog("[AgentsPane.HandleKey] after SetDelegate, r.delegate.searching=%v", r.delegate.searching)
+			git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=true, cmd=%v", cmd != nil)
 			return true, cmd
 		case "esc":
 			// Clear filter and exit search mode
@@ -718,12 +728,17 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 	}
 
 	// When not searching, normal navigation
+	git.DebugLog("[AgentsPane.HandleKey] NOT IN SEARCH MODE, handling key=%q", key)
 	switch key {
 	case "up", "k":
+		git.DebugLog("[AgentsPane.HandleKey] Moving up")
 		r.MoveUp()
+		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=true (up)")
 		return true, nil
 	case "down", "j":
+		git.DebugLog("[AgentsPane.HandleKey] Moving down")
 		r.MoveDown()
+		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=true (down)")
 		return true, nil
 	case "alt+d":
 		// Delete selected session
@@ -1200,8 +1215,8 @@ func (r *AgentsPane) Refresh() error {
 	}
 
 	// Update main worktree info if available
-	if worktreeManager := r.sessionManager.GetWorktreeManager(); worktreeManager != nil {
-		if mainWorktree, err := worktreeManager.GetMainWorktreeInfo(); err == nil {
+	if repository, err := r.sessionManager.GetRepository(); err == nil && repository != nil {
+		if mainWorktree, err := repository.GetMainWorktreeInfo(); err == nil {
 			r.mainWorktree = mainWorktree
 			if r.isGitRepo {
 				if r.currentRepo == "" {
@@ -1370,8 +1385,8 @@ func (r *AgentsPane) buildItemList() {
 		// Add repository header
 		var mainRepoPath string
 		if r.sessionManager != nil && repoName == r.currentRepo {
-			if worktreeManager := r.sessionManager.GetWorktreeManager(); worktreeManager != nil {
-				mainRepoPath = worktreeManager.GetRepositoryPath()
+			if repository, err := r.sessionManager.GetRepository(); err == nil && repository != nil {
+				mainRepoPath = repository.GetRepositoryPath()
 			} else {
 				mainRepoPath = repoName
 			}
@@ -1484,8 +1499,8 @@ func (r *AgentsPane) persistSelection(worktree *git.WorktreeInfo) {
 
 	repoKey := strings.TrimSpace(worktree.RepoName)
 	if repoKey == "" && r.sessionManager != nil {
-		if worktreeManager := r.sessionManager.GetWorktreeManager(); worktreeManager != nil {
-			repoKey = strings.TrimSpace(worktreeManager.GetRepositoryName())
+		if repository, err := r.sessionManager.GetRepository(); err == nil && repository != nil {
+			repoKey = strings.TrimSpace(repository.GetRepositoryName())
 		}
 	}
 	if repoKey == "" {
@@ -1646,7 +1661,11 @@ func (r *AgentsPane) hasChanges() bool {
 	}
 
 	// Get file status for the active session's worktree
-	fileStatus := git.GetFileStatuses(activeSession.Worktree().Path)
+	repo, err := r.sessionManager.GetRepository()
+	if err != nil {
+		return false
+	}
+	fileStatus := repo.GetFileStatuses(activeSession.Worktree().Path)
 	if fileStatus == nil {
 		return false
 	}
