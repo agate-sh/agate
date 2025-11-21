@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"agate/internal/debug"
 	"agate/pkg/app"
 	"agate/pkg/tui/components"
 	"agate/pkg/tui/theme"
@@ -12,8 +13,8 @@ import (
 type PaneType int
 
 const (
-	PaneTypeAgents PaneType = iota
-	PaneTypeSession
+	PaneTypeSessions PaneType = iota
+	PaneTypeAgents
 )
 
 type SubPane int
@@ -31,9 +32,9 @@ type FocusState struct {
 // String returns the string representation of the focus state
 func (f FocusState) String() string {
 	switch f.PaneType {
+	case PaneTypeSessions:
+		return "sessions"
 	case PaneTypeAgents:
-		return "agents"
-	case PaneTypeSession:
 		switch f.SessionSubPane {
 		case SubPaneTmux:
 			return "tmux"
@@ -48,27 +49,36 @@ func (f FocusState) String() string {
 }
 
 // Helper functions to create focus states
-func NewAgentsFocus() FocusState {
-	return FocusState{PaneType: PaneTypeAgents, SessionSubPane: SubPaneTmux}
+func NewSessionsFocus() FocusState {
+	return FocusState{PaneType: PaneTypeSessions, SessionSubPane: SubPaneTmux}
 }
 
-func NewSessionFocus(subPane SubPane) FocusState {
-	return FocusState{PaneType: PaneTypeSession, SessionSubPane: subPane}
+func NewAgentsFocus(subPane SubPane) FocusState {
+	return FocusState{PaneType: PaneTypeAgents, SessionSubPane: subPane}
 }
 
-// IsAgentsFocus checks if focus is on the agents pane
-func (f FocusState) IsAgentsFocus() bool {
-	return f.PaneType == PaneTypeAgents
+// Convenience helpers for specific sub-panes
+func NewTmuxFocus() FocusState {
+	return NewAgentsFocus(SubPaneTmux)
+}
+
+func NewGitFocus() FocusState {
+	return NewAgentsFocus(SubPaneGit)
+}
+
+// IsSessionsFocus checks if focus is on the sessions pane
+func (f FocusState) IsSessionsFocus() bool {
+	return f.PaneType == PaneTypeSessions
 }
 
 // IsTmuxFocus checks if focus is on a tmux sub-pane
 func (f FocusState) IsTmuxFocus() bool {
-	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneTmux
+	return f.PaneType == PaneTypeAgents && f.SessionSubPane == SubPaneTmux
 }
 
 // IsGitFocus checks if focus is on a git sub-pane
 func (f FocusState) IsGitFocus() bool {
-	return f.PaneType == PaneTypeSession && f.SessionSubPane == SubPaneGit
+	return f.PaneType == PaneTypeAgents && f.SessionSubPane == SubPaneGit
 }
 
 const (
@@ -76,6 +86,7 @@ const (
 	BottomSpacerRows   = 0
 	PaneTitleRows      = 1
 	BottomMarginRows   = 1
+	FooterRows         = 3 // 1 margin + 1 content + 1 margin
 	HorizontalMargin   = 2
 	HorizontalGapWidth = 2
 )
@@ -128,7 +139,7 @@ func (l *Layout) Update(width, height int) {
 // calculate computes all pane dimensions based on terminal size
 func (l *Layout) calculate() {
 	// Reserve space for non-pane rows (top padding, titles, footer spacing)
-	chromeHeight := TopPaddingRows + BottomSpacerRows + PaneTitleRows + BottomMarginRows
+	chromeHeight := TopPaddingRows + BottomSpacerRows + PaneTitleRows + BottomMarginRows + FooterRows
 	availableHeight := l.height - chromeHeight
 
 	totalHorizontalMargins := HorizontalMargin*2 + HorizontalGapWidth*2
@@ -191,7 +202,7 @@ func (l *Layout) RenderPanes(left PaneRenderParams, tmux PaneRenderParams, git P
 		PaddingBottom(git.PaddingBottom)
 
 	// Apply focus styling - only the actively focused pane gets active border
-	if focus.IsAgentsFocus() {
+	if focus.IsSessionsFocus() {
 		leftStyle = leftStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
 	} else if focus.IsTmuxFocus() {
 		tmuxStyle = tmuxStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
@@ -245,12 +256,16 @@ func (l *Layout) RenderPanes(left PaneRenderParams, tmux PaneRenderParams, git P
 
 	// Handle loading state for tmux pane
 	var tmuxContentToRender string
+	debug.DebugLog("[LoadingState] isLoading=%v, loadingState!=nil=%v", isLoading, loadingState != nil)
 	if isLoading && loadingState != nil {
 		// Use the loading state to render the complete loading view
+		debug.DebugLog("[LoadingState] Rendering loading view for agent=%s", app.GetCurrentAgentName())
 		tmuxContentToRender = loadingState.RenderLoadingView(
 			app.GetCurrentAgentName(), app.GetCurrentAgentColor(), tmuxContentWidth, tmuxContentHeight, theme.TextMuted, theme.TextDescription,
 		)
+		debug.DebugLog("[LoadingState] Rendered loading view, length=%d", len(tmuxContentToRender))
 	} else {
+		debug.DebugLog("[LoadingState] NOT rendering loading view, using regular tmux content")
 		// Use normal tmux content
 		tmuxWrapped := lipgloss.NewStyle().
 			Width(tmuxFullWidth).

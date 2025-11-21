@@ -584,7 +584,7 @@ func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 	var cmds []tea.Cmd
 
-	// When searching, intercept up/down keys to exit search mode
+	// When searching, intercept up/down keys to exit search mode BEFORE passing to textinput
 	if r.searching {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			git.DebugLog("[AgentsPane.Update] IN SEARCH MODE, checking key=%q", keyMsg.String())
@@ -627,19 +627,43 @@ func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 					return r, navCmd
 				}
 				return r, nil
+			case "esc":
+				// Clear filter and exit search mode
+				r.clearFilter()
+				r.searching = false
+				r.delegate.searching = false
+				r.list.SetDelegate(r.delegate)
+				r.searchInput.Blur()
+				return r, nil
 			}
 		}
 
-		oldValue := r.searchInput.Value()
-		var searchCmd tea.Cmd
-		r.searchInput, searchCmd = r.searchInput.Update(msg)
-		if searchCmd != nil {
-			cmds = append(cmds, searchCmd)
-		}
+		// Only pass msg to textinput if it's not an arrow key
+		// This prevents textinput from consuming navigation keys
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "up", "down", "k", "j", "esc":
+				// Don't pass these to textinput - they were handled above
+				// If we get here, something went wrong, but don't let textinput consume them
+			default:
+				// Pass other keys to textinput for typing
+				// Focus the textinput if it's not already focused (for first keypress)
+				if !r.searchInput.Focused() {
+					r.searchInput.Focus()
+				}
 
-		// If value changed, filter the list
-		if r.searchInput.Value() != oldValue {
-			r.filterList()
+				oldValue := r.searchInput.Value()
+				var searchCmd tea.Cmd
+				r.searchInput, searchCmd = r.searchInput.Update(msg)
+				if searchCmd != nil {
+					cmds = append(cmds, searchCmd)
+				}
+
+				// If value changed, filter the list
+				if r.searchInput.Value() != oldValue {
+					r.filterList()
+				}
+			}
 		}
 	}
 
@@ -727,19 +751,19 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 		}
 	}
 
-	// When not searching, normal navigation
+	// When not searching, handle navigation or activate search mode
 	git.DebugLog("[AgentsPane.HandleKey] NOT IN SEARCH MODE, handling key=%q", key)
 	switch key {
 	case "up", "k":
 		git.DebugLog("[AgentsPane.HandleKey] Moving up")
-		r.MoveUp()
-		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=true (up)")
-		return true, nil
+		handled, cmd := r.MoveUpWithCmd()
+		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=%v, cmd=%v (up)", handled, cmd != nil)
+		return handled, cmd
 	case "down", "j":
 		git.DebugLog("[AgentsPane.HandleKey] Moving down")
-		r.MoveDown()
-		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=true (down)")
-		return true, nil
+		handled, cmd := r.MoveDownWithCmd()
+		git.DebugLog("[AgentsPane.HandleKey] RETURNING: handled=%v, cmd=%v (down)", handled, cmd != nil)
+		return handled, cmd
 	case "alt+d":
 		// Delete selected session
 		if len(r.items) > 0 {

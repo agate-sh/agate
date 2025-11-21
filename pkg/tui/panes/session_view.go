@@ -18,6 +18,7 @@ type SessionViewPane struct {
 	session       *session.Session
 	sessionHeader *components.SessionHeader
 	tmuxContent   string
+	isCreating    bool // True when session is being created in background
 }
 
 // NewSessionViewPane creates a new SessionViewPane instance
@@ -61,6 +62,23 @@ func (p *SessionViewPane) SetTmuxContent(content string) {
 	p.tmuxContent = content
 }
 
+// TickDescriptionLoader advances the description generation spinner animation
+func (p *SessionViewPane) TickDescriptionLoader() {
+	if p.sessionHeader != nil {
+		p.sessionHeader.TickLoader()
+	}
+}
+
+// SetCreating sets whether a session is currently being created
+func (p *SessionViewPane) SetCreating(creating bool) {
+	p.isCreating = creating
+}
+
+// GetSessionHeader returns the session header (for setting generation state)
+func (p *SessionViewPane) GetSessionHeader() *components.SessionHeader {
+	return p.sessionHeader
+}
+
 // SetSize updates the dimensions of the session view pane
 func (p *SessionViewPane) SetSize(width, height int) {
 	p.BasePane.SetSize(width, height)
@@ -72,10 +90,14 @@ func (p *SessionViewPane) SetSize(width, height int) {
 // View renders the pane with session header and tmux output
 func (p *SessionViewPane) View() string {
 	if p.session == nil {
+		message := "No active session"
+		if p.isCreating {
+			message = "Creating session..."
+		}
 		return lipgloss.NewStyle().
 			Width(p.GetWidth()).
 			Height(p.GetHeight()).
-			Render("No active session")
+			Render(message)
 	}
 
 	// Calculate heights: ~25% for header, ~75% for tmux

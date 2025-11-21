@@ -16,7 +16,8 @@ type SessionHeader struct {
 	agentCards            []*AgentCard
 	generatingDescription bool
 	width                 int
-	loaderFrame           int // For blinking animation
+	loaderFrame           int    // For blinking animation (deprecated, use spinnerView)
+	spinnerView           string // Rendered spinner from model
 }
 
 // Loader frames for spinning animation
@@ -70,9 +71,14 @@ func (h *SessionHeader) SetGeneratingDescription(generating bool) {
 	h.generatingDescription = generating
 }
 
-// TickLoader advances the loader animation frame
+// TickLoader advances the loader animation frame (deprecated, use SetSpinnerView)
 func (h *SessionHeader) TickLoader() {
 	h.loaderFrame = (h.loaderFrame + 1) % len(loaderFrames)
+}
+
+// SetSpinnerView sets the rendered spinner view from the model
+func (h *SessionHeader) SetSpinnerView(view string) {
+	h.spinnerView = view
 }
 
 // Render renders the complete header with all sections
@@ -112,9 +118,8 @@ func (h *SessionHeader) renderDescription() string {
 	var plainText string
 
 	if h.generatingDescription {
-		// Show blinking loader
-		loader := loaderFrames[h.loaderFrame]
-		plainText = loader + " Generating description..."
+		// Show spinner from model (already colored)
+		plainText = h.spinnerView + " Generating description..."
 	} else if h.description == "" {
 		return "" // Don't show anything if no description and not generating
 	} else {

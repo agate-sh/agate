@@ -17,6 +17,7 @@ import (
 	"agate/pkg/tui/panes"
 	"agate/pkg/tmux"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -79,7 +80,7 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 
 	// Create shortcut overlay using static GlobalKeys
 	shortcutOverlay := common.NewShortcutOverlay(common.GlobalKeys)
-	initialFocus := layout.NewSessionFocus(layout.SubPaneTmux)
+	initialFocus := layout.NewAgentsFocus(layout.SubPaneTmux)
 	shortcutOverlay.SetFocus(initialFocus.String())
 	shortcutOverlay.SetMode("preview")
 
@@ -88,6 +89,10 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 
 	// Create shared loading state
 	loadingState := tmux.NewLoadingState()
+
+	// Initialize description spinner using Points spinner
+	descSpinner := spinner.New()
+	descSpinner.Spinner = spinner.Points
 
 	// Initialize all panes using the new Pane interface
 	repoPane := panes.NewAgentsPane(sessionManager)
@@ -100,6 +105,9 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 
 	// Initialize welcome header
 	welcomeHeader := components.NewWelcomeHeader()
+
+	// Initialize global footer
+	globalFooter := components.NewGlobalFooter()
 
 	// Show new session input only if we don't have a pre-created session
 	showNewSessionInput := cfg.PreCreatedSession == nil && cfg.InitialPrompt == ""
@@ -121,7 +129,7 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		state: UIState{
 			Mode:          initialMode,
 			ActiveOverlay: NoOverlay,
-			Focus:         layout.NewAgentsFocus(), // Always start with focus on Agents pane
+			Focus:         layout.NewSessionsFocus(), // Always start with focus on Sessions pane
 		},
 		layout:                layout.NewLayout(layoutWidth, layoutHeight),
 		sessionManager:        sessionManager,
@@ -132,14 +140,16 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		shortcutOverlay:       shortcutOverlay,
 		loadingState:          loadingState,
 		toast:                 components.NewToast(),
+		descriptionSpinner:    descSpinner,
 		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
-		debugOverlay:   debugOverlay,
-		sessionConfirm: nil,
-		mergeOverlay:   nil,
-		agentSelector:  nil,
-		debugLogger:    debugLogger,
+		debugOverlay:          debugOverlay,
+		sessionConfirm:        nil,
+		mergeOverlay:          nil,
+		agentSelector:         nil,
+		debugLogger:           debugLogger,
 		chatInput:             chatInput,
 		welcomeHeader:         welcomeHeader,
+		globalFooter:          globalFooter,
 		creatingSession:       false,
 		generatingDescription: false,
 		initialPrompt:         cfg.InitialPrompt,

@@ -6,6 +6,7 @@ import (
 	"agate/pkg/overlay"
 	"agate/pkg/tui/components"
 	"agate/pkg/tui/layout"
+	"agate/pkg/tui/panes"
 	"agate/pkg/tui/theme"
 
 	"github.com/charmbracelet/lipgloss"
@@ -36,7 +37,7 @@ func (m *Model) View() string {
 	// State 1: Showing new session input (no sessions or user pressed 'n')
 	if m.ShowNewSessionInput() {
 		// Calculate layout dimensions
-		chromeHeight := layout.TopPaddingRows + layout.BottomSpacerRows + layout.PaneTitleRows + layout.BottomMarginRows
+		chromeHeight := layout.TopPaddingRows + layout.BottomSpacerRows + layout.PaneTitleRows + layout.BottomMarginRows + layout.FooterRows
 		availableHeight := m.layout.GetHeight() - chromeHeight
 		leftWidth, leftHeight := m.layout.GetLeftDimensions()
 		frameHeight := components.PaneBaseStyle.GetVerticalFrameSize()
@@ -155,6 +156,15 @@ func (m *Model) View() string {
 		centerTitle := lipgloss.NewStyle().PaddingLeft(1).Render(m.renderPaneTitle(m.sessionViewPane))
 		rightTitle := lipgloss.NewStyle().PaddingLeft(1).Render(m.renderPaneTitle(m.changesPane))
 
+		// Update session header with description spinner view if generating
+		if m.generatingDescription && m.sessionViewPane != nil {
+			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				if header := sessionView.GetSessionHeader(); header != nil {
+					header.SetSpinnerView(m.descriptionSpinner.View())
+				}
+			}
+		}
+
 		// Render pane content
 		agentsContent := m.repoPane.View()
 		sessionContent := m.sessionViewPane.View()
@@ -195,8 +205,8 @@ func (m *Model) View() string {
 				PaddingBottom: rightPadBottom,
 			},
 			m.state.Focus,
-			false, // isLoading - handled by SessionViewPane internally
-			nil,   // loadingState - not needed since SessionViewPane handles it
+			m.loadingState.IsLoading(), // Use actual loading state
+			m.loadingState,             // Pass loading state to renderer
 		)
 
 		// Join titles with panes vertically (title above pane)
@@ -217,11 +227,17 @@ func (m *Model) View() string {
 			Render(panes)
 	}
 
-	// Add bottom margin
+	// Add bottom margin and global footer
 	var bottomComponents []string
 	bottomComponents = append(bottomComponents, panesWithPadding)
 	for i := 0; i < layout.BottomMarginRows; i++ {
 		bottomComponents = append(bottomComponents, "")
+	}
+
+	// Add global footer
+	if m.globalFooter != nil {
+		m.globalFooter.SetWidth(m.layout.GetWidth())
+		bottomComponents = append(bottomComponents, m.globalFooter.View())
 	}
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, bottomComponents...)

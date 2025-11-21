@@ -70,45 +70,6 @@ func (h *WelcomeHeader) View() string {
 		Foreground(lipgloss.Color(theme.AgateColor))
 	coloredArt := colorStyle.Render(artWithVersion)
 
-	// Create shortcuts section
-	shortcutColor := lipgloss.Color(theme.AgateColor)
-	instructionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextPrimary))
-	shortcutStyle := lipgloss.NewStyle().
-		Foreground(shortcutColor)
-
-	// Commands shortcut
-	commandsInstruction := instructionStyle.Render("Commands")
-	commandsShortcut := shortcutStyle.Render("⌥p")
-	commandsGap := artWidth - lipgloss.Width(commandsInstruction) - lipgloss.Width(commandsShortcut)
-	if commandsGap < 1 {
-		commandsGap = 1
-	}
-	commandsLine := commandsInstruction + strings.Repeat(" ", commandsGap) + commandsShortcut
-
-	// New session shortcut
-	createInstruction := instructionStyle.Render("New session")
-	createShortcut := shortcutStyle.Render("⌥n")
-	createGap := artWidth - lipgloss.Width(createInstruction) - lipgloss.Width(createShortcut)
-	if createGap < 1 {
-		createGap = 1
-	}
-	createLine := createInstruction + strings.Repeat(" ", createGap) + createShortcut
-
-	// Add/remove agents shortcut
-	instruction := instructionStyle.Render("Add/remove agents")
-	shortcut := shortcutStyle.Render("tab")
-	gap := artWidth - lipgloss.Width(instruction) - lipgloss.Width(shortcut)
-	if gap < 1 {
-		gap = 1
-	}
-	agentsLine := instruction + strings.Repeat(" ", gap) + shortcut
-
-	// Combine all shortcut lines
-	shortcutBlock := lipgloss.NewStyle().
-		Width(artWidth).
-		Render(lipgloss.JoinVertical(lipgloss.Left, agentsLine, commandsLine, createLine))
-
 	// Center the ASCII art
 	containerWidth := h.width
 	if containerWidth < artWidth {
@@ -122,20 +83,5 @@ func (h *WelcomeHeader) View() string {
 		Align(lipgloss.Center).
 		Render(artBlock)
 
-	// Center the shortcuts line
-	centeredShortcuts := lipgloss.NewStyle().
-		Width(containerWidth).
-		Align(lipgloss.Center).
-		Render(shortcutBlock)
-
-	// Combine art and shortcuts with spacing
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		centeredArt,
-		"", // blank line
-		"", // second blank line for more spacing
-		centeredShortcuts,
-	)
-
-	return content
+	return centeredArt
 }

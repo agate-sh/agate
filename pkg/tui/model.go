@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	"agate/internal/debug"
 	"agate/pkg/app"
 	"agate/pkg/common"
@@ -13,6 +15,7 @@ import (
 	"agate/pkg/tui/panes"
 	"agate/pkg/tmux"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -40,9 +43,10 @@ type Model struct {
 	mode       sessionMode // Current interaction mode
 
 	// UI components
-	shortcutOverlay *common.ShortcutOverlay // Manages contextual shortcuts
-	loadingState    *tmux.LoadingState      // Loading state manager with spinner and stopwatch
-	toast           *components.Toast       // Toast notification manager
+	shortcutOverlay     *common.ShortcutOverlay // Manages contextual shortcuts
+	loadingState        *tmux.LoadingState      // Loading state manager with spinner and stopwatch
+	toast               *components.Toast       // Toast notification manager
+	descriptionSpinner  spinner.Model           // Spinner for description generation animation
 
 	// Overlays
 	helpDialog    *overlays.HelpDialog                 // Help dialog overlay
@@ -55,18 +59,23 @@ type Model struct {
 	debugLogger *debug.DebugLogger // Debug logger for development
 
 	// New session creation flow
-	chatInput             *components.ChatInput     // Chat input component for new session creation
-	welcomeHeader         *components.WelcomeHeader // Header with ASCII art, version, and shortcuts
-	creatingSession       bool                      // true during session creation (shows toast)
-	generatingDescription bool                      // true while description is being generated in background
-	initialPrompt         string                    // Initial prompt from CLI (auto-creates session if non-empty)
-	initialTermWidth      int                       // Terminal width when TUI started (for auto-created sessions)
-	initialTermHeight     int                       // Terminal height when TUI started (for auto-created sessions)
+	chatInput             *components.ChatInput       // Chat input component for new session creation
+	welcomeHeader         *components.WelcomeHeader   // Header with ASCII art and version
+	globalFooter          *components.GlobalFooter    // Global footer with keyboard shortcuts
+	creatingSession       bool                        // true during session creation (shows toast)
+	generatingDescription bool                        // true while description is being generated in background
+	initialPrompt         string                      // Initial prompt from CLI (auto-creates session if non-empty)
+	initialTermWidth      int                         // Terminal width when TUI started (for auto-created sessions)
+	initialTermHeight     int                         // Terminal height when TUI started (for auto-created sessions)
 
 	// Panes using the new Pane interface
 	repoPane        components.Pane // Agents pane (list of sessions)
 	sessionViewPane components.Pane // SessionViewPane instance (header + tmux)
 	changesPane     components.Pane // ChangesPane instance (file changes)
+
+	// Session switch debouncing
+	pendingSessionSwitch *session.Session // Session waiting to be switched to
+	switchDebounceTimer  *time.Timer      // Timer for debouncing session switches
 }
 
 // New creates a new TUI model with default state
@@ -136,7 +145,7 @@ func (m *Model) ShowAgentSelector() bool {
 func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
 	// Update all panes' active state
 	if m.repoPane != nil {
-		m.repoPane.SetActive(targetPane.IsAgentsFocus())
+		m.repoPane.SetActive(targetPane.IsSessionsFocus())
 	}
 	// Session view pane is active only when we're on the tmux sub-pane
 	if m.sessionViewPane != nil {
@@ -152,8 +161,8 @@ func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
 	// Update shortcut overlay
 	m.shortcutOverlay.SetFocus(m.state.Focus.String())
 
-	// Special handling for repos & worktrees pane
-	if targetPane.IsAgentsFocus() && m.repoPane != nil {
+	// Special handling for sessions pane
+	if targetPane.IsSessionsFocus() && m.repoPane != nil {
 		// Refresh repo pane when focusing
 		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
 			if err := repoPane.Refresh(); err != nil {
@@ -273,7 +282,7 @@ func (m *Model) cycleNextAgent() tea.Cmd {
 		}
 	}
 
-	m.state.Focus = layout.NewSessionFocus(layout.SubPaneTmux)
+	m.state.Focus = layout.NewAgentsFocus(layout.SubPaneTmux)
 	if m.shortcutOverlay != nil {
 		m.shortcutOverlay.SetFocus(m.state.Focus.String())
 	}
@@ -381,6 +390,74 @@ func waitForTmuxOutput(session *tmux.TmuxSession) tea.Cmd {
 		// Return the raw content with ANSI codes
 		return tmuxOutputMsg{content: content}
 	}
+}
+
+// switchToSessionUI updates all UI components when switching to a new session
+// This is the single source of truth for session UI updates
+// Uses debouncing to prevent rapid session switches during fast navigation
+func (m *Model) switchToSessionUI(sess *session.Session) tea.Cmd {
+	if sess == nil {
+		return nil
+	}
+
+	// Cancel any pending session switch
+	if m.switchDebounceTimer != nil {
+		m.switchDebounceTimer.Stop()
+	}
+
+	// Store the session to switch to
+	m.pendingSessionSwitch = sess
+
+	// Start a 100ms timer - if no new navigation happens, we'll switch
+	return func() tea.Msg {
+		time.Sleep(100 * time.Millisecond)
+		return debouncedSessionSwitchMsg{session: sess}
+	}
+}
+
+// performSessionSwitch actually performs the UI updates after debounce delay
+func (m *Model) performSessionSwitch(sess *session.Session) tea.Cmd {
+	if sess == nil {
+		return nil
+	}
+
+	// Only switch if this is still the pending session (not superseded by another navigation)
+	if m.pendingSessionSwitch != sess {
+		debug.DebugLog("[performSessionSwitch] Skipping switch to %s (superseded)", sess.ID)
+		return nil
+	}
+
+	debug.DebugLog("[performSessionSwitch] Switching UI to session: %s", sess.ID)
+
+	// Clear pending switch
+	m.pendingSessionSwitch = nil
+
+	// Update session view pane header
+	if m.sessionViewPane != nil {
+		if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+			sessionViewPane.SetSession(sess)
+			debug.DebugLog("[performSessionSwitch] Updated session view pane header")
+		}
+	}
+
+	// Update changes pane to show the new session's worktree
+	if m.changesPane != nil && sess.Worktree() != nil {
+		if changesPane, ok := m.changesPane.(*panes.ChangesPane); ok {
+			if repo, err := m.sessionManager.GetRepository(); err == nil {
+				changesPane.SetRepositoryAndPath(repo, sess.Worktree().Path)
+				debug.DebugLog("[performSessionSwitch] Updated changes pane for worktree: %s", sess.Worktree().Path)
+			}
+		}
+	}
+
+	// Force a tmux content refresh for the newly selected session
+	if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil {
+		debug.DebugLog("[performSessionSwitch] Refreshing tmux content")
+		return waitForTmuxOutput(currentTmux)
+	}
+
+	debug.DebugLog("[performSessionSwitch] No tmux session to refresh")
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters

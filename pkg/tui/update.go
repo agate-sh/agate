@@ -143,6 +143,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Update description spinner if generating
+		if m.generatingDescription {
+			var cmd tea.Cmd
+			m.descriptionSpinner, cmd = m.descriptionSpinner.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		// Update merge overlay's spinner (if in overlay mode)
 		if m.state.HasOverlay(MergeOverlay) && m.mergeOverlay != nil {
 			model, cmd := m.mergeOverlay.Update(msg)
@@ -177,6 +186,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case session.SessionDescriptionGeneratedMsg:
 		// Description generation completed (async)
 		m.generatingDescription = false
+
+		// Clear generating flag on session header to stop spinner
+		if m.sessionViewPane != nil {
+			if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+				if sessionView.GetSessionHeader() != nil {
+					sessionView.GetSessionHeader().SetGeneratingDescription(false)
+				}
+			}
+		}
 
 		if msg.Error != nil {
 			debug.DebugLog("Description generation failed: %v", msg.Error)

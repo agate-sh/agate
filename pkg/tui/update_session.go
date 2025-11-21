@@ -15,6 +15,7 @@ import (
 func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		debug.DebugLog("[updateSession] Received KeyMsg: key=%q", msg.String())
 		return m.handleSessionKeys(msg)
 
 	case tea.MouseMsg:
@@ -22,23 +23,16 @@ func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case panes.SessionSwitchedMsg:
 		// Session was auto-switched by navigation in agents pane
-		// Hide new session input and show the 3-pane layout
+		// Switch to session mode and schedule a debounced UI update
 		if msg.Session != nil {
 			m.SetMode(ModeSession)
-
-			// Ensure session pane reflects the new active session
-			if m.sessionViewPane != nil {
-				if sessionViewPane, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
-					sessionViewPane.SetSession(msg.Session)
-				}
-			}
-
-			// Force a tmux content refresh for the newly selected agent
-			if msg.Session.TmuxSession() != nil {
-				return m, waitForTmuxOutput(msg.Session.TmuxSession())
-			}
+			return m, m.switchToSessionUI(msg.Session)
 		}
 		return m, nil
+
+	case debouncedSessionSwitchMsg:
+		// Debounce timer expired - perform the actual UI switch
+		return m, m.performSessionSwitch(msg.session)
 
 	case panes.AttachToSessionMsg:
 		// User wants to attach to a tmux session from the agents pane
@@ -53,7 +47,7 @@ func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 					sessionViewPane.SetSession(msg.Session)
 				}
 			}
-			m.state.Focus = layout.NewSessionFocus(layout.SubPaneTmux)
+			m.state.Focus = layout.NewAgentsFocus(layout.SubPaneTmux)
 			m.shortcutOverlay.SetFocus(m.state.Focus.String())
 			m.shortcutOverlay.SetMode("attached")
 
@@ -82,11 +76,12 @@ func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 
 // handleSessionKeys handles keyboard input in session mode
 func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	debug.DebugLog("[handleSessionKeys] ENTRY: key=%q", msg.String())
 	switch {
 	case msg.String() == "enter":
 		// Enter key handling - delegate to the active pane
 		switch {
-		case m.state.Focus.IsAgentsFocus():
+		case m.state.Focus.IsSessionsFocus():
 			// Let the repo pane handle enter key for toggling repo expansion only
 			if m.repoPane != nil {
 				handled, cmd := m.repoPane.HandleKey("enter")
@@ -121,8 +116,8 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 
 	case msg.String() == "alt+d":
-		// 'alt+d' key handling - delegate to the agents pane for session deletion
-		if m.state.Focus.IsAgentsFocus() && m.repoPane != nil {
+		// 'alt+d' key handling - delegate to the sessions pane for session deletion
+		if m.state.Focus.IsSessionsFocus() && m.repoPane != nil {
 			handled, cmd := m.repoPane.HandleKey("alt+d")
 			if handled {
 				return m, cmd
@@ -227,14 +222,17 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.Up):
 		// Navigate up in focused pane
+		debug.DebugLog("[MAIN UPDATE] Up key matched! Focus.IsSessionsFocus()=%v, repoPane=%v",
+			m.state.Focus.IsSessionsFocus(), m.repoPane != nil)
 		switch {
-		case m.state.Focus.IsAgentsFocus():
+		case m.state.Focus.IsSessionsFocus():
 			if m.repoPane != nil {
-				// Use HandleKey to ensure search exit logic runs
+				// HandleKey calls MoveUpWithCmd which triggers onSelectionChanged
+				debug.DebugLog("[MAIN UPDATE] Calling repoPane.HandleKey for Up")
 				handled, cmd := m.repoPane.HandleKey("up")
+				debug.DebugLog("[MAIN UPDATE] HandleKey returned handled=%v, cmd=%v", handled, cmd != nil)
 				if handled {
-					// Update changes pane after navigation
-					return m, tea.Batch(cmd, m.updateChangesPane())
+					return m, cmd
 				}
 			}
 		case m.state.Focus.IsGitFocus():
@@ -250,14 +248,17 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.Down):
 		// Navigate down in focused pane
+		debug.DebugLog("[MAIN UPDATE] Down key matched! Focus.IsSessionsFocus()=%v, repoPane=%v",
+			m.state.Focus.IsSessionsFocus(), m.repoPane != nil)
 		switch {
-		case m.state.Focus.IsAgentsFocus():
+		case m.state.Focus.IsSessionsFocus():
 			if m.repoPane != nil {
-				// Use HandleKey to ensure search exit logic runs
+				// HandleKey calls MoveDownWithCmd which triggers onSelectionChanged
+				debug.DebugLog("[MAIN UPDATE] Calling repoPane.HandleKey for Down")
 				handled, cmd := m.repoPane.HandleKey("down")
+				debug.DebugLog("[MAIN UPDATE] HandleKey returned handled=%v, cmd=%v", handled, cmd != nil)
 				if handled {
-					// Update changes pane after navigation
-					return m, tea.Batch(cmd, m.updateChangesPane())
+					return m, cmd
 				}
 			}
 		case m.state.Focus.IsGitFocus():
@@ -273,13 +274,13 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.AgentsPane):
 		// Alt+S jumps to sessions pane
-		return m.switchToPane(layout.NewAgentsFocus())
+		return m.switchToPane(layout.NewSessionsFocus())
 
 	case key.Matches(msg, common.GlobalKeys.SessionPane):
 		// Alt+A jumps to agents pane (if session exists)
 		if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 			m.SetMode(ModeSession)
-			return m.switchToPane(layout.NewSessionFocus(layout.SubPaneTmux))
+			return m.switchToPane(layout.NewTmuxFocus())
 		}
 		return m, nil
 
@@ -287,39 +288,39 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		// Alt+C jumps to changes pane (if session exists)
 		if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 			m.SetMode(ModeSession)
-			return m.switchToPane(layout.NewSessionFocus(layout.SubPaneGit))
+			return m.switchToPane(layout.NewGitFocus())
 		}
 		return m, nil
 
 	case key.Matches(msg, common.GlobalKeys.NextAgent):
 		// Tab toggles sub-panes in changes pane, or cycles agents in session pane
-		// Check git focus first since it's also PaneTypeSession
+		// Check git focus first since it's also PaneTypeAgents
 		if m.state.Focus.IsGitFocus() && m.changesPane != nil {
 			handled, cmd := m.changesPane.HandleKey("tab")
 			if handled {
 				return m, cmd
 			}
-		} else if m.state.Focus.PaneType == layout.PaneTypeSession {
-			// Cycle to next agent in session pane
+		} else if m.state.Focus.PaneType == layout.PaneTypeAgents {
+			// Cycle to next agent in agents pane
 			return m, m.cycleNextAgent()
 		}
 		return m, nil
 
 	case key.Matches(msg, common.GlobalKeys.PrevAgent):
-		// Shift+Tab cycles to previous agent (only on session pane)
-		if m.state.Focus.PaneType == layout.PaneTypeSession {
+		// Shift+Tab cycles to previous agent (only on agents pane)
+		if m.state.Focus.PaneType == layout.PaneTypeAgents {
 			// TODO: Implement backwards agent cycling
 			// For now, do nothing
 		}
 		return m, nil
 
 	default:
-		// If agents pane is focused, try HandleKey first for navigation/special keys
+		// If sessions pane is focused, try HandleKey first for navigation/special keys
 		// then fall back to Update for search input
-		if m.state.Focus.IsAgentsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
+		if m.state.Focus.IsSessionsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
 			// Try HandleKey first (handles navigation and search exit logic)
 			keyStr := msg.String()
-			debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsAgentsFocus()=true, calling HandleKey", keyStr)
+			debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsSessionsFocus()=true, calling HandleKey", keyStr)
 			handled, cmd := m.repoPane.HandleKey(keyStr)
 			debug.DebugLog("[MAIN UPDATE] HandleKey returned handled=%v, cmd=%v", handled, cmd != nil)
 			if handled {
@@ -332,8 +333,8 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			debug.DebugLog("[MAIN UPDATE] Update returned cmd=%v", cmd != nil)
 			return m, cmd
 		}
-		debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsAgentsFocus()=%v, repoPane=%v, IsActive=%v - NOT handling",
-			msg.String(), m.state.Focus.IsAgentsFocus(), m.repoPane != nil, m.repoPane != nil && m.repoPane.IsActive())
+		debug.DebugLog("[MAIN UPDATE] default case: keyStr=%q, Focus.IsSessionsFocus()=%v, repoPane=%v, IsActive=%v - NOT handling",
+			msg.String(), m.state.Focus.IsSessionsFocus(), m.repoPane != nil, m.repoPane != nil && m.repoPane.IsActive())
 	}
 
 	return m, nil

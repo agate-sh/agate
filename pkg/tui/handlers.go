@@ -32,6 +32,10 @@ type autoAttachMsg struct{}
 
 type initializationCompleteMsg struct{}
 
+type debouncedSessionSwitchMsg struct {
+	session *session.Session
+}
+
 type errMsg struct {
 	error
 }
@@ -58,7 +62,7 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
 	// UNLESS we're showing new session input (then all panes should be inactive)
 	if m.repoPane != nil {
 		if !m.ShowNewSessionInput() {
-			m.repoPane.SetActive(m.state.Focus.IsAgentsFocus())
+			m.repoPane.SetActive(m.state.Focus.IsSessionsFocus())
 		}
 		// Update repo pane size (always uses left dimensions)
 		leftWidth, leftHeight := m.layout.GetLeftDimensions()
@@ -101,15 +105,33 @@ func (m *Model) handleSessionCreated(msg sessionCreatedMsg) (*Model, tea.Cmd) {
 	// Session creation completed
 	m.creatingSession = false
 
+	// Clear creating flag on session view pane
+	if m.sessionViewPane != nil {
+		if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+			sessionView.SetCreating(false)
+		}
+	}
+
 	if msg.err != nil {
-		// Session creation failed - show error
+		// Session creation failed - show error and return to new session mode
+		m.SetMode(ModeNewSession)
 		toastCmd := m.toast.Show(fmt.Sprintf("Failed to create session: %v", msg.err), 0)
 		return m, toastCmd
 	}
 
 	// Session created successfully!
-	m.SetMode(ModeSession)
-	m.chatInput.Reset()
+	// Mode was already switched to ModeSession in handleBranchNameGenerated
+	// Chat input was already reset in handleBranchNameGenerated
+
+	// Start loading state to show "Claude code is starting..." while waiting for first output
+	m.loadingState.Start()
+
+	var cmds []tea.Cmd
+
+	// Start the blinking cursor spinner animation
+	if tickCmd := m.loadingState.TickCmd(); tickCmd != nil {
+		cmds = append(cmds, tickCmd)
+	}
 
 	// Make the new session the active session immediately so the rest of the UI
 	// (changes pane, tmux monitor, agent badges, etc.) points at the right data.
@@ -127,16 +149,11 @@ func (m *Model) handleSessionCreated(msg sessionCreatedMsg) (*Model, tea.Cmd) {
 		}
 	}
 
-	var cmds []tea.Cmd
-
 	// Set tmux content from shared session
 	activeAgent := msg.session.GetActiveAgent()
 	if activeAgent != nil && msg.session.SharedTmux != nil {
-		if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
-			content, _ := msg.session.SharedTmux.CapturePaneContent()
-			debug.DebugLog("[ISSUE1] Initial capture in sessionCreatedMsg: len=%d, content=%q", len(content), content)
-			sessionView.SetTmuxContent(content)
-		}
+		// DON'T set initial tmux content - let the loading state show first
+		// The first tmuxOutputMsg will set actual content and stop loading state
 
 		// Ensure the agents pane selects this worktree so focus/changes pane stay in sync
 		if m.repoPane != nil && activeAgent.Worktree != nil {
@@ -193,11 +210,23 @@ func (m *Model) handleSessionCreated(msg sessionCreatedMsg) (*Model, tea.Cmd) {
 
 	// Start async description generation
 	m.generatingDescription = true
-	prompt := msg.session.Prompt
+
+	// Get the agent for color styling
 	defaultAgent := m.sessionManager.GetActiveSession().Agent()
+
+	// Set spinner color to agent color and start animation
+	m.descriptionSpinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(defaultAgent.BorderColor))
+	cmds = append(cmds, m.descriptionSpinner.Tick)
+
+	prompt := msg.session.Prompt
 	descCmd := session.GenerateSessionDescription(prompt, defaultAgent, msg.session, m.sessionManager)
 
 	cmds = append(cmds, descCmd)
+
+	// Switch focus to the Agents pane (tmux sub-pane) to show the new session's output
+	var switchCmd tea.Cmd
+	m, switchCmd = m.switchToPane(layout.NewTmuxFocus())
+	cmds = append(cmds, switchCmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -264,11 +293,11 @@ func (m *Model) handleTmuxDetached(msg tmuxDetachedMsg) (*Model, tea.Cmd) {
 	}
 	debug.DebugLog("[ISSUE3] Detaching from tmux: %s", agentInfo)
 
-	debug.DebugLog("[tmuxDetachedMsg] About to call switchToPane(FocusAgents)")
-	// Return focus to the agents pane (which will automatically jump to the active agent's row)
+	debug.DebugLog("[tmuxDetachedMsg] About to call switchToPane(FocusSessions)")
+	// Return focus to the sessions pane (which will automatically jump to the active session's row)
 	var switchCmd tea.Cmd
-	m, switchCmd = m.switchToPane(layout.NewAgentsFocus())
-	debug.DebugLog("[ISSUE3] After switchToPane, focus should be on agents pane to show agent card for: %s", agentInfo)
+	m, switchCmd = m.switchToPane(layout.NewSessionsFocus())
+	debug.DebugLog("[ISSUE3] After switchToPane, focus should be on sessions pane to show session card for: %s", agentInfo)
 
 	// Immediately resize the tmux session to current window dimensions
 	if currentTmux := m.getCurrentTmuxSession(); currentTmux != nil && m.ready {
@@ -323,6 +352,18 @@ func (m *Model) handleBranchNameGenerated(msg branchNameGeneratedMsg) (*Model, t
 		}
 	}
 
+	// Immediately switch to session mode and reset chat input
+	m.SetMode(ModeSession)
+	m.chatInput.Reset()
+
+	// Set creating flag on session view pane to show loading message
+	if m.sessionViewPane != nil {
+		if sessionView, ok := m.sessionViewPane.(*panes.SessionViewPane); ok {
+			sessionView.SetCreating(true)
+		}
+	}
+
+	// Create async command that runs session creation in background
 	createCmd := func() tea.Msg {
 		// Use stored terminal dimensions if available (from CLI prompt),
 		// otherwise use defaults (from manual session creation)

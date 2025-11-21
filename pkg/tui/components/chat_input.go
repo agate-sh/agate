@@ -182,8 +182,15 @@ func (c *ChatInput) View() string {
 		innerWidth = 0
 	}
 
-	body := c.textarea.View()
+	// Get the textarea content
+	textareaView := c.textarea.View()
+
+	// Render agents list inside the textarea (bottom-left with 1 row buffer)
 	agentLine := c.renderAgentLine(innerWidth)
+	body := textareaView
+	if agentLine != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, textareaView, "", agentLine)
+	}
 
 	borderColor := theme.BorderMuted
 	if c.textarea.Focused() {
@@ -196,11 +203,14 @@ func (c *ChatInput) View() string {
 		Padding(0, 1)
 
 	container := containerStyle.Render(body)
-	if agentLine == "" {
+
+	// Render "tab Agents" hint beneath the textarea
+	tabHint := c.renderTabHint()
+	if tabHint == "" {
 		return container
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, container, agentLine)
+	return lipgloss.JoinVertical(lipgloss.Left, container, tabHint)
 }
 
 func (c *ChatInput) renderAgentLine(width int) string {
@@ -221,15 +231,25 @@ func (c *ChatInput) renderAgentLine(width int) string {
 	}
 
 	agentText := strings.Join(agentNames, ", ") + " " + icons.GetChevronDown()
-	line := fitToWidth(agentText, width)
-	if line == "" {
-		return ""
-	}
 
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextDescription)).
-		PaddingLeft(1).
-		Render(line)
+		Render(agentText)
+}
+
+func (c *ChatInput) renderTabHint() string {
+	tabStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AgateColor))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextDescription))
+
+	hint := tabStyle.Render("tab") + labelStyle.Render(" Agents")
+
+	// Right-align the hint with padding
+	return lipgloss.NewStyle().
+		Width(c.width).
+		Align(lipgloss.Right).
+		// PaddingLeft(1).
+		PaddingRight(1).
+		Render(hint)
 }
 
 func fitToWidth(text string, width int) string {
