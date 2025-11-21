@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"agate/internal/debug"
 	"agate/pkg/common"
 	"agate/pkg/tui/layout"
@@ -69,6 +71,26 @@ func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+
+	default:
+		// Pass all non-keyboard, non-mouse messages to active panes for cursor blinking, etc.
+		// This includes cursor.BlinkMsg which is needed for textinput cursor animation
+		msgType := fmt.Sprintf("%T", msg)
+		if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+			debug.DebugLog("[updateSession] default case: received blink message, IsSessionsFocus=%v, repoPane=%v, IsActive=%v",
+				m.state.Focus.IsSessionsFocus(), m.repoPane != nil, m.repoPane != nil && m.repoPane.IsActive())
+		}
+		if m.state.Focus.IsSessionsFocus() && m.repoPane != nil && m.repoPane.IsActive() {
+			var cmd tea.Cmd
+			m.repoPane, cmd = m.repoPane.Update(msg)
+			if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+				debug.DebugLog("[updateSession] passed blink message to repoPane, got cmd back: %v", cmd != nil)
+			}
+			return m, cmd
+		}
+		if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+			debug.DebugLog("[updateSession] NOT passing blink message to repoPane")
+		}
 	}
 
 	return m, nil
@@ -76,7 +98,18 @@ func (m *Model) updateSession(msg tea.Msg) (*Model, tea.Cmd) {
 
 // handleSessionKeys handles keyboard input in session mode
 func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
-	debug.DebugLog("[handleSessionKeys] ENTRY: key=%q", msg.String())
+	debug.DebugLog("[handleSessionKeys] ENTRY: key=%q, checking if matches NewSession binding", msg.String())
+	if key.Matches(msg, common.GlobalKeys.NewSession) {
+		debug.DebugLog("[handleSessionKeys] YES - key matches NewSession!")
+	} else {
+		debug.DebugLog("[handleSessionKeys] NO - key does NOT match NewSession")
+	}
+
+	if m.consumePendingAltRune(msg) {
+		debug.DebugLog("[handleSessionKeys] Consumed stray key %q after alt shortcut", msg.String())
+		return m, nil
+	}
+
 	switch {
 	case msg.String() == "enter":
 		// Enter key handling - delegate to the active pane
@@ -116,6 +149,7 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 
 	case msg.String() == "alt+d":
+		m.startSuppressingAltRune(msg)
 		// 'alt+d' key handling - delegate to the sessions pane for session deletion
 		if m.state.Focus.IsSessionsFocus() && m.repoPane != nil {
 			handled, cmd := m.repoPane.HandleKey("alt+d")
@@ -151,6 +185,7 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case key.Matches(msg, common.GlobalKeys.Keybindings):
+		m.startSuppressingAltRune(msg)
 		// Show help dialog
 		m.SetOverlay(HelpOverlay)
 		return m, nil
@@ -162,22 +197,10 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.NewSession):
 		// Step 5.5: 'n' key shows new chat input interface
-		m.SetMode(ModeNewSession)
-		var focusCmd tea.Cmd
-		if m.chatInput != nil {
-			m.chatInput.Reset()
-			focusCmd = m.chatInput.Focus()
-		}
-		// Mark all panes as inactive when entering new session view
-		if m.repoPane != nil {
-			m.repoPane.SetActive(false)
-		}
-		if m.sessionViewPane != nil {
-			m.sessionViewPane.SetActive(false)
-		}
-		if m.changesPane != nil {
-			m.changesPane.SetActive(false)
-		}
+		debug.DebugLog("[handleSessionKeys] NewSession key matched! Switching to new session mode")
+		m.startSuppressingAltRune(msg)
+		focusCmd := m.enterNewSessionMode(true)
+		debug.DebugLog("[handleSessionKeys] Returning focus command")
 		return m, focusCmd
 
 	case key.Matches(msg, common.GlobalKeys.AttachAgent):
@@ -195,6 +218,7 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, common.GlobalKeys.MergeChanges):
+		m.startSuppressingAltRune(msg)
 		// Show merge overlay (global shortcut)
 		activeSession := m.sessionManager.GetActiveSession()
 		if activeSession != nil && activeSession.Worktree() != nil {
@@ -274,10 +298,12 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.AgentsPane):
 		// Alt+S jumps to sessions pane
+		m.startSuppressingAltRune(msg)
 		return m.switchToPane(layout.NewSessionsFocus())
 
 	case key.Matches(msg, common.GlobalKeys.SessionPane):
 		// Alt+A jumps to agents pane (if session exists)
+		m.startSuppressingAltRune(msg)
 		if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 			m.SetMode(ModeSession)
 			return m.switchToPane(layout.NewTmuxFocus())
@@ -286,6 +312,7 @@ func (m *Model) handleSessionKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 
 	case key.Matches(msg, common.GlobalKeys.ChangesPane):
 		// Alt+C jumps to changes pane (if session exists)
+		m.startSuppressingAltRune(msg)
 		if m.sessionManager != nil && m.sessionManager.GetActiveSession() != nil {
 			m.SetMode(ModeSession)
 			return m.switchToPane(layout.NewGitFocus())

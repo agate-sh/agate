@@ -3,9 +3,9 @@ package layout
 import (
 	"agate/internal/debug"
 	"agate/pkg/app"
+	"agate/pkg/tmux"
 	"agate/pkg/tui/components"
 	"agate/pkg/tui/theme"
-	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -15,6 +15,7 @@ type PaneType int
 const (
 	PaneTypeSessions PaneType = iota
 	PaneTypeAgents
+	PaneTypeChatInput // For new session mode - chat input is focused
 )
 
 type SubPane int
@@ -43,6 +44,8 @@ func (f FocusState) String() string {
 		default:
 			return "unknown"
 		}
+	case PaneTypeChatInput:
+		return "chatinput"
 	default:
 		return "unknown"
 	}
@@ -66,6 +69,10 @@ func NewGitFocus() FocusState {
 	return NewAgentsFocus(SubPaneGit)
 }
 
+func NewChatInputFocus() FocusState {
+	return FocusState{PaneType: PaneTypeChatInput}
+}
+
 // IsSessionsFocus checks if focus is on the sessions pane
 func (f FocusState) IsSessionsFocus() bool {
 	return f.PaneType == PaneTypeSessions
@@ -82,11 +89,11 @@ func (f FocusState) IsGitFocus() bool {
 }
 
 const (
-	TopPaddingRows     = 2
+	TopPaddingRows     = 1
 	BottomSpacerRows   = 0
 	PaneTitleRows      = 1
 	BottomMarginRows   = 1
-	FooterRows         = 3 // 1 margin + 1 content + 1 margin
+	FooterRows         = 3
 	HorizontalMargin   = 2
 	HorizontalGapWidth = 2
 )

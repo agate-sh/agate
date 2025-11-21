@@ -47,7 +47,7 @@ func (d agentDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	// Render section headers
 	if agentItem.isHeader {
 		headerStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.TextMuted)).
+			Foreground(lipgloss.Color(theme.TextDescription)).
 			Bold(true)
 		fmt.Fprint(w, headerStyle.Render(agentItem.headerText))
 		return
@@ -76,7 +76,7 @@ func (d agentDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	}
 
 	rowWidth := m.Width()
-	line := renderAgentRow(checkbox, agentItem.agent, rowWidth)
+	line := renderAgentRow(checkbox, agentItem.agent, rowWidth, isSelected)
 	fmt.Fprint(w, style.Render(line))
 }
 
@@ -93,10 +93,10 @@ type AgentSelector struct {
 
 // NewAgentSelector creates a new agent selection modal
 func NewAgentSelector(initialAgents []agents.AgentConfig) *AgentSelector {
-	// Build selection map from initial agents
+	// Build selection map from initial agents using agent IDs
 	selectedMap := make(map[string]bool)
 	for _, agent := range initialAgents {
-		selectedMap[agent.Name] = true
+		selectedMap[agent.ID()] = true
 	}
 
 	// Create list items with sections
@@ -149,10 +149,10 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 		agents.GeminiAgent,
 	}
 
-	// Create a map of top agent names for filtering
+	// Create a map of top agent IDs for filtering
 	topAgentNames := make(map[string]bool)
 	for _, agent := range topAgents {
-		topAgentNames[agent.Name] = true
+		topAgentNames[agent.ID()] = true
 	}
 
 	// Add "Top" section header
@@ -165,7 +165,7 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 	for _, agent := range topAgents {
 		items = append(items, AgentItem{
 			agent:    agent,
-			selected: selectedMap[agent.Name],
+			selected: selectedMap[agent.ID()],
 		})
 	}
 
@@ -185,7 +185,7 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 	allAgents := agents.GetAllAgents()
 	var remainingAgents []agents.AgentConfig
 	for _, agent := range allAgents {
-		if !topAgentNames[agent.Name] {
+		if !topAgentNames[agent.ID()] {
 			remainingAgents = append(remainingAgents, agent)
 		}
 	}
@@ -206,7 +206,7 @@ func buildAgentListItems(selectedMap map[string]bool) []list.Item {
 	for _, agent := range remainingAgents {
 		items = append(items, AgentItem{
 			agent:    agent,
-			selected: selectedMap[agent.Name],
+			selected: selectedMap[agent.ID()],
 		})
 	}
 
@@ -220,7 +220,7 @@ func (s *AgentSelector) SetSize(width, height int) {
 
 	// Make modal take up a reasonable portion of the screen
 	modalWidth := min(width-4, 60)
-	modalHeight := min(height-4, 20)
+	modalHeight := min(height-4, 30)
 
 	// Account for border(2), padding(2), title(1), filter input(1), shortcuts(3)
 	maxListHeight := modalHeight - 9
@@ -253,6 +253,17 @@ func (s *AgentSelector) InitCmd() tea.Cmd {
 
 // Update handles keyboard input
 func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Always pass non-key messages to filterInput for cursor blinking
+	if _, isKey := msg.(tea.KeyMsg); !isKey {
+		var inputCmd tea.Cmd
+		s.filterInput, inputCmd = s.filterInput.Update(msg)
+		if inputCmd != nil {
+			cmds = append(cmds, inputCmd)
+		}
+	}
+
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		// If filtering, handle filter input
 		if s.filtering {
@@ -261,26 +272,29 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 				// Clear filter, refresh list, and exit filter mode
 				s.clearFilter()
 				s.filtering = false
-				return s, nil
+				return s, tea.Batch(cmds...)
 			case "down", "up":
 				// Arrow keys exit filter mode and navigate list
 				s.filtering = false
 				s.navigateToSelectableItem(keyMsg.String())
-				return s, nil
+				return s, tea.Batch(cmds...)
 			case "enter":
 				// Enter key toggles the currently selected item in the list
 				// Keep the filter and stay in filter mode
 				s.toggleCurrentAgent()
 				s.clearFilter()
-				return s, nil
+				return s, tea.Batch(cmds...)
 			case "tab":
 				// Ignore tab key completely
-				return s, nil
+				return s, tea.Batch(cmds...)
 			default:
 				var cmd tea.Cmd
 				s.filterInput, cmd = s.filterInput.Update(msg)
 				s.filterList()
-				return s, cmd
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				return s, tea.Batch(cmds...)
 			}
 		} else {
 			// Not filtering - handle list navigation
@@ -288,17 +302,16 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 			case "enter":
 				// Toggle the currently selected agent
 				s.toggleCurrentAgent()
-				return s, nil
+				return s, tea.Batch(cmds...)
 			case "tab", "shift+tab":
 				// Ignore tab keys when not filtering
-				return s, nil
+				return s, tea.Batch(cmds...)
 			case "up", "down", "j", "k":
 				// Navigation keys - skip headers
 				s.navigateToSelectableItem(keyMsg.String())
-				return s, nil
+				return s, tea.Batch(cmds...)
 			default:
 				// Any other key starts filtering
-				var cmds []tea.Cmd
 				if !s.filterInput.Focused() {
 					if focusCmd := s.filterInput.Focus(); focusCmd != nil {
 						cmds = append(cmds, focusCmd)
@@ -316,18 +329,13 @@ func (s *AgentSelector) Update(msg tea.Msg) (*AgentSelector, tea.Cmd) {
 		}
 	}
 
-	var cmds []tea.Cmd
+	// Pass non-key messages to list
 	if !s.filtering {
 		var cmd tea.Cmd
 		s.list, cmd = s.list.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-	}
-	var inputCmd tea.Cmd
-	s.filterInput, inputCmd = s.filterInput.Update(msg)
-	if inputCmd != nil {
-		cmds = append(cmds, inputCmd)
 	}
 
 	return s, tea.Batch(cmds...)
@@ -392,7 +400,7 @@ func (s *AgentSelector) filterList() {
 		if strings.Contains(strings.ToLower(searchName), filterText) {
 			items = append(items, AgentItem{
 				agent:    agent,
-				selected: s.selectedAgents[agent.Name],
+				selected: s.selectedAgents[agent.ID()],
 			})
 		}
 	}
@@ -425,15 +433,24 @@ func (s *AgentSelector) ensureSelectableItemSelected() {
 	}
 }
 
-func renderAgentRow(checkbox string, agent agents.AgentConfig, rowWidth int) string {
+func renderAgentRow(checkbox string, agent agents.AgentConfig, rowWidth int, isSelected bool) string {
 	displayName := agent.CompanyName
 	if displayName == "" {
 		displayName = agent.Name
 	}
 
 	left := fmt.Sprintf(" %s %s", checkbox, displayName)
+
+	// Use agent color when selected, otherwise use muted color
+	var agentNameColor string
+	if isSelected {
+		agentNameColor = agent.BorderColor
+	} else {
+		agentNameColor = theme.TextMuted
+	}
+
 	right := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextMuted)).
+		Foreground(lipgloss.Color(agentNameColor)).
 		Render(agent.Name)
 
 	if rowWidth <= 0 {
@@ -467,15 +484,15 @@ func (s *AgentSelector) toggleCurrentAgent() {
 		}
 
 		// Toggle in the map
-		s.selectedAgents[agentItem.agent.Name] = !s.selectedAgents[agentItem.agent.Name]
+		s.selectedAgents[agentItem.agent.ID()] = !s.selectedAgents[agentItem.agent.ID()]
 
 		// Update the list item
 		items := s.list.Items()
 		for i, item := range items {
-			if ai, ok := item.(AgentItem); ok && !ai.isHeader && ai.agent.Name == agentItem.agent.Name {
+			if ai, ok := item.(AgentItem); ok && !ai.isHeader && ai.agent.ID() == agentItem.agent.ID() {
 				items[i] = AgentItem{
 					agent:    ai.agent,
-					selected: s.selectedAgents[agentItem.agent.Name],
+					selected: s.selectedAgents[agentItem.agent.ID()],
 				}
 				break
 			}
@@ -490,7 +507,7 @@ func (s *AgentSelector) GetSelectedAgents() []agents.AgentConfig {
 	allAgents := agents.GetAllAgents()
 
 	for _, agent := range allAgents {
-		if s.selectedAgents[agent.Name] {
+		if s.selectedAgents[agent.ID()] {
 			selectedList = append(selectedList, agent)
 		}
 	}
@@ -512,6 +529,11 @@ func (s *AgentSelector) View() string {
 		Foreground(lipgloss.Color(theme.TextPrimary)).
 		Bold(true)
 	parts = append(parts, titleStyle.Render("Select Agents"))
+
+	// Subtext
+	subtextStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextDescription))
+	parts = append(parts, subtextStyle.Render("Each agent will run in an isolated worktree"))
 	parts = append(parts, "")
 
 	// Filter input
@@ -525,7 +547,9 @@ func (s *AgentSelector) View() string {
 	// Shortcuts
 	shortcutBase := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextDescription))
-	keyStyle := shortcutBase.Copy().Bold(true)
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.AgateColor)).
+		Bold(true)
 
 	shortcuts := []string{
 		keyStyle.Render("↑/↓") + " " + shortcutBase.Render("navigate"),

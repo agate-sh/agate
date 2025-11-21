@@ -38,11 +38,12 @@ type AgentsPane struct {
 	expandedRepos   map[string]bool // Track which repos are expanded
 	lastSavedPath   string
 	lastSavedBranch string
-	lastSavedRepo   string
-	isGitRepo       bool
-	searchInput     textinput.Model // Search input for filtering by branch
-	searching       bool            // Whether search input is focused
-	unfilteredItems []list.Item     // Backup of items before filtering
+	lastSavedRepo    string
+	isGitRepo        bool
+	searchInput      textinput.Model // Search input for filtering by branch
+	searching        bool            // Whether search input is focused
+	unfilteredItems  []list.Item     // Backup of items before filtering
+	pendingFocusCmd  tea.Cmd         // Pending focus command to execute on next update
 }
 
 // AgentListItem implements list.Item interface for agent sessions
@@ -447,7 +448,9 @@ func (r *AgentsPane) SetActive(active bool) {
 		// Don't re-enable search if we're already active (e.g., during navigation)
 		if !wasAlreadyActive {
 			git.DebugLog("[AgentsPane.SetActive] enabling search mode (was inactive)")
-			r.searchInput.Focus()
+			// Focus returns a command that starts cursor blinking - store it for next Update
+			r.pendingFocusCmd = r.searchInput.Focus()
+			git.DebugLog("[AgentsPane.SetActive] stored pendingFocusCmd, searchInput.Focused()=%v", r.searchInput.Focused())
 			r.searching = true
 			r.delegate.searching = true
 			r.list.SetDelegate(r.delegate)
@@ -584,10 +587,52 @@ func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 
 	var cmds []tea.Cmd
 
+	// Execute pending focus command only if pane is still active
+	if r.pendingFocusCmd != nil && r.IsActive() {
+		git.DebugLog("[AgentsPane.Update] Executing pending focus command")
+		cmds = append(cmds, r.pendingFocusCmd)
+		r.pendingFocusCmd = nil
+	} else if r.pendingFocusCmd != nil {
+		git.DebugLog("[AgentsPane.Update] Clearing pending focus command (pane no longer active)")
+		r.pendingFocusCmd = nil
+	}
+
+	// Pass all non-keyboard messages to searchInput for cursor blinking
+	msgType := fmt.Sprintf("%T", msg)
+	if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+		git.DebugLog("[AgentsPane.Update] Received blink message, searching=%v, searchInput.Focused()=%v",
+			r.searching, r.searchInput.Focused())
+	}
+
+	if r.searching {
+		if _, isKey := msg.(tea.KeyMsg); !isKey {
+			var searchCmd tea.Cmd
+			r.searchInput, searchCmd = r.searchInput.Update(msg)
+			if searchCmd != nil {
+				if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+					git.DebugLog("[AgentsPane.Update] searchInput returned command after blink message")
+				}
+				cmds = append(cmds, searchCmd)
+			}
+		}
+	}
+
 	// When searching, intercept up/down keys to exit search mode BEFORE passing to textinput
 	if r.searching {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			git.DebugLog("[AgentsPane.Update] IN SEARCH MODE, checking key=%q", keyMsg.String())
+
+			// Exit search mode for any alt/opt key - let global handlers process them
+			if keyMsg.Alt {
+				git.DebugLog("[AgentsPane.Update] Alt key detected, exiting search mode")
+				r.searching = false
+				r.delegate.searching = false
+				r.list.SetDelegate(r.delegate)
+				r.searchInput.Blur()
+				// Don't handle the key - let it bubble up to global handlers
+				return r, nil
+			}
+
 			switch keyMsg.String() {
 			case "up", "down", "k", "j":
 				// Exit search mode and navigate
@@ -649,7 +694,9 @@ func (r *AgentsPane) Update(msg tea.Msg) (components.Pane, tea.Cmd) {
 				// Pass other keys to textinput for typing
 				// Focus the textinput if it's not already focused (for first keypress)
 				if !r.searchInput.Focused() {
-					r.searchInput.Focus()
+					if focusCmd := r.searchInput.Focus(); focusCmd != nil {
+						cmds = append(cmds, focusCmd)
+					}
 				}
 
 				oldValue := r.searchInput.Value()
@@ -746,6 +793,18 @@ func (r *AgentsPane) HandleKey(key string) (handled bool, cmd tea.Cmd) {
 			r.searchInput.Blur()
 			// Fall through to normal alt+d handling below
 		default:
+			// Check if this is any alt/option key combo - exit search mode but don't handle the key
+			// This allows global key handlers to process the alt key after search mode is exited
+			if strings.HasPrefix(key, "alt+") || strings.HasPrefix(key, "opt+") {
+				git.DebugLog("[AgentsPane.HandleKey] Alt/Opt key combo detected (%q), exiting search mode", key)
+				r.searching = false
+				r.delegate.searching = false
+				r.list.SetDelegate(r.delegate)
+				r.searchInput.Blur()
+				// Return false (NOT handled) so global key handlers can process this key
+				// But search mode is now exited, so Update() won't interfere
+				return false, nil
+			}
 			// Return false so typing keys go to Update method for search input
 			return false, nil
 		}

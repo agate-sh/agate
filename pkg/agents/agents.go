@@ -71,6 +71,26 @@ func (a AgentConfig) DetectPrompt(content string) bool {
 	}
 }
 
+// ID returns the canonical identifier for this agent.
+// This should be used for persistence, lookups, and CLI arguments.
+func (a AgentConfig) ID() string {
+	return a.ExecutableName
+}
+
+// DisplayName returns the human-readable name for this agent.
+// This should be used for UI display purposes.
+func (a AgentConfig) DisplayName() string {
+	if a.Name == "" {
+		return a.ExecutableName
+	}
+	// Capitalize first letter
+	name := a.Name
+	if len(name) > 0 {
+		return strings.ToUpper(name[:1]) + name[1:]
+	}
+	return name
+}
+
 // Claude agent configuration with the specific color
 var ClaudeAgent = AgentConfig{
 	Name:           "claude",

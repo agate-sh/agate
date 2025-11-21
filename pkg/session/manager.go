@@ -17,11 +17,11 @@ import (
 
 // Manager is a singleton that manages all multi-agent sessions
 type Manager struct {
-	agentSessions map[string]*Session      // SessionID -> multi-agent Session
-	activeSession *Session                 // Currently active session
+	agentSessions map[string]*Session        // SessionID -> multi-agent Session
+	activeSession *Session                   // Currently active session
 	repositories  map[string]*git.Repository // Repo name -> git Repository (shared across sessions)
-	stateMgr      StateManager             // Thread-safe state persistence
-	mu            sync.RWMutex             // Protects concurrent access
+	stateMgr      StateManager               // Thread-safe state persistence
+	mu            sync.RWMutex               // Protects concurrent access
 }
 
 // StateManager defines the interface for state persistence
@@ -505,6 +505,21 @@ func (m *Manager) GetActiveSession() *Session {
 	return m.activeSession
 }
 
+// ClearActiveSession clears the current active session state.
+func (m *Manager) ClearActiveSession() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.activeSession == nil {
+		return
+	}
+
+	m.activeSession = nil
+	if err := m.PersistSessions(); err != nil {
+		debug.DebugLog("Failed to persist after clearing active session: %v", err)
+	}
+}
+
 // DeleteSession removes and cleans up a session and all its instances
 func (m *Manager) DeleteSession(sessionID string) error {
 	m.mu.Lock()
@@ -674,7 +689,6 @@ func (m *Manager) CleanupOrphanedSessions() {
 	}
 }
 
-
 // GetSessionForWorktree returns the session containing an agent with the given worktree
 func (m *Manager) GetSessionForWorktree(worktree *git.WorktreeInfo) *Session {
 	m.mu.RLock()
@@ -726,4 +740,3 @@ func (m *Manager) GetOrCreateSession(worktree *git.WorktreeInfo, agentName strin
 
 	return session, err
 }
-

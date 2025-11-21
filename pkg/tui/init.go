@@ -80,8 +80,8 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 
 	// Create shortcut overlay using static GlobalKeys
 	shortcutOverlay := common.NewShortcutOverlay(common.GlobalKeys)
-	initialFocus := layout.NewAgentsFocus(layout.SubPaneTmux)
-	shortcutOverlay.SetFocus(initialFocus.String())
+	// initialFocus will be set based on mode later
+	shortcutOverlay.SetFocus(layout.NewAgentsFocus(layout.SubPaneTmux).String())
 	shortcutOverlay.SetMode("preview")
 
 	// Initialize debug overlay
@@ -125,11 +125,24 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		initialMode = ModeNewSession
 	}
 
+	// Determine initial focus based on mode
+	var initialFocus layout.FocusState
+	if initialMode == ModeNewSession {
+		// In new session mode, focus should be on the chat input (not sessions pane)
+		initialFocus = layout.NewChatInputFocus()
+	} else {
+		// Default to sessions pane
+		initialFocus = layout.NewSessionsFocus()
+	}
+
+	// Update shortcut overlay with correct focus
+	shortcutOverlay.SetFocus(initialFocus.String())
+
 	m := &Model{
 		state: UIState{
 			Mode:          initialMode,
 			ActiveOverlay: NoOverlay,
-			Focus:         layout.NewSessionsFocus(), // Always start with focus on Sessions pane
+			Focus:         initialFocus,
 		},
 		layout:                layout.NewLayout(layoutWidth, layoutHeight),
 		sessionManager:        sessionManager,
@@ -237,6 +250,8 @@ func (m *Model) Init() tea.Cmd {
 		m.SetMode(ModeNewSession)
 		if m.chatInput != nil {
 			if initCmd := m.chatInput.InitCmd(); initCmd != nil {
+				debug.DebugLog("[INIT] Adding chatInput.InitCmd to commands, Focus.IsSessionsFocus=%v",
+					m.state.Focus.IsSessionsFocus())
 				cmds = append(cmds, initCmd)
 			}
 		}

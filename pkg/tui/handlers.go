@@ -198,7 +198,7 @@ func (m *Model) handleSessionCreated(msg sessionCreatedMsg) (*Model, tea.Cmd) {
 		selectedAgents := m.chatInput.GetSelectedAgents()
 		agentNames := make([]string, 0, len(selectedAgents))
 		for _, agent := range selectedAgents {
-			agentNames = append(agentNames, agent.Name)
+			agentNames = append(agentNames, agent.ID())
 		}
 		if err := m.stateManager.SetSelectedAgents(agentNames); err != nil {
 			debug.DebugLog("Failed to persist selected agents: %v", err)
@@ -348,7 +348,7 @@ func (m *Model) handleBranchNameGenerated(msg branchNameGeneratedMsg) (*Model, t
 		agentConfigs := m.chatInput.GetSelectedAgents()
 		agentNames = make([]string, 0, len(agentConfigs))
 		for _, agent := range agentConfigs {
-			agentNames = append(agentNames, agent.Name)
+			agentNames = append(agentNames, agent.ID())
 		}
 	}
 

@@ -1,9 +1,11 @@
 package components
 
 import (
+	"agate/internal/debug"
 	"agate/pkg/agents"
 	"agate/pkg/tui/icons"
 	"agate/pkg/tui/theme"
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -85,18 +87,27 @@ func (c *ChatInput) SetHeight(height int) {
 
 // Focus sets focus on the textarea
 func (c *ChatInput) Focus() tea.Cmd {
+	debug.DebugLog("[CHATINPUT] Focus() called - returning focus command + Blink")
 	focusCmd := c.textarea.Focus()
 	return tea.Batch(focusCmd, textarea.Blink)
 }
 
 // Blur removes focus from the textarea
 func (c *ChatInput) Blur() {
+	debug.DebugLog("[CHATINPUT] Blur() called")
 	c.textarea.Blur()
 }
 
 // Update handles keyboard input
 func (c *ChatInput) Update(msg tea.Msg) tea.Cmd {
+	// Log all messages to trace blink messages
+	msgType := fmt.Sprintf("%T", msg)
+	if msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+		debug.DebugLog("[CHATINPUT] Update() received blink message: %T, focused=%v", msg, c.textarea.Focused())
+	}
+
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		debug.DebugLog("[CHATINPUT] Update() received KeyMsg: key=%q, alt=%v, focused=%v", keyMsg.String(), keyMsg.Alt, c.textarea.Focused())
 		// Handle Tab key to open agent selector
 		if keyMsg.Type == tea.KeyTab || keyMsg.String() == "tab" {
 			return func() tea.Msg {
@@ -117,10 +128,15 @@ func (c *ChatInput) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	// Normal textarea input
+	// Pass all messages to textarea (including blink messages for cursor)
 	var cmd tea.Cmd
 	c.textarea, cmd = c.textarea.Update(msg)
 	c.adjustHeight()
+
+	if cmd != nil && (msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg") {
+		debug.DebugLog("[CHATINPUT] Update() textarea returned a command after blink message")
+	}
+
 	return cmd
 }
 
@@ -220,10 +236,11 @@ func (c *ChatInput) renderAgentLine(width int) string {
 
 	var agentNames []string
 	for _, agent := range c.selectedAgents {
-		if agent.Name == "" {
+		displayName := agent.DisplayName()
+		if displayName == "" {
 			continue
 		}
-		agentNames = append(agentNames, strings.ToUpper(agent.Name[:1])+agent.Name[1:])
+		agentNames = append(agentNames, displayName)
 	}
 
 	if len(agentNames) == 0 {

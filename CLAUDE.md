@@ -38,7 +38,7 @@ go build ./cmd/agate
 
 # Create test session and run agate
 tmux new-session -d -s agate_test
-tmux send-keys -t agate_test "./agate claude" Enter
+tmux send-keys -t agate_test "./agate" Enter
 
 # Wait for startup, then interact with UI
 sleep 3
@@ -58,6 +58,7 @@ tmux kill-session -t agate_test
 ```
 
 This allows you to:
+
 - Verify UI state after interactions
 - Test keyboard navigation
 - Validate highlighting and cursor behavior

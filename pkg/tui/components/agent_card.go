@@ -3,7 +3,6 @@ package components
 import (
 	"agate/pkg/agents"
 	"agate/pkg/tui/theme"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -29,8 +28,7 @@ func (c *AgentCard) SetActive(isActive bool) {
 
 // Render renders the agent card as a simple badge-style component
 func (c *AgentCard) Render() string {
-	// Capitalize first letter of agent name
-	displayName := strings.ToUpper(c.agent.Name[:1]) + c.agent.Name[1:]
+	displayName := c.agent.DisplayName()
 
 	var style lipgloss.Style
 

@@ -47,7 +47,14 @@ func (m *Model) View() string {
 		// When in new session input view, no panes should be highlighted/active
 		agentsContent := m.repoPane.View()
 		agentsStyle := components.PaneBaseStyle
-		// Don't highlight agents pane in new session input view
+		centerPaneStyle := components.PaneBaseStyle
+
+		// Highlight whichever pane currently has focus (sessions vs chat input)
+		if m.state.Focus.IsSessionsFocus() {
+			agentsStyle = agentsStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		} else {
+			centerPaneStyle = centerPaneStyle.BorderForeground(lipgloss.Color(theme.BorderActive))
+		}
 
 		leftFullWidth := leftWidth + contentPaddingWidth
 		if lipgloss.Width(agentsContent) < leftFullWidth {
@@ -105,9 +112,7 @@ func (m *Model) View() string {
 			centerContent,
 		)
 
-		// Render center pane with border (highlighted since it's the active/focused pane)
-		centerPaneStyle := components.PaneBaseStyle.
-			BorderForeground(lipgloss.Color(theme.BorderActive))
+		// Render center pane with the appropriate border highlight
 		centerPane := centerPaneStyle.
 			Height(availableHeight - 1).
 			Render(centeredContent)

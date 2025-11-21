@@ -17,6 +17,11 @@ import (
 
 // Update handles all messages and routes them to appropriate handlers
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Debug log for cursor blink messages
+	if msgType := fmt.Sprintf("%T", msg); msgType == "cursor.BlinkMsg" || msgType == "cursor.blinkMsg" {
+		debug.DebugLog("[MAIN UPDATE] Received cursor blink message, mode=%v, focus=%v", m.state.Mode, m.state.Focus.String())
+	}
+
 	// Handle global messages first (messages that apply to all modes)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:

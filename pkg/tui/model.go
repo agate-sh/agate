@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agate/internal/debug"
 	"agate/pkg/app"
@@ -9,11 +11,11 @@ import (
 	"agate/pkg/git"
 	"agate/pkg/session"
 	"agate/pkg/state"
+	"agate/pkg/tmux"
 	"agate/pkg/tui/components"
 	"agate/pkg/tui/layout"
 	"agate/pkg/tui/overlays"
 	"agate/pkg/tui/panes"
-	"agate/pkg/tmux"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,30 +45,30 @@ type Model struct {
 	mode       sessionMode // Current interaction mode
 
 	// UI components
-	shortcutOverlay     *common.ShortcutOverlay // Manages contextual shortcuts
-	loadingState        *tmux.LoadingState      // Loading state manager with spinner and stopwatch
-	toast               *components.Toast       // Toast notification manager
-	descriptionSpinner  spinner.Model           // Spinner for description generation animation
+	shortcutOverlay    *common.ShortcutOverlay // Manages contextual shortcuts
+	loadingState       *tmux.LoadingState      // Loading state manager with spinner and stopwatch
+	toast              *components.Toast       // Toast notification manager
+	descriptionSpinner spinner.Model           // Spinner for description generation animation
 
 	// Overlays
-	helpDialog    *overlays.HelpDialog                 // Help dialog overlay
-	debugOverlay  *overlays.DebugOverlay               // Debug overlay for development
+	helpDialog     *overlays.HelpDialog                 // Help dialog overlay
+	debugOverlay   *overlays.DebugOverlay               // Debug overlay for development
 	sessionConfirm *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
-	mergeOverlay  *overlays.MergeOverlay               // Merge overlay for merging changes
-	agentSelector *components.AgentSelector // Agent selector modal
+	mergeOverlay   *overlays.MergeOverlay               // Merge overlay for merging changes
+	agentSelector  *components.AgentSelector            // Agent selector modal
 
 	// Managers
 	debugLogger *debug.DebugLogger // Debug logger for development
 
 	// New session creation flow
-	chatInput             *components.ChatInput       // Chat input component for new session creation
-	welcomeHeader         *components.WelcomeHeader   // Header with ASCII art and version
-	globalFooter          *components.GlobalFooter    // Global footer with keyboard shortcuts
-	creatingSession       bool                        // true during session creation (shows toast)
-	generatingDescription bool                        // true while description is being generated in background
-	initialPrompt         string                      // Initial prompt from CLI (auto-creates session if non-empty)
-	initialTermWidth      int                         // Terminal width when TUI started (for auto-created sessions)
-	initialTermHeight     int                         // Terminal height when TUI started (for auto-created sessions)
+	chatInput             *components.ChatInput     // Chat input component for new session creation
+	welcomeHeader         *components.WelcomeHeader // Header with ASCII art and version
+	globalFooter          *components.GlobalFooter  // Global footer with keyboard shortcuts
+	creatingSession       bool                      // true during session creation (shows toast)
+	generatingDescription bool                      // true while description is being generated in background
+	initialPrompt         string                    // Initial prompt from CLI (auto-creates session if non-empty)
+	initialTermWidth      int                       // Terminal width when TUI started (for auto-created sessions)
+	initialTermHeight     int                       // Terminal height when TUI started (for auto-created sessions)
 
 	// Panes using the new Pane interface
 	repoPane        components.Pane // Agents pane (list of sessions)
@@ -76,6 +78,9 @@ type Model struct {
 	// Session switch debouncing
 	pendingSessionSwitch *session.Session // Session waiting to be switched to
 	switchDebounceTimer  *time.Timer      // Timer for debouncing session switches
+
+	// Keyboard handling helpers
+	pendingAltRune string // Non-alt rune to suppress after handling an alt shortcut
 }
 
 // New creates a new TUI model with default state
@@ -143,6 +148,7 @@ func (m *Model) ShowAgentSelector() bool {
 
 // switchToPane switches focus to a target pane and updates UI state
 func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
+	debug.DebugLog("[switchToPane] called with targetPane=%s, current mode=%v", targetPane.String(), m.state.Mode)
 	// Update all panes' active state
 	if m.repoPane != nil {
 		m.repoPane.SetActive(targetPane.IsSessionsFocus())
@@ -161,6 +167,18 @@ func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
 	// Update shortcut overlay
 	m.shortcutOverlay.SetFocus(m.state.Focus.String())
 
+	// Handle chat input focus in new session mode
+	var chatInputCmd tea.Cmd
+	if m.state.Mode == ModeNewSession && m.chatInput != nil {
+		if targetPane.IsSessionsFocus() {
+			// Blur chat input when sessions pane is focused
+			m.chatInput.Blur()
+		} else {
+			// Focus chat input when switching away from sessions pane
+			chatInputCmd = m.chatInput.Focus()
+		}
+	}
+
 	// Special handling for sessions pane
 	if targetPane.IsSessionsFocus() && m.repoPane != nil {
 		// Refresh repo pane when focusing
@@ -171,11 +189,97 @@ func (m *Model) switchToPane(targetPane layout.FocusState) (*Model, tea.Cmd) {
 			}
 		}
 
+		// The repoPane has a search input that needs cursor blinking
+		// When we switch to it, we need to trigger the initial blink
+		// We'll pass the Update through to execute the pending focus command
+		var repoPaneCmd tea.Cmd
+		if repoPane, ok := m.repoPane.(*panes.AgentsPane); ok {
+			// Call Update with a dummy message to trigger pendingFocusCmd execution
+			m.repoPane, repoPaneCmd = repoPane.Update(tea.WindowSizeMsg{})
+		}
+
 		// Update ChangesPane with selected worktree/repo and get refresh command
-		return m, m.updateChangesPane()
+		return m, tea.Batch(chatInputCmd, m.updateChangesPane(), repoPaneCmd)
 	}
 
-	return m, nil
+	return m, chatInputCmd
+}
+
+// enterNewSessionMode switches UI into new session mode and focuses chat input.
+func (m *Model) enterNewSessionMode(resetInput bool) tea.Cmd {
+	m.SetMode(ModeNewSession)
+
+	if m.sessionManager != nil {
+		m.sessionManager.ClearActiveSession()
+	}
+
+	// Update pane focus and shortcut overlay
+	m.state.Focus = layout.NewChatInputFocus()
+	m.shortcutOverlay.SetFocus(m.state.Focus.String())
+
+	// New session view shouldn't highlight any of the panes on the main UI
+	if m.repoPane != nil {
+		m.repoPane.SetActive(false)
+	}
+	if m.sessionViewPane != nil {
+		m.sessionViewPane.SetActive(false)
+	}
+	if m.changesPane != nil {
+		m.changesPane.SetActive(false)
+	}
+
+	if m.chatInput == nil {
+		return nil
+	}
+
+	if resetInput {
+		m.chatInput.Reset()
+	}
+	return m.chatInput.Focus()
+}
+
+// startSuppressingAltRune remembers the rune produced by an alt shortcut so we
+// can suppress the duplicate non-alt key the terminal might emit afterwards.
+func (m *Model) startSuppressingAltRune(msg tea.KeyMsg) {
+	key := extractAltRune(msg.String())
+	if key == "" || utf8.RuneCountInString(key) != 1 {
+		return
+	}
+	m.pendingAltRune = key
+}
+
+// consumePendingAltRune returns true if the current key should be ignored
+// because it's the duplicate rune emitted after an alt shortcut.
+func (m *Model) consumePendingAltRune(msg tea.KeyMsg) bool {
+	if m.pendingAltRune == "" {
+		return false
+	}
+	// Any new alt combo cancels the pending rune suppression.
+	if msg.Alt {
+		m.pendingAltRune = ""
+		return false
+	}
+
+	if msg.Type == tea.KeyRunes &&
+		utf8.RuneCountInString(msg.String()) == 1 &&
+		msg.String() == m.pendingAltRune {
+		debug.DebugLog("[Model] Consuming stray key %q following alt shortcut", msg.String())
+		m.pendingAltRune = ""
+		return true
+	}
+
+	// Not the expected key - clear so we don't suppress unrelated keys later.
+	m.pendingAltRune = ""
+	return false
+}
+
+func extractAltRune(keyStr string) string {
+	for _, prefix := range []string{"alt+", "opt+"} {
+		if strings.HasPrefix(keyStr, prefix) {
+			return keyStr[len(prefix):]
+		}
+	}
+	return ""
 }
 
 // getCurrentTmuxSession returns the active tmux session from the session manager

@@ -174,12 +174,13 @@ func (m *Model) updateAgentSelectorOverlay(msg tea.Msg) (*Model, tea.Cmd) {
 			m.agentSelector = nil
 			return m, nil
 		}
+	}
 
-		if m.agentSelector != nil {
-			var cmd tea.Cmd
-			m.agentSelector, cmd = m.agentSelector.Update(msg)
-			return m, cmd
-		}
+	// Pass all messages to agent selector (including cursor blink messages)
+	if m.agentSelector != nil {
+		var cmd tea.Cmd
+		m.agentSelector, cmd = m.agentSelector.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
