@@ -198,14 +198,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Check for active overlay first (overlays are orthogonal to mode)
+	if m.state.ActiveOverlay != NoOverlay {
+		return m.updateOverlay(msg)
+	}
+
 	// Route to mode-specific handlers
 	switch m.state.Mode {
 	case ModeSession:
 		return m.updateSession(msg)
 	case ModeNewSession:
 		return m.updateNewSession(msg)
-	case ModeOverlay:
-		return m.updateOverlay(msg)
 	default:
 		// Unknown mode - fall back to session mode
 		m.SetMode(ModeSession)

@@ -93,12 +93,6 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 	shortcutOverlay.SetFocus(initialFocus.String())
 	shortcutOverlay.SetMode("preview")
 
-	// Initialize worktree components
-	var worktreeList *overlays.WorktreeList
-	if worktreeManager != nil {
-		worktreeList = overlays.NewWorktreeList(worktreeManager)
-	}
-
 	// Initialize debug overlay
 	debugOverlay := overlays.NewDebugOverlay(debugLogger)
 
@@ -150,7 +144,6 @@ func NewModelWithConfig(cfg InitConfig) *Model {
 		toast:                 components.NewToast(),
 		helpDialog:            overlays.NewHelpDialog(common.GlobalKeys),
 		debugOverlay:          debugOverlay,
-		worktreeList:          worktreeList,
 		sessionConfirm:        nil,
 		mergeOverlay:          nil,
 		agentSelector:         nil,

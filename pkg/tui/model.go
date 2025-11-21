@@ -47,7 +47,6 @@ type Model struct {
 	// Overlays
 	helpDialog    *overlays.HelpDialog                 // Help dialog overlay
 	debugOverlay  *overlays.DebugOverlay               // Debug overlay for development
-	worktreeList  *overlays.WorktreeList               // Worktree list component
 	sessionConfirm *overlays.SessionDeleteConfirmDialog // Session deletion confirmation
 	mergeOverlay  *overlays.MergeOverlay               // Merge overlay for merging changes
 	agentSelector *components.AgentSelector            // Agent selector modal
@@ -92,19 +91,13 @@ func (m *Model) SetMode(mode UIMode) {
 	m.state.Mode = mode
 }
 
-// SetOverlay sets the active overlay (and switches to overlay mode)
+// SetOverlay sets the active overlay (mode stays unchanged)
 func (m *Model) SetOverlay(overlay OverlayType) {
-	if overlay != NoOverlay {
-		m.state.Mode = ModeOverlay
-	} else {
-		m.state.Mode = ModeSession
-	}
 	m.state.ActiveOverlay = overlay
 }
 
-// ClearOverlay clears the active overlay and returns to session mode
+// ClearOverlay clears the active overlay (mode stays unchanged)
 func (m *Model) ClearOverlay() {
-	m.state.Mode = ModeSession
 	m.state.ActiveOverlay = NoOverlay
 }
 

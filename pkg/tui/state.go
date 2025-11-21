@@ -8,7 +8,6 @@ type UIMode int
 const (
 	ModeSession    UIMode = iota // Normal session view
 	ModeNewSession               // Creating new session
-	ModeOverlay                  // Overlay is active
 )
 
 // String returns a string representation of the UIMode
@@ -18,8 +17,6 @@ func (m UIMode) String() string {
 		return "Session"
 	case ModeNewSession:
 		return "NewSession"
-	case ModeOverlay:
-		return "Overlay"
 	default:
 		return "Unknown"
 	}
@@ -76,10 +73,10 @@ func (s *UIState) InNewSession() bool {
 
 // InOverlay returns true if an overlay is active
 func (s *UIState) InOverlay() bool {
-	return s.Mode == ModeOverlay && s.ActiveOverlay != NoOverlay
+	return s.ActiveOverlay != NoOverlay
 }
 
 // HasOverlay returns true if a specific overlay is active
 func (s *UIState) HasOverlay(overlay OverlayType) bool {
-	return s.Mode == ModeOverlay && s.ActiveOverlay == overlay
+	return s.ActiveOverlay == overlay
 }
